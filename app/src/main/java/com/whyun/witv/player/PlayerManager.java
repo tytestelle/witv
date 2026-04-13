@@ -15,6 +15,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
@@ -55,6 +56,8 @@ public class PlayerManager {
 
     private static final int HTTP_CONNECT_TIMEOUT_MS = 12_000;
     private static final int HTTP_READ_TIMEOUT_MS = 45_000;
+    private static final int PREFETCH_HTTP_CONNECT_TIMEOUT_MS = 4_000;
+    private static final int PREFETCH_HTTP_READ_TIMEOUT_MS = 8_000;
 
     /** 固定 UA，避免部分 IPTV 源对默认 ExoPlayer/Media3 特征敏感。 */
     private static final String HTTP_USER_AGENT = "stagefright/1.2 (Linux;Android 7.1.2)";
@@ -180,6 +183,7 @@ public class PlayerManager {
     @OptIn(markerClass = UnstableApi.class)
     public void initialize(PlayerView playerView) {
         this.playerView = playerView;
+        PreferenceManager preferenceManager = new PreferenceManager(context);
 
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
@@ -196,11 +200,28 @@ public class PlayerManager {
                 .setUserAgent(HTTP_USER_AGENT);
         DefaultDataSource.Factory networkDataSourceFactory =
                 new DefaultDataSource.Factory(context, httpDataSourceFactory);
-        hlsSegmentPrefetcher = new HlsSegmentPrefetcher(context, networkDataSourceFactory);
+        DefaultHttpDataSource.Factory prefetchHttpDataSourceFactory = new DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(PREFETCH_HTTP_CONNECT_TIMEOUT_MS)
+                .setReadTimeoutMs(PREFETCH_HTTP_READ_TIMEOUT_MS)
+                .setUserAgent(HTTP_USER_AGENT);
+        DefaultDataSource.Factory prefetchNetworkDataSourceFactory =
+                new DefaultDataSource.Factory(context, prefetchHttpDataSourceFactory);
+        boolean useDiskCacheForLiveTs = preferenceManager.isUseDiskCacheForLiveTsEnabled();
+        hlsSegmentPrefetcher = useDiskCacheForLiveTs
+                ? new HlsSegmentPrefetcher(context, prefetchNetworkDataSourceFactory)
+                : null;
+        if (useDiskCacheForLiveTs) {
+            Log.i(TAG, "Live ts disk cache is enabled");
+        } else {
+            Log.i(TAG, "Live ts disk cache is disabled; keep m3u8 rewrite only");
+        }
+        DataSource.Factory mediaDataSourceFactory = hlsSegmentPrefetcher != null
+                ? hlsSegmentPrefetcher.getPlaybackDataSourceFactory()
+                : networkDataSourceFactory;
         DefaultDataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context,
                 new M3u8RewritingDataSource.Factory(
                         networkDataSourceFactory,
-                        hlsSegmentPrefetcher.getPlaybackDataSourceFactory(),
+                        mediaDataSourceFactory,
                         hlsSegmentPrefetcher));
         DefaultMediaSourceFactory mediaSourceFactory =
                 new DefaultMediaSourceFactory(dataSourceFactory);
@@ -240,6 +261,9 @@ public class PlayerManager {
     private void playCurrentSource() {
         if (currentSourceIndex >= currentSources.size()) {
             isRetrying = false;
+            if (hlsSegmentPrefetcher != null) {
+                hlsSegmentPrefetcher.onPlaybackSourceChanged(Uri.EMPTY);
+            }
             stopPlayer();
             Log.e(TAG, "All sources failed");
             if (callback != null) callback.onAllSourcesFailed();
@@ -253,6 +277,10 @@ public class PlayerManager {
         String url = currentSources.get(currentSourceIndex).url;
         Log.i(TAG, String.format(Locale.US, "Trying source %d/%d: %s",
                 currentSourceIndex + 1, currentSources.size(), url));
+        Uri uri = Uri.parse(url);
+        if (hlsSegmentPrefetcher != null) {
+            hlsSegmentPrefetcher.onPlaybackSourceChanged(uri);
+        }
 
         player.stop();
         player.clearMediaItems();
