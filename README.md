@@ -2,6 +2,8 @@
 
 Android TV M3U 直播播放器，使用原生 ExoPlayer 播放，支持多源自动切换、EPG 节目预告、局域网 Web 管理。
 
+![](docs/images/epg.png)
+
 ## 功能
 
 - **M3U 播放源管理** — 支持添加多个 M3U/M3U8 播放源地址，在历史源之间快速切换
