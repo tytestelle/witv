@@ -152,9 +152,7 @@ public class SettingsCollapsibleFragment extends Fragment
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (pendingSubmenuOpen != null) {
-            focusHandler.removeCallbacks(pendingSubmenuOpen);
-        }
+        cancelPendingSubmenuOpen();
         executor.shutdown();
     }
 
@@ -289,10 +287,7 @@ public class SettingsCollapsibleFragment extends Fragment
 
     /** 关闭整条设置抽屉时收起左侧子菜单，避免下次打开仍停在子层 */
     public void onSettingsDrawerDismiss() {
-        if (pendingSubmenuOpen != null) {
-            focusHandler.removeCallbacks(pendingSubmenuOpen);
-            pendingSubmenuOpen = null;
-        }
+        cancelPendingSubmenuOpen();
         openCategory = 0;
         if (submenuContainer != null && mainMenuRecycler != null && menuRow != null) {
             submenuContainer.setVisibility(View.GONE);
@@ -578,10 +573,7 @@ public class SettingsCollapsibleFragment extends Fragment
     @Override
     public void onMainMenuItemClick(int categoryId) {
         // 用户明确按确认键进入子菜单，取消防抖中的待执行展开
-        if (pendingSubmenuOpen != null) {
-            focusHandler.removeCallbacks(pendingSubmenuOpen);
-            pendingSubmenuOpen = null;
-        }
+        cancelPendingSubmenuOpen();
         if (openCategory == categoryId && submenuContainer.getVisibility() == View.VISIBLE) {
             focusSubmenuFirstItem();
             return;
@@ -592,12 +584,11 @@ public class SettingsCollapsibleFragment extends Fragment
     @Override
     public void onMainMenuItemFocused(int categoryId) {
         if (openCategory == categoryId && submenuContainer.getVisibility() == View.VISIBLE) {
+            cancelPendingSubmenuOpen();
             return;
         }
         // 防抖：快速切换焦点时不立即重建子菜单，只在焦点稳定后展开
-        if (pendingSubmenuOpen != null) {
-            focusHandler.removeCallbacks(pendingSubmenuOpen);
-        }
+        cancelPendingSubmenuOpen();
         pendingSubmenuOpen = () -> {
             if (!isAdded()) {
                 return;
@@ -605,6 +596,13 @@ public class SettingsCollapsibleFragment extends Fragment
             openSubmenu(categoryId, false);
         };
         focusHandler.postDelayed(pendingSubmenuOpen, SUBMENU_OPEN_DEBOUNCE_MS);
+    }
+
+    private void cancelPendingSubmenuOpen() {
+        if (pendingSubmenuOpen != null) {
+            focusHandler.removeCallbacks(pendingSubmenuOpen);
+            pendingSubmenuOpen = null;
+        }
     }
 
     private void showHelpDialog() {
