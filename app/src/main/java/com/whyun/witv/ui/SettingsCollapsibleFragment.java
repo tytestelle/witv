@@ -34,6 +34,9 @@ import com.whyun.witv.data.repository.ChannelRepository;
 import com.whyun.witv.data.repository.EpgRepository;
 import com.whyun.witv.player.PlayerManager;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -74,6 +77,10 @@ public class SettingsCollapsibleFragment extends Fragment
     /** 0 = 子菜单未打开；否则为 {@link #CAT_ADDRESS}… */
     private int openCategory = 0;
     private int lastOpenedCategory = CAT_ADDRESS;
+
+    private final Handler focusHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingSubmenuOpen;
+    private static final long SUBMENU_OPEN_DEBOUNCE_MS = 150;
 
     @Override
     public void onAttach(@NonNull Context context) {
@@ -145,6 +152,7 @@ public class SettingsCollapsibleFragment extends Fragment
     @Override
     public void onDestroy() {
         super.onDestroy();
+        cancelPendingSubmenuOpen();
         executor.shutdown();
     }
 
@@ -186,6 +194,8 @@ public class SettingsCollapsibleFragment extends Fragment
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
             focused.dispatchKeyEvent(event);
+            KeyEvent upEvent = new KeyEvent(KeyEvent.ACTION_UP, keyCode);
+            focused.dispatchKeyEvent(upEvent);
             return;
         }
 
@@ -194,9 +204,18 @@ public class SettingsCollapsibleFragment extends Fragment
                 && openCategory != 0
                 && submenuContainer != null
                 && submenuContainer.getVisibility() == View.VISIBLE
-                && focused != null
                 && isDescendant(submenuContainer, focused)) {
             focusMainMenuAtCategory(lastOpenedCategory);
+            return;
+        }
+
+        // 右侧主菜单按左键：如果子菜单已展开，显式将焦点移入子菜单首项
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                && openCategory != 0
+                && submenuContainer != null
+                && submenuContainer.getVisibility() == View.VISIBLE
+                && isDescendant(mainMenuRecycler, focused)) {
+            focusSubmenuFirstItem();
             return;
         }
 
@@ -208,6 +227,29 @@ public class SettingsCollapsibleFragment extends Fragment
         if (next != null) {
             next.requestFocus();
         }
+    }
+
+    private void focusSubmenuFirstItem() {
+        if (submenuRecycler == null) {
+            return;
+        }
+        submenuRecycler.post(() -> {
+            if (submenuRecycler.getChildCount() > 0) {
+                View first = submenuRecycler.getChildAt(0);
+                if (first.isFocusable()) {
+                    first.requestFocus();
+                } else {
+                    // 某些子菜单行（如 hint）不可聚焦，向下找第一个可聚焦项
+                    for (int i = 1; i < submenuRecycler.getChildCount(); i++) {
+                        View child = submenuRecycler.getChildAt(i);
+                        if (child.isFocusable()) {
+                            child.requestFocus();
+                            return;
+                        }
+                    }
+                }
+            }
+        });
     }
 
     private static int keyCodeToFocusDirection(int keyCode) {
@@ -245,6 +287,7 @@ public class SettingsCollapsibleFragment extends Fragment
 
     /** 关闭整条设置抽屉时收起左侧子菜单，避免下次打开仍停在子层 */
     public void onSettingsDrawerDismiss() {
+        cancelPendingSubmenuOpen();
         openCategory = 0;
         if (submenuContainer != null && mainMenuRecycler != null && menuRow != null) {
             submenuContainer.setVisibility(View.GONE);
@@ -529,7 +572,10 @@ public class SettingsCollapsibleFragment extends Fragment
 
     @Override
     public void onMainMenuItemClick(int categoryId) {
+        // 用户明确按确认键进入子菜单，取消防抖中的待执行展开
+        cancelPendingSubmenuOpen();
         if (openCategory == categoryId && submenuContainer.getVisibility() == View.VISIBLE) {
+            focusSubmenuFirstItem();
             return;
         }
         openSubmenu(categoryId, true);
@@ -538,10 +584,25 @@ public class SettingsCollapsibleFragment extends Fragment
     @Override
     public void onMainMenuItemFocused(int categoryId) {
         if (openCategory == categoryId && submenuContainer.getVisibility() == View.VISIBLE) {
-            rebuildSubmenuIfOpen();
+            cancelPendingSubmenuOpen();
             return;
         }
-        openSubmenu(categoryId, false);
+        // 防抖：快速切换焦点时不立即重建子菜单，只在焦点稳定后展开
+        cancelPendingSubmenuOpen();
+        pendingSubmenuOpen = () -> {
+            if (!isAdded()) {
+                return;
+            }
+            openSubmenu(categoryId, false);
+        };
+        focusHandler.postDelayed(pendingSubmenuOpen, SUBMENU_OPEN_DEBOUNCE_MS);
+    }
+
+    private void cancelPendingSubmenuOpen() {
+        if (pendingSubmenuOpen != null) {
+            focusHandler.removeCallbacks(pendingSubmenuOpen);
+            pendingSubmenuOpen = null;
+        }
     }
 
     private void showHelpDialog() {

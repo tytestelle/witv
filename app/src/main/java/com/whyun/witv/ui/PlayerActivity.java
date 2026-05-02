@@ -117,6 +117,9 @@ public class PlayerActivity extends FragmentActivity implements PlayerManager.Ca
         if (channelListPanel != null) {
             channelListPanel.setVisibility(View.GONE);
         }
+        if (playerView != null) {
+            playerView.requestFocus();
+        }
     };
 
     private final Runnable loadSpeedRefreshRunnable = new Runnable() {
@@ -683,6 +686,9 @@ public class PlayerActivity extends FragmentActivity implements PlayerManager.Ca
             channelListPanel.setVisibility(View.GONE);
         }
         overlayVisible = false;
+        if (playerView != null) {
+            playerView.requestFocus();
+        }
     }
 
     private boolean isChannelListPanelVisible() {
@@ -1203,6 +1209,14 @@ public class PlayerActivity extends FragmentActivity implements PlayerManager.Ca
                 }
                 break;
             case KeyEvent.KEYCODE_BACK:
+                if (isChannelListPanelVisible()) {
+                    cancelChannelListIdleHide();
+                    channelListPanel.setVisibility(View.GONE);
+                    if (playerView != null) {
+                        playerView.requestFocus();
+                    }
+                    return true;
+                }
                 showExitDialog();
                 return true;
             case KeyEvent.KEYCODE_INFO:
@@ -1242,6 +1256,21 @@ public class PlayerActivity extends FragmentActivity implements PlayerManager.Ca
     }
 
     @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (isSettingsPanelVisible()) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                    || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                    || keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                    || keyCode == KeyEvent.KEYCODE_ENTER) {
+                return true;
+            }
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    @Override
     public void onBackPressed() {
         if (isSettingsPanelVisible()) {
             SettingsCollapsibleFragment f = (SettingsCollapsibleFragment) getSupportFragmentManager()
@@ -1250,6 +1279,14 @@ public class PlayerActivity extends FragmentActivity implements PlayerManager.Ca
                 return;
             }
             hideSettingsPanel();
+            return;
+        }
+        if (isChannelListPanelVisible()) {
+            cancelChannelListIdleHide();
+            channelListPanel.setVisibility(View.GONE);
+            if (playerView != null) {
+                playerView.requestFocus();
+            }
             return;
         }
         showExitDialog();
