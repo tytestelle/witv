@@ -206,7 +206,6 @@ public class SettingsCollapsibleFragment extends Fragment
                 && openCategory != 0
                 && submenuContainer != null
                 && submenuContainer.getVisibility() == View.VISIBLE
-                && focused != null
                 && isDescendant(submenuContainer, focused)) {
             focusMainMenuAtCategory(lastOpenedCategory);
             return;
@@ -217,7 +216,6 @@ public class SettingsCollapsibleFragment extends Fragment
                 && openCategory != 0
                 && submenuContainer != null
                 && submenuContainer.getVisibility() == View.VISIBLE
-                && focused != null
                 && isDescendant(mainMenuRecycler, focused)) {
             focusSubmenuFirstItem();
             return;
@@ -230,23 +228,6 @@ public class SettingsCollapsibleFragment extends Fragment
         View next = FocusFinder.getInstance().findNextFocus((ViewGroup) panel, focused, direction);
         if (next != null) {
             next.requestFocus();
-        } else {
-            handleFocusBoundary(keyCode, focused);
-        }
-    }
-
-    /**
-     * FocusFinder 返回 null 时的边界回退：在列表首尾项循环焦点，
-     * 或在主菜单/子菜单之间显式切换。
-     */
-    private void handleFocusBoundary(int keyCode, View focused) {
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && isDescendant(mainMenuRecycler, focused)) {
-            if (openCategory != 0 && submenuContainer != null
-                    && submenuContainer.getVisibility() == View.VISIBLE) {
-                focusSubmenuFirstItem();
-            }
-        } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && isDescendant(submenuContainer, focused)) {
-            focusMainMenuAtCategory(lastOpenedCategory);
         }
     }
 
