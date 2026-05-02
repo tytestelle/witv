@@ -215,7 +215,12 @@ public class PlayerActivity extends FragmentActivity implements PlayerManager.Ca
         playerView = findViewById(R.id.player_view);
         playerView.setUseController(false);
         playerView.setOnTouchListener((v, event) -> {
-            if (event.getAction() != MotionEvent.ACTION_UP) {
+            int action = event.getActionMasked();
+            // PlayerView does not claim touches when its controller is disabled, so claim the sequence here.
+            if (action == MotionEvent.ACTION_DOWN) {
+                return true;
+            }
+            if (action != MotionEvent.ACTION_UP) {
                 return false;
             }
             if (emptyState != null && emptyState.getVisibility() == View.VISIBLE) {
