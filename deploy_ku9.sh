@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（完整修正版）"
+echo "🔥 部署酷9播放器（完整版 - 分组解析 + 台标 + 交互）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -14,7 +14,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== 1. SourceManager.java ====================
+    # ==================== 1. SourceManager.java（完整解析分组+台标） ====================
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -27,6 +27,9 @@ import java.util.Map;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 public class SourceManager {
     private Context context;
     private Map<String, List<Channel>> groupMap = new HashMap<>();
@@ -34,6 +37,7 @@ public class SourceManager {
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     public interface OnSourceLoadListener { void onLoaded(Map<String, List<Channel>> groupMap, List<String> groupNames); void onError(String error); }
     public SourceManager(Context context) { this.context = context; }
+
     public void loadFromUrl(String url, OnSourceLoadListener listener) {
         new Thread(() -> {
             try {
@@ -61,42 +65,70 @@ public class SourceManager {
             }
         }).start();
     }
+
     private void parseTXT(String content) {
         groupMap.clear(); groupNames.clear();
+        String currentGroup = "默认分组";
         for (String line : content.split("\n")) {
             line = line.trim();
-            if (line.isEmpty() || line.startsWith("#")) continue;
+            if (line.isEmpty()) continue;
+            // 检测分组标记：以 #genre# 结尾
+            if (line.endsWith("#genre#")) {
+                String groupName = line.substring(0, line.length() - "#genre#".length()).trim();
+                if (!groupName.isEmpty()) {
+                    currentGroup = groupName;
+                    if (!groupMap.containsKey(currentGroup)) {
+                        groupMap.put(currentGroup, new ArrayList<>());
+                        groupNames.add(currentGroup);
+                    }
+                }
+                continue;
+            }
+            if (line.startsWith("#")) continue;
             String[] parts = line.split(",");
             if (parts.length >= 2) {
                 String name = parts[0].trim();
                 String url = parts[1].trim();
-                String group = (parts.length >= 3 && !parts[2].trim().isEmpty()) ? parts[2].trim() : "默认分组";
-                Channel ch = new Channel(name, url, group);
-                if (!groupMap.containsKey(group)) {
-                    groupMap.put(group, new ArrayList<>());
-                    groupNames.add(group);
+                if (name.isEmpty() || url.isEmpty()) continue;
+                Channel ch = new Channel(name, url, currentGroup);
+                if (!groupMap.containsKey(currentGroup)) {
+                    groupMap.put(currentGroup, new ArrayList<>());
+                    groupNames.add(currentGroup);
                 }
-                groupMap.get(group).add(ch);
+                groupMap.get(currentGroup).add(ch);
             }
         }
     }
+
     private void parseM3U(String content) {
         groupMap.clear(); groupNames.clear();
         String[] lines = content.split("\n");
+        String currentGroup = "默认分组";
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
+            if (line.startsWith("#EXTM3U")) continue;
             if (line.startsWith("#EXTINF:")) {
-                String name = line.substring(line.indexOf(",") + 1);
+                // 提取 group-title 和 tvg-logo
+                String group = "默认分组";
+                String logo = null;
+                int gidx = line.indexOf("group-title=\"");
+                if (gidx != -1) {
+                    int end = line.indexOf("\"", gidx + 13);
+                    if (end != -1) group = line.substring(gidx + 13, end);
+                }
+                int lidx = line.indexOf("tvg-logo=\"");
+                if (lidx != -1) {
+                    int end = line.indexOf("\"", lidx + 10);
+                    if (end != -1) logo = line.substring(lidx + 10, end);
+                }
+                // 提取频道名（最后一个逗号后面）
+                int lastComma = line.lastIndexOf(",");
+                String name = (lastComma != -1) ? line.substring(lastComma + 1).trim() : "未知频道";
                 if (i + 1 < lines.length) {
                     String url = lines[i + 1].trim();
                     if (!url.isEmpty() && !url.startsWith("#")) {
-                        String group = "默认分组";
-                        int gidx = line.indexOf("group-title=\"");
-                        if (gidx != -1) {
-                            int end = line.indexOf("\"", gidx + 13);
-                            if (end != -1) group = line.substring(gidx + 13, end);
-                        }
                         Channel ch = new Channel(name, url, group);
+                        ch.logoUrl = logo;
                         if (!groupMap.containsKey(group)) {
                             groupMap.put(group, new ArrayList<>());
                             groupNames.add(group);
@@ -107,14 +139,16 @@ public class SourceManager {
             }
         }
     }
+
     public static class Channel {
         public String name, url, group;
+        public String logoUrl; // 台标URL
         public Channel(String n, String u, String g) { name=n; url=u; group=g; }
     }
 }
 EOF
 
-    # ==================== 2. EPGParser.java ====================
+    # ==================== 2. EPGParser.java（保持不变） ====================
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -298,18 +332,23 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== 6. MainActivity.java（核心修正） ====================
+    # ==================== 6. MainActivity.java（支持台标显示与下载） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
@@ -325,6 +364,10 @@ import com.whyun.witv.source.SourceManager;
 import com.whyun.witv.epg.EPGParser;
 import com.whyun.witv.player.PlayerConfigManager;
 import com.whyun.witv.favorite.FavoriteManager;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -334,6 +377,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 public class MainActivity extends AppCompatActivity {
     private PlayerView playerView;
     private ExoPlayer player;
@@ -354,7 +400,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_FAVORITES = "favorites";
     private static final String KEY_SELECTED_GROUP = "selected_group";
     private static final String KEY_SELECTED_CHANNEL = "selected_channel";
-    private boolean isDataLoaded = false;
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
+    private File logoDir;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -366,6 +413,8 @@ public class MainActivity extends AppCompatActivity {
             FavoriteManager.init(this);
             prefs = PreferenceManager.getDefaultSharedPreferences(this);
             favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
+            logoDir = new File(getFilesDir(), "logo");
+            if (!logoDir.exists()) logoDir.mkdirs();
             playerView = findViewById(R.id.player_container);
             if (playerView == null) { Toast.makeText(this, "player_view not found", Toast.LENGTH_LONG).show(); return; }
             overlayLayout = findViewById(R.id.overlay_layout);
@@ -391,10 +440,10 @@ public class MainActivity extends AppCompatActivity {
             channelRecycler.setAdapter(channelAdapter);
             epgAdapter = new EpgAdapter(new ArrayList<>());
             epgRecycler.setAdapter(epgAdapter);
+            // 点击播放器区域切换 overlay
             playerView.setOnClickListener(v -> toggleOverlay());
             ImageButton btnSettings = findViewById(R.id.btn_settings);
             btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-            // 加载数据
             loadSource();
         } catch (Exception e) {
             Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -405,7 +454,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 每次返回时都重新加载（若已有数据则刷新）
         loadSource();
     }
 
@@ -421,7 +469,6 @@ public class MainActivity extends AppCompatActivity {
             }
             if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
             final String finalUrl = url;
-            // 显示加载状态
             Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
             new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
                 @Override public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
@@ -453,8 +500,7 @@ public class MainActivity extends AppCompatActivity {
                                 }
                             }
                         }
-                        isDataLoaded = true;
-                        // 加载完成后自动显示频道列表
+                        // 显示频道列表（唤起）
                         showOverlay();
                     } catch (Exception e) {
                         Toast.makeText(MainActivity.this, "加载数据异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -487,12 +533,55 @@ public class MainActivity extends AppCompatActivity {
                 currentChannelList = list;
             }
             channelAdapter.updateData(currentChannelList);
+            // 异步下载台标
+            for (SourceManager.Channel ch : currentChannelList) {
+                if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
+                    downloadLogo(ch.logoUrl, ch.name);
+                }
+            }
             if (currentChannel != null && !currentChannelList.contains(currentChannel)) {
                 epgAdapter.setItems(new ArrayList<>());
             }
         } catch (Exception e) {
             Toast.makeText(this, "显示分组异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void downloadLogo(String logoUrl, String channelName) {
+        new Thread(() -> {
+            try {
+                String fileName = channelName.hashCode() + ".png";
+                File logoFile = new File(logoDir, fileName);
+                if (logoFile.exists()) return;
+                OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .build();
+                Request request = new Request.Builder().url(logoUrl).build();
+                Response response = client.newCall(request).execute();
+                if (response.code() != 200) return;
+                InputStream is = response.body().byteStream();
+                FileOutputStream fos = new FileOutputStream(logoFile);
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = is.read(buf)) != -1) {
+                    fos.write(buf, 0, len);
+                }
+                fos.close();
+                is.close();
+                // 通知UI更新该频道的图标
+                runOnUiThread(() -> channelAdapter.notifyDataSetChanged());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private File getLogoFile(String channelName) {
+        String fileName = channelName.hashCode() + ".png";
+        File f = new File(logoDir, fileName);
+        if (f.exists()) return f;
+        return null;
     }
 
     private void playChannel(SourceManager.Channel channel) {
@@ -619,6 +708,7 @@ public class MainActivity extends AppCompatActivity {
         private OnChannelClickListener listener;
         private OnFavoriteClickListener favListener;
         private Set<String> favoriteSet;
+        private MainActivity activity;
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
         ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, OnChannelClickListener listener, OnFavoriteClickListener favListener) {
@@ -628,7 +718,8 @@ public class MainActivity extends AppCompatActivity {
         void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
         void setSelectedChannel(SourceManager.Channel ch) { this.selectedChannel = ch; notifyDataSetChanged(); }
         @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false);
+            return new ViewHolder(v);
         }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SourceManager.Channel ch = data.get(position);
@@ -638,11 +729,25 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
+            // 加载台标
+            File logoFile = null;
+            if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
+                String fileName = ch.name.hashCode() + ".png";
+                File logoDir = new File(parent.getContext().getFilesDir(), "logo");
+                logoFile = new File(logoDir, fileName);
+            }
+            if (logoFile != null && logoFile.exists()) {
+                holder.logo.setImageBitmap(BitmapFactory.decodeFile(logoFile.getAbsolutePath()));
+                holder.logo.setVisibility(View.VISIBLE);
+            } else {
+                holder.logo.setVisibility(View.GONE);
+            }
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
             TextView name, favIcon;
-            ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); }
+            ImageView logo;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); logo = v.findViewById(R.id.channel_logo); }
         }
     }
 
@@ -787,7 +892,6 @@ public class SettingsActivity extends AppCompatActivity {
                         prefs.edit().putString("selected_sub_url", url).apply();
                         prefs.edit().putString("selected_sub_name", name).apply();
                         Toast.makeText(SettingsActivity.this, "已选中: " + name, Toast.LENGTH_SHORT).show();
-                        // 刷新当前页面并关闭
                         showContent(3);
                         finish();
                     }));
@@ -928,7 +1032,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 8. 布局文件（深色透明背景） ====================
+    # ==================== 8. 布局文件（包含台标 ImageView） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1013,6 +1117,13 @@ EOF
     android:paddingLeft="12dp"
     android:paddingRight="12dp"
     android:background="?attr/selectableItemBackground">
+    <ImageView
+        android:id="@+id/channel_logo"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:scaleType="fitCenter"
+        android:visibility="gone"
+        android:layout_marginEnd="8dp" />
     <TextView
         android:id="@+id/channel_name"
         android:layout_width="0dp"
@@ -1196,6 +1307,6 @@ echo "   1. 打开应用，点击右上角齿轮进入设置"
 echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
 echo "   3. 添加后自动选中，返回主界面即可加载频道"
 echo "   4. 点击屏幕左侧（左半部分）呼出/隐藏频道列表"
-echo "   5. 左侧分组列表，中间频道列表，右侧 EPG 节目单"
+echo "   5. 左侧分组列表，中间频道列表（含台标），右侧 EPG 节目单"
 echo "   6. 长按频道可收藏/取消收藏"
-echo "   7. 菜单背景已改为黑色透明"
+echo "   7. TXT 支持 #genre# 分组，M3U 支持 group-title 和 tvg-logo"
