@@ -91,7 +91,7 @@ mkdir -p "app/src/main/java/$PKG_PATH/favorite"
 mkdir -p "app/src/main/java/$PKG_PATH/epg"
 mkdir -p "app/src/main/java/$PKG_PATH/ui"
 
-# SourceManager（支持TXT/M3U）
+# SourceManager（支持TXT/M3U，使用主线程回调）
 cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 
@@ -238,7 +238,6 @@ public class FavoriteManager {
     public static void toggleFavorite(String channelId) {
         boolean cur = isFavorite(channelId);
         prefs.edit().putBoolean("fav_" + channelId, !cur).apply();
-        // 更新收藏列表
         Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
         if (!cur) { favSet.add(channelId); } else { favSet.remove(channelId); }
         prefs.edit().putStringSet("fav_list", favSet).apply();
@@ -272,7 +271,7 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# ========== 5. 生成 MainActivity（酷9完整交互） ==========
+# ========== 5. 生成 MainActivity（酷9完整交互，已修复 ViewGroup 导入） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -282,6 +281,7 @@ import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -847,7 +847,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-echo "✅ 生成 MainActivity（酷9完整交互）"
+echo "✅ 生成 MainActivity（已修复 ViewGroup 导入）"
 
 # ========== 6. 生成布局文件 ==========
 cat > "$LAYOUT_FILE" <<'EOF'
