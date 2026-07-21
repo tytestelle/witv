@@ -437,18 +437,21 @@ EOF
 
 echo "✅ 生成 MainActivity"
 
-# ========== 6. 生成酷9风格主布局 ==========
+# ========== 6. 生成酷9风格主布局（关键修正：使用 PlayerView 替代 FrameLayout） ==========
 cat > "$LAYOUT_FILE" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <FrameLayout
+    <androidx.media3.ui.PlayerView
         android:id="@+id/player_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        app:use_controller="false"
+        app:shutter_background_color="#000000" />
 
     <LinearLayout
         android:id="@+id/bottom_controls"
@@ -504,7 +507,7 @@ cat > "$LAYOUT_FILE" <<'EOF'
 </RelativeLayout>
 EOF
 
-echo "✅ 生成布局文件"
+echo "✅ 生成布局文件（已修正为 PlayerView）"
 
 # ========== 7. 添加图标资源 ==========
 mkdir -p app/src/main/res/drawable
