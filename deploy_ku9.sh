@@ -217,7 +217,7 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# ========== 5. 生成酷9风格 MainActivity（带崩溃日志写入功能） ==========
+# ========== 5. 生成酷9风格 MainActivity（修正 Toast 线程问题） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -276,7 +276,6 @@ public class MainActivity extends AppCompatActivity {
                 String stack = sw.toString();
                 String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
                 String log = "=== Crash at " + time + " ===\n" + stack + "\n\n";
-                // 写入 /sdcard/Download/crash.log
                 File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
                 if (dir != null && (dir.exists() || dir.mkdirs())) {
                     File file = new File(dir, "crash.log");
@@ -284,7 +283,6 @@ public class MainActivity extends AppCompatActivity {
                         fos.write(log.getBytes());
                     }
                 }
-                // 如果无法写入，尝试应用私有目录
                 try {
                     File privateDir = new File("/data/data/com.whyun.witv/files/");
                     if (privateDir.exists() || privateDir.mkdirs()) {
@@ -295,7 +293,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } catch (Exception ignored) {}
             } catch (Exception ignored) {}
-            // 退出进程
             android.os.Process.killProcess(android.os.Process.myPid());
             System.exit(1);
         });
@@ -306,7 +303,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // 动态请求存储权限（Android 6.0+）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -340,7 +336,9 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override
             public void onPlayerError(PlaybackException error) {
-                Toast.makeText(MainActivity.this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                });
                 writeLog("播放错误: " + error.getMessage());
             }
         });
@@ -353,7 +351,7 @@ public class MainActivity extends AppCompatActivity {
             playerView.setPlayer(player);
         } catch (Exception e) {
             writeLog("initPlayer 异常: " + Log.getStackTraceString(e));
-            Toast.makeText(this, "播放器初始化失败", Toast.LENGTH_SHORT).show();
+            runOnUiThread(() -> Toast.makeText(this, "播放器初始化失败", Toast.LENGTH_SHORT).show());
         }
     }
 
@@ -371,12 +369,14 @@ public class MainActivity extends AppCompatActivity {
                     }
                     if (target == null) target = channels.get(0);
                     playChannel(target);
+                } else {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "频道列表为空", Toast.LENGTH_SHORT).show());
                 }
             }
             @Override
             public void onError(String error) {
-                Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_SHORT).show();
                 writeLog("加载源失败: " + error);
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_SHORT).show());
             }
         });
     }
@@ -391,7 +391,7 @@ public class MainActivity extends AppCompatActivity {
             updateUI();
         } catch (Exception e) {
             writeLog("播放频道异常: " + Log.getStackTraceString(e));
-            Toast.makeText(this, "播放失败", Toast.LENGTH_SHORT).show();
+            runOnUiThread(() -> Toast.makeText(this, "播放失败", Toast.LENGTH_SHORT).show());
         }
     }
 
@@ -418,8 +418,8 @@ public class MainActivity extends AppCompatActivity {
         builder.setTitle("设置");
         builder.setItems(items, (dialog, which) -> {
             switch (which) {
-                case 0: PlayerConfigManager.setDecoder(PlayerConfigManager.DECODER_HARDWARE); Toast.makeText(this,"已切换硬解",Toast.LENGTH_SHORT).show(); restartPlayer(); break;
-                case 1: PlayerConfigManager.setDecoder(PlayerConfigManager.DECODER_SOFTWARE); Toast.makeText(this,"已切换软解",Toast.LENGTH_SHORT).show(); restartPlayer(); break;
+                case 0: PlayerConfigManager.setDecoder(PlayerConfigManager.DECODER_HARDWARE); runOnUiThread(() -> Toast.makeText(this,"已切换硬解",Toast.LENGTH_SHORT).show()); restartPlayer(); break;
+                case 1: PlayerConfigManager.setDecoder(PlayerConfigManager.DECODER_SOFTWARE); runOnUiThread(() -> Toast.makeText(this,"已切换软解",Toast.LENGTH_SHORT).show()); restartPlayer(); break;
                 case 2: showAspectRatioDialog(); break;
                 case 3: showSourceSwitchDialog(); break;
                 case 4: showSearchDialog(); break;
@@ -438,7 +438,7 @@ public class MainActivity extends AppCompatActivity {
         builder.setItems(ratios, (dialog, which) -> {
             String ratio = ratios[which];
             PlayerConfigManager.setAspectRatio(ratio);
-            Toast.makeText(this, "比例已设为: "+ratio, Toast.LENGTH_SHORT).show();
+            runOnUiThread(() -> Toast.makeText(this, "比例已设为: "+ratio, Toast.LENGTH_SHORT).show());
         });
         builder.show();
     }
@@ -454,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
                 SourceManager sourceManager = new SourceManager(this);
                 sourceManager.loadFromUrl(url, new SourceManager.OnSourceLoadListener() {
                     @Override public void onLoaded(List<SourceManager.Channel> channels) { channelList = channels; if (!channels.isEmpty()) playChannel(channels.get(0)); }
-                    @Override public void onError(String error) { Toast.makeText(MainActivity.this, "加载失败: "+error, Toast.LENGTH_SHORT).show(); writeLog("切换源失败: "+error); }
+                    @Override public void onError(String error) { writeLog("切换源失败: "+error); runOnUiThread(() -> Toast.makeText(MainActivity.this, "加载失败: "+error, Toast.LENGTH_SHORT).show()); }
                 });
             }
         });
@@ -473,7 +473,7 @@ public class MainActivity extends AppCompatActivity {
                 for (SourceManager.Channel ch : channelList) {
                     if (ch.name.contains(keyword)) { playChannel(ch); return; }
                 }
-                Toast.makeText(this, "未找到频道", Toast.LENGTH_SHORT).show();
+                runOnUiThread(() -> Toast.makeText(this, "未找到频道", Toast.LENGTH_SHORT).show());
             }
         });
         builder.setNegativeButton("取消", null);
@@ -488,13 +488,13 @@ public class MainActivity extends AppCompatActivity {
         builder.setView(input);
         builder.setPositiveButton("保存", (dialog, which) -> {
             PlayerConfigManager.setCustomHeaders(input.getText().toString());
-            Toast.makeText(this, "Headers已保存", Toast.LENGTH_SHORT).show();
+            runOnUiThread(() -> Toast.makeText(this, "Headers已保存", Toast.LENGTH_SHORT).show());
         });
         builder.setNegativeButton("取消", null);
         builder.show();
     }
 
-    private void showEpgDialog() { Toast.makeText(this, "EPG功能开发中", Toast.LENGTH_SHORT).show(); }
+    private void showEpgDialog() { runOnUiThread(() -> Toast.makeText(this, "EPG功能开发中", Toast.LENGTH_SHORT).show()); }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -508,7 +508,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() { super.onDestroy(); if (player != null) { player.release(); player = null; } }
 
-    // ====== 写入日志工具方法 ======
     private void writeLog(String msg) {
         try {
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
@@ -528,16 +527,16 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "存储权限已授予", Toast.LENGTH_SHORT).show();
+                runOnUiThread(() -> Toast.makeText(this, "存储权限已授予", Toast.LENGTH_SHORT).show());
             } else {
-                Toast.makeText(this, "存储权限被拒绝，无法写入日志", Toast.LENGTH_SHORT).show();
+                runOnUiThread(() -> Toast.makeText(this, "存储权限被拒绝，无法写入日志", Toast.LENGTH_SHORT).show());
             }
         }
     }
 }
 EOF
 
-echo "✅ 生成 MainActivity（带日志功能）"
+echo "✅ 生成 MainActivity（已修复 Toast 线程问题）"
 
 # ========== 6. 生成酷9风格主布局（PlayerView） ==========
 cat > "$LAYOUT_FILE" <<'EOF'
@@ -655,4 +654,4 @@ echo ""
 echo "🎉 部署完成！"
 echo "📌 请修改 MainActivity 中的 defaultUrl 为你的真实直播源地址。"
 echo "📌 然后运行 ./gradlew assembleDebug 编译 APK。"
-echo "📌 日志路径：/sdcard/Download/crash.log（可在文件管理器中查看）"
+echo "📌 日志路径：/sdcard/Download/crash.log"
