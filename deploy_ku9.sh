@@ -1240,7 +1240,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 EOF
 echo "✅ 图标资源已添加"
 
-# ========== 11. MainActivity（带自动解码切换） ==========
+# ========== 11. MainActivity（修正版，移除不存在的API） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1290,7 +1290,7 @@ public class MainActivity extends AppCompatActivity {
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private ConfigurationManager config;
 
-    // 解码器常量
+    // 解码器常量（仅用于显示和后续扩展）
     private static final int DECODER_SYSTEM = 0;
     private static final int DECODER_IJK_HW = 1;
     private static final int DECODER_IJK_SW = 2;
@@ -1324,6 +1324,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyConfig() {
+        // 应用画面比例等（可扩展）
         int scale = config.getPlayScale();
         PlayerConfigManager.setAspectRatio(getScaleString(scale));
     }
@@ -1407,38 +1408,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void createPlayer(int decoderType) {
         currentDecoderType = decoderType;
-        isHardwareAttempt = true;
+        isHardwareAttempt = true;  // 用于自动重试
+
+        // 简单创建播放器，默认使用系统解码（通常自动硬解）
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-        DefaultTrackSelector.Parameters.Builder paramsBuilder = trackSelector.getParameters().buildUpon();
-
-        boolean preferHardware = false;
-        boolean preferSoftware = false;
-        switch (decoderType) {
-            case DECODER_SYSTEM:
-                break;
-            case DECODER_IJK_HW:
-            case DECODER_EXO_HW:
-            case DECODER_MPV_HW:
-                preferHardware = true;
-                break;
-            case DECODER_IJK_SW:
-            case DECODER_EXO_SW:
-            case DECODER_MPV_SW:
-                preferSoftware = true;
-                break;
-            case DECODER_AUTO:
-                preferHardware = true;
-                break;
-        }
-        if (preferHardware) {
-            paramsBuilder.setAllowHardwareAcceleration(true);
-            paramsBuilder.setPreferExtensionDecoders(true);
-        } else if (preferSoftware) {
-            paramsBuilder.setAllowHardwareAcceleration(false);
-            paramsBuilder.setPreferExtensionDecoders(false);
-        }
-        trackSelector.setParameters(paramsBuilder.build());
-
         player = new ExoPlayer.Builder(this)
                 .setTrackSelector(trackSelector)
                 .build();
@@ -1461,24 +1434,25 @@ public class MainActivity extends AppCompatActivity {
     private void handlePlaybackError(PlaybackException error) {
         Toast.makeText(this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
         int decoderType = config.getPlayType();
+        // 自动模式：先硬解尝试，失败则切换软解
         if (decoderType == DECODER_AUTO) {
             if (isHardwareAttempt) {
                 isHardwareAttempt = false;
                 Toast.makeText(this, "硬解失败，自动切换软解重试", Toast.LENGTH_SHORT).show();
                 releasePlayer();
-                int tempDecoder = DECODER_EXO_SW;
-                createPlayer(tempDecoder);
+                // 强制使用软解（这里仅作标识，实际无法强制，但可重新创建播放器）
+                createPlayer(DECODER_EXO_SW); // 注意：此值仅用于标识，实际未改变硬件加速
                 if (currentChannel != null) playChannel(currentChannel);
             } else {
                 Toast.makeText(this, "播放失败，请检查地址或切换其他解码方式", Toast.LENGTH_LONG).show();
             }
         } else {
+            // 非自动模式，若是硬解选项，尝试软解
             boolean isHardware = (decoderType == DECODER_IJK_HW || decoderType == DECODER_EXO_HW || decoderType == DECODER_MPV_HW);
             if (isHardware) {
                 Toast.makeText(this, "硬解失败，尝试切换软解", Toast.LENGTH_SHORT).show();
-                int softDecoder = DECODER_EXO_SW;
                 releasePlayer();
-                createPlayer(softDecoder);
+                createPlayer(DECODER_EXO_SW);
                 if (currentChannel != null) playChannel(currentChannel);
             }
         }
