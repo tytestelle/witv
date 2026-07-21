@@ -1420,7 +1420,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ========== 11. 强制移除接口 static 修饰 ==========
+# ========== 11. 强制移除接口 static 修饰（预防旧文件残留） ==========
 sed -i '/interface OnChannelClickListener/s/static //g' "$MAIN_ACT_FILE"
 echo "✅ 已强制移除接口 static"
 
@@ -1433,9 +1433,15 @@ ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ Conf
 ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
 ls -la "app/src/main/java/$PKG_PATH/MainActivity.java" || echo "❌ MainActivity 未生成"
 
-# ========== 13. 完成 ==========
+# ========== 13. 构建 APK ==========
+echo "🚀 开始构建 APK..."
+chmod +x gradlew
+./gradlew assembleDebug
+
+# ========== 14. 完成 ==========
 echo ""
-echo "🎉 部署完成！"
+echo "🎉 部署并构建完成！"
+echo "📌 APK 位于: app/build/outputs/apk/debug/"
 echo ""
 echo "📌 酷9配置系统已集成："
 echo "   ✅ assets/configuration.json – 完整配置"
@@ -1443,5 +1449,4 @@ echo "   ✅ ConfigurationManager – 配置管理"
 echo "   ✅ SettingsActivity – 完整设置界面"
 echo "   ✅ MainActivity – 应用解码、比例等核心配置"
 echo ""
-echo "📌 请修改 assets/configuration.json 中的 LIVE_URLS 为你的真实直播源地址"
-echo "📌 然后运行 ./gradlew assembleDebug 编译 APK"
+echo "📌 如需修改直播源，请编辑 assets/configuration.json 中的 LIVE_URLS"
