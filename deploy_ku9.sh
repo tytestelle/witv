@@ -530,7 +530,7 @@ public class ConfigurationManager {
 EOF
 echo "✅ ConfigurationManager 已创建"
 
-# ========== 8. 创建酷9风格的 SettingsActivity（修正 static 接口） ==========
+# ========== 8. 创建酷9风格的 SettingsActivity（修正 lambda 变量 final 问题） ==========
 cat > "$SETTINGS_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -720,7 +720,7 @@ public class SettingsActivity extends AppCompatActivity {
         builder.show();
     }
 
-    // 各种设置对话框（省略重复，与之前相同）
+    // 各种设置对话框
     private void showLineSelection() {
         new AlertDialog.Builder(this)
                 .setTitle("线路选择")
@@ -859,6 +859,7 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
+    // ---------- 修正：显示设置（使用 final 变量） ----------
     private void showDisplaySettings() {
         final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标", "关闭EPG", "隐藏收藏", "隐藏序号", "显示本地视频", "EPG详情显示", "底部EPG详情", "图标默认样式"};
         new AlertDialog.Builder(this)
@@ -879,12 +880,14 @@ public class SettingsActivity extends AppCompatActivity {
                         case 9: key = "BOTTOM_DESC_SET"; def = true; break;
                         case 10: key = "ICON_INITIAL_SET"; def = true; break;
                     }
-                    boolean current = ConfigurationManager.getInstance(this).getBoolean(key, def);
+                    final String finalKey = key;
+                    boolean current = ConfigurationManager.getInstance(this).getBoolean(finalKey, def);
+                    final boolean finalCurrent = current;
                     new AlertDialog.Builder(this)
                             .setTitle(items[which])
                             .setMessage("当前状态：" + (current ? "开启" : "关闭"))
                             .setPositiveButton("切换", (d2, w) -> {
-                                ConfigurationManager.getInstance(this).putBoolean(key, !current);
+                                ConfigurationManager.getInstance(this).putBoolean(finalKey, !finalCurrent);
                                 Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show();
                             })
                             .setNegativeButton("取消", null)
@@ -893,6 +896,7 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
+    // ---------- 修正：偏好设置（使用 final 变量） ----------
     private void showPreferenceSettings() {
         final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码", "画中画", "开机启动", "快速退出", "画面锁定", "回放标识", "开启时移"};
         new AlertDialog.Builder(this)
@@ -912,12 +916,14 @@ public class SettingsActivity extends AppCompatActivity {
                         case 8: key = "PLAYBACK_ID"; break;
                         case 9: key = "TIME_SHIFT_ON"; break;
                     }
-                    boolean current = ConfigurationManager.getInstance(this).getBoolean(key, def);
+                    final String finalKey = key;
+                    boolean current = ConfigurationManager.getInstance(this).getBoolean(finalKey, def);
+                    final boolean finalCurrent = current;
                     new AlertDialog.Builder(this)
                             .setTitle(items[which])
                             .setMessage("当前状态：" + (current ? "开启" : "关闭"))
                             .setPositiveButton("切换", (d2, w) -> {
-                                ConfigurationManager.getInstance(this).putBoolean(key, !current);
+                                ConfigurationManager.getInstance(this).putBoolean(finalKey, !finalCurrent);
                                 Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show();
                             })
                             .setNegativeButton("取消", null)
@@ -1030,13 +1036,12 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
-    // ---------- 菜单适配器（修正：去掉接口 static） ----------
+    // ---------- 菜单适配器 ----------
     static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.MenuViewHolder> {
         private String[] titles;
         private OnMenuClickListener listener;
         private int selectedPosition = -1;
 
-        // 去掉 static 修饰，因为 MenuAdapter 本身是 static 内部类，内部接口默认是 static 的，但显式写 static 会报错，所以省略
         interface OnMenuClickListener {
             void onClick(int position);
         }
@@ -1070,7 +1075,7 @@ public class SettingsActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ SettingsActivity 已生成（修正 static 接口）"
+echo "✅ SettingsActivity 已生成（修正 lambda final 问题）"
 
 # ========== 9. 生成布局文件（包含 item_channel.xml） ==========
 cat > "$LAYOUT_FILE" <<'EOF'
@@ -1237,7 +1242,7 @@ cat > "$ITEM_SUBSCRIPTION_LAYOUT" <<'EOF'
 </LinearLayout>
 EOF
 
-# 关键：生成 item_channel.xml
+# item_channel.xml
 cat > "$ITEM_CHANNEL_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1322,7 +1327,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 EOF
 echo "✅ 图标资源已添加"
 
-# ========== 11. 生成 MainActivity（使用 item_channel） ==========
+# ========== 11. 生成 MainActivity ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1708,7 +1713,7 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ MainActivity 已生成（使用 item_channel 布局）"
+echo "✅ MainActivity 已生成"
 
 # ========== 12. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
