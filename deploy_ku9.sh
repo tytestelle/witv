@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格播放器（最终稳定版）..."
+echo "🔥 开始部署酷9风格播放器（最终修复版）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -518,7 +518,7 @@ public class ConfigurationManager {
 EOF
 echo "✅ ConfigurationManager 已创建"
 
-# ========== 7. 创建 SettingsActivity（使用 RecyclerView，无 Fragment） ==========
+# ========== 7. 创建 SettingsActivity（使用 RecyclerView） ==========
 cat > "$SETTINGS_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1034,8 +1034,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 EOF
 echo "✅ 图标资源已添加"
 
-# ========== 10. 生成最终的 MainActivity（修复接口 static 问题） ==========
-# 注意：这里使用 'EOF' 保留内部变量，但确保接口没有 static
+# ========== 10. 生成最终的 MainActivity ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1361,7 +1360,6 @@ public class MainActivity extends AppCompatActivity {
         private OnChannelClickListener listener;
         private int selectedPosition = -1;
 
-        // 注意：这里没有 static 关键字，解决了编译错误
         interface OnChannelClickListener {
             void onClick(SourceManager.Channel channel);
         }
@@ -1422,9 +1420,9 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ========== 11. 强制删除文件中可能残留的 static 关键字（双重保险） ==========
+# ========== 11. 强制移除接口 static 修饰 ==========
 sed -i '/interface OnChannelClickListener/s/static //g' "$MAIN_ACT_FILE"
-echo "✅ 已强制移除接口 static 修饰"
+echo "✅ 已强制移除接口 static"
 
 # ========== 12. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
