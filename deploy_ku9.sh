@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终稳定版 - 含异常捕获）"
+echo "🔥 部署酷9播放器（最终稳定版 - 修复加载 + 列表宽度）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -337,7 +337,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== 6. MainActivity.java（增强异常捕获） ====================
+    # ==================== 6. MainActivity.java（修正加载逻辑 + 调整列表宽度） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -411,6 +411,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvGroupName, tvChannelName, tvEpgInfo, tvTime;
     private Runnable hideOverlayRunnable;
     private View rightClickArea;
+    private boolean isLoading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -510,6 +511,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 每次返回都重新加载
+        loadSource();
+    }
+
     private void updateTime() {
         SimpleDateFormat sdf = new SimpleDateFormat("HH:mm EEEE", Locale.getDefault());
         tvTime.setText(sdf.format(new Date()));
@@ -526,6 +534,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadSource() {
+        if (isLoading) return;
         try {
             String url = prefs.getString("selected_sub_url", null);
             if (url == null || url.isEmpty()) {
@@ -537,9 +546,16 @@ public class MainActivity extends AppCompatActivity {
             }
             if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
             final String finalUrl = url;
+            isLoading = true;
+            // 清空旧数据
+            groupMap.clear();
+            groupNames.clear();
+            currentChannelList.clear();
+            Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
             new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
                 @Override
                 public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
+                    isLoading = false;
                     try {
                         groupMap = map;
                         groupNames = names;
@@ -579,10 +595,12 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onError(String error) {
+                    isLoading = false;
                     Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_LONG).show();
                 }
             });
         } catch (Exception e) {
+            isLoading = false;
             Toast.makeText(this, "加载源异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
@@ -924,7 +942,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 7. SettingsActivity.java（黑透明风格） ====================
+    # ==================== 7. SettingsActivity.java（完整） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1294,7 +1312,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 8. 布局文件 ====================
+    # ==================== 8. 布局文件（调整列表宽度） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1398,7 +1416,7 @@ EOF
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- 频道列表覆盖层（左侧滑出） -->
+    <!-- 频道列表覆盖层（缩窄宽度，右侧留白） -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -1407,29 +1425,48 @@ EOF
         android:background="#CC000000"
         android:visibility="gone">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/group_recycler"
+        <!-- 列表容器，宽度设为 match_parent 但右侧留出空白区域 -->
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="#33000000"
-            android:padding="8dp" />
+            android:layout_weight="0.75"
+            android:orientation="horizontal"
+            android:background="#CC000000">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/channel_recycler"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="2"
-            android:background="#44000000"
-            android:padding="8dp" />
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/group_recycler"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="#33000000"
+                android:padding="8dp" />
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/epg_recycler"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/channel_recycler"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="2"
+                android:background="#44000000"
+                android:padding="8dp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/epg_recycler"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="2"
+                android:background="#55000000"
+                android:padding="8dp" />
+
+        </LinearLayout>
+
+        <!-- 右侧空白区域（点击关闭） -->
+        <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="2"
-            android:background="#55000000"
-            android:padding="8dp" />
+            android:layout_weight="0.25"
+            android:background="#00000000"
+            android:clickable="true"
+            android:onClick="hideOverlay" />
     </LinearLayout>
 </FrameLayout>
 EOF
@@ -1772,11 +1809,9 @@ echo "🧹 清理并构建..."
 
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 使用说明："
-echo "   1. 打开应用，按返回键进入设置"
-echo "   2. 添加列表订阅（名称必填）并选中"
-echo "   3. 返回主界面自动加载频道"
-echo "   4. 点击左侧区域显示频道列表，5秒自动关闭或点击右侧空白关闭"
-echo "   5. 点击播放器中间下半部分弹出信息窗口"
-echo "   6. 点击节目单按钮加载EPG"
-echo "⚠️ 如果闪退，请查看 Toast 错误信息并反馈"
+echo "📌 修复内容："
+echo "   ✅ 订阅选中后自动加载频道（onResume 强制刷新）"
+echo "   ✅ 频道列表宽度缩小为屏幕 75%"
+echo "   ✅ 右侧空白区域点击可关闭列表"
+echo "   ✅ 5秒自动关闭"
+echo "   ✅ 主界面按返回键进入设置"
