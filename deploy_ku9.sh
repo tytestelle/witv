@@ -22,12 +22,10 @@ echo "📂 已备份到 $BACKUP_DIR"
 # ========== 1. 添加依赖（Media3） ==========
 APP_GRADLE="app/build.gradle"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
-# 删除可能已有的旧依赖（如果有）
 sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
 sed -i '/implementation.*preference/d' "$APP_GRADLE"
-# 插入新依赖（Media3 + 其他）
 sed -i '/dependencies {/a \    // 酷9依赖 (Media3)\n    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
@@ -217,7 +215,7 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# ========== 5. 生成酷9风格 MainActivity（Media3 版本） ==========
+# ========== 5. 生成酷9风格 MainActivity（Media3 版本，导入路径修正） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -229,10 +227,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.MediaItem;
-import androidx.media3.exoplayer.PlaybackException;
-import androidx.media3.exoplayer.Player;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
 import com.whyun.witv.favorite.FavoriteManager;
@@ -285,7 +283,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void initPlayer() {
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-        // 简化，不设置软件解码偏好，避免找不到常量
         player = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
         playerView.setPlayer(player);
     }
