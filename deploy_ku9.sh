@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格播放器（最终修复版）..."
+echo "🔥 开始部署酷9风格播放器（最终稳定版）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -1035,6 +1035,7 @@ EOF
 echo "✅ 图标资源已添加"
 
 # ========== 10. 生成最终的 MainActivity（修复接口 static 问题） ==========
+# 注意：这里使用 'EOF' 保留内部变量，但确保接口没有 static
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1354,13 +1355,13 @@ public class MainActivity extends AppCompatActivity {
         mainHandler.removeCallbacks(hideControlsRunnable);
     }
 
-    // ---------- ChannelAdapter（修复接口 static 问题） ----------
+    // ---------- ChannelAdapter ----------
     private class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
         private OnChannelClickListener listener;
         private int selectedPosition = -1;
 
-        // 这里去掉 static 关键字
+        // 注意：这里没有 static 关键字，解决了编译错误
         interface OnChannelClickListener {
             void onClick(SourceManager.Channel channel);
         }
@@ -1420,9 +1421,12 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ MainActivity 已生成（修复接口 static）"
 
-# ========== 11. 验证文件生成 ==========
+# ========== 11. 强制删除文件中可能残留的 static 关键字（双重保险） ==========
+sed -i '/interface OnChannelClickListener/s/static //g' "$MAIN_ACT_FILE"
+echo "✅ 已强制移除接口 static 修饰"
+
+# ========== 12. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
 ls -la "app/src/main/java/$PKG_PATH/source/SourceManager.java" || echo "❌ SourceManager 未生成"
 ls -la "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" || echo "❌ PlayerConfigManager 未生成"
@@ -1431,7 +1435,7 @@ ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ Conf
 ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
 ls -la "app/src/main/java/$PKG_PATH/MainActivity.java" || echo "❌ MainActivity 未生成"
 
-# ========== 12. 完成 ==========
+# ========== 13. 完成 ==========
 echo ""
 echo "🎉 部署完成！"
 echo ""
