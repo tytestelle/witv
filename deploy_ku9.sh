@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（完整复刻版）"
+echo "🔥 部署酷9播放器（闪退修复版）"
 
 # ========== 1. 生成模板目录（仅首次） ==========
 TEMPLATE_DIR="./template"
@@ -14,7 +14,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # SourceManager.java（支持 M3U/TXT）
+    # SourceManager.java
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -96,7 +96,6 @@ public class PlayerConfigManager {
     public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }
     public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }
     public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }
-    // 其他设置项可类似添加
 }
 EOF
 
@@ -179,7 +178,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # MainActivity.java（完整加载+播放逻辑）
+    # MainActivity.java
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -234,42 +233,44 @@ public class MainActivity extends AppCompatActivity {
             channelListView.setAdapter(channelAdapter);
             findViewById(R.id.btn_settings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
             findViewById(R.id.btn_menu).setOnClickListener(v -> toggleChannelList());
-            // 启动时加载选中的订阅
             loadSelectedSource();
         } catch (Exception e) {
             Toast.makeText(this, "初始化错误: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            e.printStackTrace();
         }
     }
     @Override
     protected void onResume() {
         super.onResume();
-        // 从设置返回时重新加载（可能订阅已变）
         loadSelectedSource();
     }
     private void loadSelectedSource() {
-        String url = prefs.getString("selected_sub_url", null);
-        if (url == null || url.isEmpty()) {
-            // 尝试从配置文件读取（内置源为null）
-            url = config.getLiveUrls();
+        try {
+            String url = prefs.getString("selected_sub_url", null);
             if (url == null || url.isEmpty()) {
-                Toast.makeText(this, "请先添加并选中一个订阅源（设置 -> 列表订阅）", Toast.LENGTH_LONG).show();
-                return;
-            }
-        }
-        if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
-        new SourceManager(this).loadFromUrl(url, new SourceManager.OnSourceLoadListener() {
-            @Override public void onLoaded(List<SourceManager.Channel> channels) {
-                channelList = channels;
-                channelAdapter.updateData(channels);
-                if (!channels.isEmpty()) {
-                    playChannel(channels.get(0));
+                url = config.getLiveUrls();
+                if (url == null || url.isEmpty()) {
+                    Toast.makeText(this, "请先添加并选中一个订阅源（设置 -> 列表订阅）", Toast.LENGTH_LONG).show();
+                    return;
                 }
-                showChannelList();
             }
-            @Override public void onError(String error) {
-                Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_LONG).show();
-            }
-        });
+            if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
+            new SourceManager(this).loadFromUrl(url, new SourceManager.OnSourceLoadListener() {
+                @Override public void onLoaded(List<SourceManager.Channel> channels) {
+                    channelList = channels;
+                    channelAdapter.updateData(channels);
+                    if (!channels.isEmpty()) {
+                        playChannel(channels.get(0));
+                    }
+                    showChannelList();
+                }
+                @Override public void onError(String error) {
+                    Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_LONG).show();
+                }
+            });
+        } catch (Exception e) {
+            Toast.makeText(this, "加载源异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
@@ -285,7 +286,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             }
-            // 应用解码方式（仅记录，实际需重建播放器，但此处简化）
             player.setMediaItem(MediaItem.fromUri(channel.url));
             player.prepare();
             player.play();
@@ -323,7 +323,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java（完整订阅管理+所有菜单功能）
+    # SettingsActivity.java（修复空指针）
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -352,9 +352,8 @@ public class SettingsActivity extends AppCompatActivity {
     private String[] menuTitles = {"线路选择", "频道搜索", "播放设置", "列表订阅", "EPG订阅", "分类管理", "订阅管理", "显示设置", "偏好设置", "列表设置", "其他设置", "推送频道", "更多管理"};
     private int currentPos = 0;
     private SharedPreferences prefs;
-    // 订阅存储的 key
-    private static final String KEY_SUB_LIST = "sub_list";          // 存储所有订阅，格式 name||url
-    private static final String KEY_SELECTED_SUB = "selected_sub";   // 存储选中的完整字符串 name||url
+    private static final String KEY_SUB_LIST = "sub_list";
+    private static final String KEY_SELECTED_SUB = "selected_sub";
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -377,30 +376,31 @@ public class SettingsActivity extends AppCompatActivity {
     }
     private void showContent(int pos) {
         List<ContentItem> items = new ArrayList<>();
-        switch (pos) {
-            case 0: items.add(new ContentItem("线路选择", "点击选择", v -> showLineSelection())); break;
-            case 1: items.add(new ContentItem("频道搜索", "点击搜索", v -> Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show())); break;
-            case 2: items.add(new ContentItem("播放设置", "点击展开", v -> showPlaySettings())); break;
-            case 3: // 列表订阅：显示所有订阅+添加按钮
-                buildSubscriptionList(items);
-                break;
-            case 4: items.add(new ContentItem("EPG订阅", "添加EPG", v -> Toast.makeText(this, "EPG订阅功能", Toast.LENGTH_SHORT).show())); break;
-            case 5: items.add(new ContentItem("分类管理", "管理", v -> Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show())); break;
-            case 6: items.add(new ContentItem("订阅管理", "管理", v -> Toast.makeText(this, "订阅管理", Toast.LENGTH_SHORT).show())); break;
-            case 7: items.add(new ContentItem("显示设置", "点击", v -> showDisplaySettings())); break;
-            case 8: items.add(new ContentItem("偏好设置", "点击", v -> showPreferenceSettings())); break;
-            case 9: items.add(new ContentItem("列表设置", "点击", v -> showListSettings())); break;
-            case 10: items.add(new ContentItem("其他设置", "点击", v -> showOtherSettings())); break;
-            case 11: items.add(new ContentItem("推送频道", "推送", v -> Toast.makeText(this, "推送频道", Toast.LENGTH_SHORT).show())); break;
-            case 12: items.add(new ContentItem("更多管理", "查看", v -> showMoreInfo())); break;
+        try {
+            switch (pos) {
+                case 0: items.add(new ContentItem("线路选择", "点击选择", v -> showLineSelection())); break;
+                case 1: items.add(new ContentItem("频道搜索", "点击搜索", v -> Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show())); break;
+                case 2: items.add(new ContentItem("播放设置", "点击展开", v -> showPlaySettings())); break;
+                case 3: buildSubscriptionList(items); break;
+                case 4: items.add(new ContentItem("EPG订阅", "添加EPG", v -> Toast.makeText(this, "EPG订阅功能", Toast.LENGTH_SHORT).show())); break;
+                case 5: items.add(new ContentItem("分类管理", "管理", v -> Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show())); break;
+                case 6: items.add(new ContentItem("订阅管理", "管理", v -> Toast.makeText(this, "订阅管理", Toast.LENGTH_SHORT).show())); break;
+                case 7: items.add(new ContentItem("显示设置", "点击", v -> showDisplaySettings())); break;
+                case 8: items.add(new ContentItem("偏好设置", "点击", v -> showPreferenceSettings())); break;
+                case 9: items.add(new ContentItem("列表设置", "点击", v -> showListSettings())); break;
+                case 10: items.add(new ContentItem("其他设置", "点击", v -> showOtherSettings())); break;
+                case 11: items.add(new ContentItem("推送频道", "推送", v -> Toast.makeText(this, "推送频道", Toast.LENGTH_SHORT).show())); break;
+                case 12: items.add(new ContentItem("更多管理", "查看", v -> showMoreInfo())); break;
+            }
+        } catch (Exception e) {
+            items.add(new ContentItem("加载失败", e.getMessage(), v -> {}));
         }
         contentAdapter.setItems(items);
     }
-    // 构建列表订阅项
     private void buildSubscriptionList(List<ContentItem> items) {
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
         String selected = prefs.getString(KEY_SELECTED_SUB, "");
-        if (subSet.isEmpty()) {
+        if (subSet == null || subSet.isEmpty()) {
             items.add(new ContentItem("暂无订阅", "点击下方添加", v -> {}));
         } else {
             for (String entry : subSet) {
@@ -409,19 +409,15 @@ public class SettingsActivity extends AppCompatActivity {
                 String url = parts.length > 1 ? parts[1] : "";
                 boolean isSelected = entry.equals(selected);
                 items.add(new ContentItem(name, url, isSelected, v -> {
-                    // 选中订阅
                     prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
-                    // 同时保存 URL 到单独 key 方便主界面读取
                     prefs.edit().putString("selected_sub_url", url).apply();
                     prefs.edit().putString("selected_sub_name", name).apply();
                     Toast.makeText(this, "已选中: " + name, Toast.LENGTH_SHORT).show();
-                    // 刷新列表并返回主界面
                     showContent(3);
                     finish();
                 }));
             }
         }
-        // 添加按钮
         items.add(new ContentItem("+ 添加订阅", "", v -> showAddSubscriptionDialog()));
     }
     private void showAddSubscriptionDialog() {
@@ -438,31 +434,32 @@ public class SettingsActivity extends AppCompatActivity {
         layout.addView(urlInput);
         builder.setView(layout);
         builder.setPositiveButton("确定", (d, which) -> {
-            String name = nameInput.getText().toString().trim();
-            String url = urlInput.getText().toString().trim();
-            if (url.isEmpty()) { Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
-            if (name.isEmpty()) name = url;
-            String entry = name + "||" + url;
-            Set<String> subSet = new HashSet<>(prefs.getStringSet(KEY_SUB_LIST, new HashSet<>()));
-            subSet.add(entry);
-            prefs.edit().putStringSet(KEY_SUB_LIST, subSet).apply();
-            // 自动选中新添加的
-            prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
-            prefs.edit().putString("selected_sub_url", url).apply();
-            prefs.edit().putString("selected_sub_name", name).apply();
-            Toast.makeText(this, "订阅已添加并选中", Toast.LENGTH_SHORT).show();
-            // 刷新并返回
-            showContent(3);
-            finish();
+            try {
+                String name = nameInput.getText().toString().trim();
+                String url = urlInput.getText().toString().trim();
+                if (url.isEmpty()) { Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
+                if (name.isEmpty()) name = url;
+                String entry = name + "||" + url;
+                Set<String> subSet = new HashSet<>(prefs.getStringSet(KEY_SUB_LIST, new HashSet<>()));
+                subSet.add(entry);
+                prefs.edit().putStringSet(KEY_SUB_LIST, subSet).apply();
+                prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
+                prefs.edit().putString("selected_sub_url", url).apply();
+                prefs.edit().putString("selected_sub_name", name).apply();
+                Toast.makeText(this, "订阅已添加并选中", Toast.LENGTH_SHORT).show();
+                showContent(3);
+                finish();
+            } catch (Exception e) {
+                Toast.makeText(this, "添加失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
         });
         builder.setNegativeButton("取消", null);
         builder.show();
     }
-    // ---------- 线路选择 ----------
+    // 其他菜单方法...
     private void showLineSelection() {
         new AlertDialog.Builder(this).setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show()).show();
     }
-    // ---------- 播放设置 ----------
     private void showPlaySettings() {
         String[] items = {"解码方式", "画面比例", "超时换源", "断线重连"};
         new AlertDialog.Builder(this).setTitle("播放设置").setItems(items, (d, which) -> {
@@ -494,7 +491,6 @@ public class SettingsActivity extends AppCompatActivity {
                     d.dismiss();
                 }).setNegativeButton("取消", null).show();
     }
-    // ---------- 显示设置 ----------
     private void showDisplaySettings() {
         final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标"};
         new AlertDialog.Builder(this).setTitle("显示设置").setItems(items, (d, which) -> {
@@ -519,40 +515,34 @@ public class SettingsActivity extends AppCompatActivity {
                     .show();
         }).show();
     }
-    // ---------- 偏好设置 ----------
     private void showPreferenceSettings() {
         final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码"};
         new AlertDialog.Builder(this).setTitle("偏好设置").setItems(items, (d, which) -> {
             Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
         }).show();
     }
-    // ---------- 列表设置 ----------
     private void showListSettings() {
         final String[] items = {"全局字体大小", "列表宽度", "底部信息栏宽度"};
         new AlertDialog.Builder(this).setTitle("列表设置").setItems(items, (d, which) -> {
             Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
         }).show();
     }
-    // ---------- 其他设置 ----------
     private void showOtherSettings() {
         final String[] items = {"EPG缓存"};
         new AlertDialog.Builder(this).setTitle("其他设置").setItems(items, (d, which) -> {
             Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
         }).show();
     }
-    // ---------- 更多管理 ----------
     private void showMoreInfo() {
         new AlertDialog.Builder(this).setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null).show();
     }
-    // ---------- 数据类 ----------
+    // 数据类
     static class ContentItem {
-        String title, subtitle;
-        boolean isSelected;
-        View.OnClickListener listener;
+        String title, subtitle; boolean isSelected; View.OnClickListener listener;
         ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; }
         ContentItem(String t, String s, boolean sel, View.OnClickListener l) { title=t; subtitle=s; isSelected=sel; listener=l; }
     }
-    // ---------- MenuAdapter ----------
+    // MenuAdapter
     static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private String[] titles; private OnMenuClickListener listener; private int selected=-1;
         interface OnMenuClickListener { void onClick(int pos); }
@@ -570,7 +560,7 @@ public class SettingsActivity extends AppCompatActivity {
         @Override public int getItemCount() { return titles.length; }
         static class ViewHolder extends RecyclerView.ViewHolder { TextView text; ViewHolder(View v) { super(v); text=v.findViewById(R.id.menu_text); } }
     }
-    // ---------- ContentAdapter ----------
+    // ContentAdapter
     static class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.ViewHolder> {
         private List<ContentItem> items = new ArrayList<>();
         void setItems(List<ContentItem> list) { items=list; notifyDataSetChanged(); }
@@ -594,7 +584,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # 布局文件（添加 content_check 用于显示 √）
+    # 布局文件（确保 content_check 存在）
     cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -632,7 +622,6 @@ EOF
 </LinearLayout>
 EOF
 
-    # 其他布局文件（保持不变）
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -672,7 +661,6 @@ EOF
     android:textColor="#FFFFFF" android:textSize="16sp" android:background="?attr/selectableItemBackground" />
 EOF
 
-    # 图标
     cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
@@ -702,7 +690,7 @@ mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/a
 
 echo "✅ 文件复制完成"
 
-# 修复 SettingsActivity 缺少 import（若已存在则跳过）
+# 修复 SettingsActivity 缺少 import
 sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
 # ========== 3. 添加依赖和权限 ==========
