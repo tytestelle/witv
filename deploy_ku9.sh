@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（网络请求增强版）"
+echo "🔥 部署酷9播放器（完整交互版）"
 
 # ========== 1. 生成模板目录（仅首次） ==========
 TEMPLATE_DIR="./template"
@@ -14,13 +14,12 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # SourceManager.java（增加 User-Agent 和 URL 显示）
+    # SourceManager.java（同上）
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 import okhttp3.OkHttpClient;
@@ -46,21 +45,15 @@ public class SourceManager {
                     .build();
                 Response response = client.newCall(request).execute();
                 int code = response.code();
-                if (code != 200) {
-                    throw new Exception("HTTP " + code + " - 请检查地址是否正确");
-                }
+                if (code != 200) throw new Exception("HTTP " + code);
                 String content = response.body().string();
-                if (content == null || content.trim().isEmpty()) {
-                    throw new Exception("内容为空，请检查源文件");
-                }
+                if (content == null || content.trim().isEmpty()) throw new Exception("内容为空");
                 if (finalUrl.endsWith(".m3u") || finalUrl.endsWith(".m3u8") || content.contains("#EXTM3U")) {
                     parseM3U(content);
                 } else {
                     parseTXT(content);
                 }
-                if (channels.isEmpty()) {
-                    throw new Exception("未解析到任何频道，请检查格式");
-                }
+                if (channels.isEmpty()) throw new Exception("未解析到频道");
                 mainHandler.post(() -> listener.onLoaded(channels));
             } catch (Exception e) {
                 mainHandler.post(() -> listener.onError(e.getMessage()));
@@ -196,7 +189,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # MainActivity.java（显示加载的 URL）
+    # MainActivity.java（包含频道列表和EPG占位）
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -232,6 +225,7 @@ public class MainActivity extends AppCompatActivity {
     private ConfigurationManager config;
     private boolean isListVisible = false;
     private SharedPreferences prefs;
+    private TextView bottomChannelName, bottomEpgInfo;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -243,6 +237,8 @@ public class MainActivity extends AppCompatActivity {
             prefs = PreferenceManager.getDefaultSharedPreferences(this);
             playerView = findViewById(R.id.player_container);
             channelListView = findViewById(R.id.channel_list);
+            bottomChannelName = findViewById(R.id.bottom_channel_name);
+            bottomEpgInfo = findViewById(R.id.bottom_epg_info);
             channelListView.setLayoutManager(new LinearLayoutManager(this));
             channelAdapter = new ChannelAdapter(new ArrayList<>(), channel -> {
                 playChannel(channel);
@@ -251,6 +247,8 @@ public class MainActivity extends AppCompatActivity {
             channelListView.setAdapter(channelAdapter);
             findViewById(R.id.btn_settings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
             findViewById(R.id.btn_menu).setOnClickListener(v -> toggleChannelList());
+            // 点击播放器区域显示/隐藏频道列表
+            playerView.setOnClickListener(v -> toggleChannelList());
             loadSelectedSource();
         } catch (Exception e) {
             Toast.makeText(this, "初始化错误: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -282,6 +280,7 @@ public class MainActivity extends AppCompatActivity {
                     if (!channels.isEmpty()) {
                         playChannel(channels.get(0));
                     }
+                    // 自动显示频道列表
                     showChannelList();
                 }
                 @Override public void onError(String error) {
@@ -309,6 +308,9 @@ public class MainActivity extends AppCompatActivity {
             player.setMediaItem(MediaItem.fromUri(channel.url));
             player.prepare();
             player.play();
+            // 更新底部信息
+            bottomChannelName.setText(channel.name);
+            bottomEpgInfo.setText("正在播放");
             Toast.makeText(this, "播放: " + channel.name, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -318,8 +320,14 @@ public class MainActivity extends AppCompatActivity {
         if (isListVisible) hideChannelList();
         else showChannelList();
     }
-    private void showChannelList() { isListVisible = true; channelListView.setVisibility(View.VISIBLE); }
-    private void hideChannelList() { isListVisible = false; channelListView.setVisibility(View.GONE); }
+    private void showChannelList() {
+        isListVisible = true;
+        channelListView.setVisibility(View.VISIBLE);
+    }
+    private void hideChannelList() {
+        isListVisible = false;
+        channelListView.setVisibility(View.GONE);
+    }
     @Override protected void onDestroy() { super.onDestroy(); if (player != null) { player.release(); player = null; } }
     private static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
@@ -331,8 +339,9 @@ public class MainActivity extends AppCompatActivity {
             return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
         }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
-            holder.name.setText(data.get(position).name);
-            holder.itemView.setOnClickListener(v -> listener.onClick(data.get(position)));
+            SourceManager.Channel channel = data.get(position);
+            holder.name.setText(channel.name);
+            holder.itemView.setOnClickListener(v -> listener.onClick(channel));
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
@@ -343,7 +352,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java（修正空指针）
+    # SettingsActivity.java（同前）
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -601,7 +610,93 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # 布局文件
+    # 布局文件（包含底部EPG和频道名称）
+    cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/channel_list"
+        android:layout_width="280dp"
+        android:layout_height="match_parent"
+        android:background="#CC000000"
+        android:visibility="gone"
+        android:paddingTop="60dp"
+        android:paddingBottom="60dp" />
+    <LinearLayout
+        android:id="@+id/bottom_controls"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:layout_alignParentBottom="true"
+        android:background="#88000000"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp"
+        android:visibility="visible">
+        <TextView
+            android:id="@+id/bottom_channel_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:text="暂无频道" />
+        <TextView
+            android:id="@+id/bottom_epg_info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:text="EPG信息" />
+    </LinearLayout>
+    <ImageButton
+        android:id="@+id/btn_settings"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/ic_settings"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_margin="16dp"
+        android:background="#88000000"
+        android:tint="#FFFFFF" />
+    <ImageButton
+        android:id="@+id/btn_menu"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/ic_menu"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:layout_margin="16dp"
+        android:background="#88000000"
+        android:tint="#FFFFFF" />
+</RelativeLayout>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:background="#F5F5F5">
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/menu_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#333333" android:padding="8dp" />
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/content_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2" android:background="#FFFFFF" android:padding="8dp" />
+</LinearLayout>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menu_text" android:layout_width="match_parent" android:layout_height="48dp"
+    android:gravity="center_vertical" android:paddingLeft="16dp"
+    android:textSize="16sp" android:textColor="#FFFFFF" android:background="?attr/selectableItemBackground" />
+EOF
+
     cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -637,37 +732,6 @@ EOF
         android:textSize="12sp"
         android:textColor="#888" />
 </LinearLayout>
-EOF
-
-    cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#000000">
-    <androidx.media3.ui.PlayerView android:id="@+id/player_container" android:layout_width="match_parent" android:layout_height="match_parent" />
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/channel_list" android:layout_width="280dp" android:layout_height="match_parent" android:background="#CC000000" android:visibility="gone" android:paddingTop="60dp" android:paddingBottom="60dp" />
-    <ImageButton android:id="@+id/btn_settings" android:layout_width="48dp" android:layout_height="48dp" android:src="@drawable/ic_settings" android:layout_alignParentTop="true" android:layout_alignParentEnd="true" android:layout_margin="16dp" android:background="#88000000" android:tint="#FFFFFF" />
-    <ImageButton android:id="@+id/btn_menu" android:layout_width="48dp" android:layout_height="48dp" android:src="@drawable/ic_menu" android:layout_alignParentTop="true" android:layout_alignParentStart="true" android:layout_margin="16dp" android:background="#88000000" android:tint="#FFFFFF" />
-</RelativeLayout>
-EOF
-
-    cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="horizontal" android:background="#F5F5F5">
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/menu_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#333333" android:padding="8dp" />
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/content_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2" android:background="#FFFFFF" android:padding="8dp" />
-</LinearLayout>
-EOF
-
-    cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/menu_text" android:layout_width="match_parent" android:layout_height="48dp"
-    android:gravity="center_vertical" android:paddingLeft="16dp"
-    android:textSize="16sp" android:textColor="#FFFFFF" android:background="?attr/selectableItemBackground" />
 EOF
 
     cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
@@ -772,4 +836,5 @@ echo "📌 使用说明："
 echo "   1. 打开应用，点击右上角齿轮进入设置"
 echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
 echo "   3. 添加后自动选中，返回主界面即可加载频道并播放"
-echo "   4. 如果加载失败，应用会 Toast 显示实际请求的 URL，请核对"
+echo "   4. 点击播放画面或左上角菜单按钮，弹出频道列表，点击切换频道"
+echo "   5. 底部显示当前频道名称和EPG信息（占位）"
