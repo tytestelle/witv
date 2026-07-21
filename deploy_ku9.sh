@@ -29,9 +29,10 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    // 酷9依赖 (Media3)\n    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
-# ========== 2. 添加权限（包含 INTERNET） ==========
+# ========== 2. 添加权限（先删除已有的 INTERNET，避免重复） ==========
+sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-echo "✅ 权限已添加（含 INTERNET）"
+echo "✅ 权限已添加（去重）"
 
 # ========== 3. 使用 Python 安全修改 AndroidManifest ==========
 echo "🛠️ 使用 Python 修改 AndroidManifest.xml..."
@@ -92,6 +93,7 @@ mkdir -p "app/src/main/java/$PKG_PATH/player"
 mkdir -p "app/src/main/java/$PKG_PATH/favorite"
 mkdir -p "app/src/main/java/$PKG_PATH/epg"
 
+# 修正 SourceManager 中的 split 语法错误
 cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 
@@ -153,7 +155,7 @@ public class SourceManager {
         for (String line : content.split("\n")) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
-            String[] parts = line.split(","");
+            String[] parts = line.split(",");  // 修正：去掉多余的双引号
             if (parts.length >= 2) channels.add(new Channel(parts[0].trim(), parts[1].trim(), ""));
         }
     }
@@ -214,7 +216,7 @@ public class EPGParserFactory {
 }
 EOF
 
-echo "✅ 功能类已创建"
+echo "✅ 功能类已创建（修正 split 语法）"
 
 # ========== 5. 生成酷9风格 MainActivity（Media3 版本） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
