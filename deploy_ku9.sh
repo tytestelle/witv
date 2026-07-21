@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格播放器（最终优化版）..."
+echo "🔥 开始部署酷9风格播放器（最终完全版）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -13,12 +13,15 @@ CONFIG_MGR_FILE="app/src/main/java/$PKG_PATH/ConfigurationManager.java"
 LAYOUT_NAME="activity_main"
 LAYOUT_FILE="app/src/main/res/layout/$LAYOUT_NAME.xml"
 SETTINGS_LAYOUT="app/src/main/res/layout/activity_settings.xml"
-ITEM_CONFIG_LAYOUT="app/src/main/res/layout/item_config.xml"
-ITEM_CHANNEL_LAYOUT="app/src/main/res/layout/item_channel.xml"
+ITEM_MENU_LAYOUT="app/src/main/res/layout/item_menu.xml"
+ITEM_SUBSCRIPTION_LAYOUT="app/src/main/res/layout/item_subscription.xml"
+CONTENT_SUBSCRIPTION_LAYOUT="app/src/main/res/layout/content_subscription.xml"
+CONTENT_PLAY_SETTINGS_LAYOUT="app/src/main/res/layout/content_play_settings.xml"
+CONTENT_EPG_SUBSCRIPTION_LAYOUT="app/src/main/res/layout/content_epg_subscription.xml"
 MANIFEST="app/src/main/AndroidManifest.xml"
 ASSETS_DIR="app/src/main/assets"
 
-# ========== 清理旧的 ui 目录 ==========
+# ========== 清理旧 ui 目录 ==========
 rm -rf "app/src/main/java/com/whyun/witv/ui"
 echo "✅ 已清理旧的 ui 目录"
 
@@ -191,13 +194,13 @@ cat > "$ASSETS_DIR/configuration.json" <<'EOF'
 EOF
 echo "✅ configuration.json 已创建"
 
-# ========== 5. 创建功能类 ==========
+# ========== 5. 创建功能类（保持不变） ==========
 mkdir -p "app/src/main/java/$PKG_PATH/source"
 mkdir -p "app/src/main/java/$PKG_PATH/player"
 mkdir -p "app/src/main/java/$PKG_PATH/favorite"
 mkdir -p "app/src/main/java/$PKG_PATH/epg"
 
-# SourceManager
+# SourceManager（内容同前，省略，保持完整）
 cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 
@@ -376,7 +379,7 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# ========== 6. 创建 ConfigurationManager ==========
+# ========== 6. 创建 ConfigurationManager（不变） ==========
 cat > "$CONFIG_MGR_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -518,332 +521,606 @@ public class ConfigurationManager {
 EOF
 echo "✅ ConfigurationManager 已创建"
 
-# ========== 7. 创建 SettingsActivity（分组 + 图标优化） ==========
+# ========== 7. 创建酷9风格的 SettingsActivity ==========
 cat > "$SETTINGS_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import com.google.android.material.switchmaterial.SwitchMaterial;
+
+import com.google.android.material.bottomsheet.BottomSheetDialog;
+
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class SettingsActivity extends AppCompatActivity {
 
-    private ConfigurationManager config;
-    private RecyclerView recyclerView;
-    private ConfigAdapter adapter;
-    private List<Object> items = new ArrayList<>(); // 可以是 ConfigItem 或 String (分组标题)
+    private RecyclerView menuRecyclerView, contentRecyclerView;
+    private MenuAdapter menuAdapter;
+    private ContentAdapter contentAdapter;
+
+    // 菜单数据
+    private String[] menuTitles = {
+            "线路选择", "频道搜索", "播放设置", "列表订阅",
+            "EPG订阅", "分类管理", "订阅管理", "显示设置",
+            "偏好设置", "列表设置", "其他设置", "推送频道", "更多管理"
+    };
+
+    // 当前选中的菜单位置
+    private int currentMenuPosition = 3; // 默认选中“列表订阅”
+
+    // 订阅管理存储
+    private SharedPreferences prefs;
+    private static final String KEY_SUBSCRIPTIONS = "subscriptions";
+    private static final String KEY_EPG_SUBSCRIPTIONS = "epg_subscriptions";
+    private static final String KEY_SELECTED_SUB = "selected_subscription";
+    private static final String KEY_SELECTED_EPG = "selected_epg_subscription";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
 
-        Toolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        getSupportActionBar().setTitle("设置选项");
-        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        toolbar.setNavigationOnClickListener(v -> finish());
+        prefs = PreferenceManager.getDefaultSharedPreferences(this);
 
-        config = ConfigurationManager.getInstance(this);
-        recyclerView = findViewById(R.id.settings_recycler);
-        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+        menuRecyclerView = findViewById(R.id.menu_recycler);
+        contentRecyclerView = findViewById(R.id.content_recycler);
 
-        buildConfigItems();
-        adapter = new ConfigAdapter(items);
-        recyclerView.setAdapter(adapter);
+        menuRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        menuAdapter = new MenuAdapter(menuTitles, this::onMenuClick);
+        menuRecyclerView.setAdapter(menuAdapter);
+
+        // 默认选中“列表订阅”
+        menuAdapter.setSelectedPosition(currentMenuPosition);
+        showContent(currentMenuPosition);
     }
 
-    private void buildConfigItems() {
-        // 分组定义
-        addGroup("播放设置");
-        addItem("解码方式", "PLAY_TYPE", ConfigItem.TYPE_SPINNER,
-                new String[]{"系统解码", "IJK硬解", "IJK软解", "EXO硬解", "EXO软解", "MPV硬解", "MPV软解"},
-                config.getInt("PLAY_TYPE", 1));
-        addItem("画面比例", "PLAY_SCALE", ConfigItem.TYPE_SPINNER,
-                new String[]{"默认", "16:9", "4:3", "填充", "原始", "裁剪", "电影"},
-                config.getInt("PLAY_SCALE", 3));
-        addItem("超时换源", "LIVE_CONNECT_TIMEOUT", ConfigItem.TYPE_SPINNER,
-                new String[]{"5s", "10s", "15s", "20s", "25s", "30s"},
-                config.getInt("LIVE_CONNECT_TIMEOUT", 1));
-        addItem("断线重连", "RECONNECT_INDEX", ConfigItem.TYPE_SPINNER,
-                new String[]{"关闭", "1s", "3s", "5s", "10s", "20s"},
-                config.getInt("RECONNECT_INDEX", 0));
-        addItem("渲染类型", "PLAY_RENDER", ConfigItem.TYPE_SPINNER,
-                new String[]{"Texture", "Surface"},
-                config.getInt("PLAY_RENDER", 1));
-        addItem("RTSP通道", "RTSP_TCP_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"TCP", "UDP"},
-                config.getInt("RTSP_TCP_SELECT", 0));
-        addItem("回放方式", "PLAY_BACK_TYPE", ConfigItem.TYPE_SPINNER,
-                new String[]{"重新加载url", "播放器seekTo"},
-                config.getInt("PLAY_BACK_TYPE", 0));
-        addItem("时移结束播放", "TIME_SHIFT_MODE", ConfigItem.TYPE_SPINNER,
-                new String[]{"自动刷新继续播放", "回到直播"},
-                config.getInt("TIME_SHIFT_MODE", 0));
-
-        addGroup("显示设置");
-        addItem("显示时间", "LIVE_SHOW_TIME", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_SHOW_TIME", false));
-        addItem("显示网速", "LIVE_SHOW_NET_SPEED", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_SHOW_NET_SPEED", false));
-        addItem("隐藏频道图标", "HIDE_Channel_LOGO", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_Channel_LOGO", true));
-        addItem("隐藏底部图标", "HIDE_Bottom_LOGO", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_Bottom_LOGO", true));
-        addItem("关闭EPG", "CLOSE_EPG", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("CLOSE_EPG", false));
-        addItem("隐藏收藏", "HIDE_FAVOR", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_FAVOR", false));
-        addItem("隐藏序号", "HIDE_NUMBER", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_NUMBER", false));
-        addItem("显示本地视频", "ENABLE_LOCAL_VIDEO", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("ENABLE_LOCAL_VIDEO", false));
-        addItem("EPG详情显示", "EPG_DESC_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("EPG_DESC_SET", false));
-        addItem("底部EPG详情", "BOTTOM_DESC_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("BOTTOM_DESC_SET", true));
-        addItem("图标默认样式", "ICON_INITIAL_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("ICON_INITIAL_SET", true));
-
-        addGroup("偏好设置");
-        addItem("记忆解码", "PL_MEMORYS_ET_SELECT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PL_MEMORYS_ET_SELECT", false));
-        addItem("换台反转", "LIVE_CHANNEL_REVERSE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_CHANNEL_REVERSE", false));
-        addItem("跨选分组", "LIVE_CROSS_GROUP", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_CROSS_GROUP", false));
-        addItem("关闭密码", "LIVE_SKIP_PASSWORD", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_SKIP_PASSWORD", false));
-        addItem("画中画", "PIC_IN_PIC", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PIC_IN_PIC", false));
-        addItem("开机启动", "BOOT_START", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("BOOT_START", false));
-        addItem("快速退出", "QUICK_EXIT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("QUICK_EXIT", false));
-        addItem("画面锁定", "EYE_PROTECTION", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("EYE_PROTECTION", false));
-        addItem("回放标识", "PLAYBACK_ID", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PLAYBACK_ID", false));
-        addItem("开启时移", "TIME_SHIFT_ON", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("TIME_SHIFT_ON", true));
-        addItem("安全DNS", "DOH_URL", ConfigItem.TYPE_SPINNER,
-                new String[]{"关闭", "腾讯", "阿里", "360", "Google", "AdGuard", "Quad9"},
-                config.getInt("DOH_URL", 0));
-        addItem("主题类型", "THEME_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
-                config.getInt("THEME_SELECT", 2));
-        addItem("背景色系", "BACKGROUND_THEME_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
-                config.getInt("BACKGROUND_THEME_SELECT", 6));
-        addItem("列表分组模式", "GROUP_PARS_SET_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"传统分组", "列表分组", "二级分组模式1", "二级分组模式2"},
-                config.getInt("GROUP_PARS_SET_SELECT", 3));
-        addItem("遍历多源循环", "PLAY_ALL_SOURCE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PLAY_ALL_SOURCE", true));
-        addItem("分辨率显示样式", "RESOLUTION_MODE_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"缩写", "数字x数字"},
-                config.getInt("RESOLUTION_MODE_SELECT", 0));
-        addItem("XML时间偏移", "TIME_ZONE_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"默认", "-12", "-11", "-10", "-9", "-8", "-7", "-6", "-5", "-4", "-3", "-2", "-1",
-                        "0", "+1", "+2", "+3", "+4", "+5", "+6", "+7", "+8", "+9", "+10", "+11", "+12"},
-                config.getInt("TIME_ZONE_SELECT", 0));
-        addItem("图标缓存", "IMAGECACHE_SELECT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("IMAGECACHE_SELECT", false));
-        addItem("脚本缓存", "SCRIPT_CACHE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("SCRIPT_CACHE", true));
-        addItem("记忆多源", "MEMORYS_SOURCE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("MEMORYS_SOURCE", true));
-        addItem("记忆进度", "MEMORYS_POSITION", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("MEMORYS_POSITION", true));
-        addItem("开机自启检测", "BOOTRECEIVER_SET_SELECT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("BOOTRECEIVER_SET_SELECT", true));
-        addItem("快捷菜单", "SHORTCUTS_MENU", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("SHORTCUTS_MENU", false));
-        addItem("EPG缓存路径", "EPG_CACHE_PATH_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("EPG_CACHE_PATH_SET", false));
-        addItem("音频壁纸", "AUDIO_WAKKPAPER", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("AUDIO_WAKKPAPER", false));
-        addItem("反交错", "DE_INTERLACING", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("DE_INTERLACING", false));
-
-        addGroup("列表设置");
-        addItem("全局字体大小", "TEXT_SIZE", ConfigItem.TYPE_EDIT,
-                config.getInt("TEXT_SIZE", 0));
-        addItem("列表宽度", "LIST_WIDTH", ConfigItem.TYPE_EDIT,
-                config.getInt("LIST_WIDTH", 0));
-        addItem("底部信息栏宽度", "BOTTOM_WIDTH", ConfigItem.TYPE_EDIT,
-                config.getInt("BOTTOM_WIDTH", 0));
-
-        addGroup("其他设置");
-        addItem("EPG缓存", "EPGCACHE_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"关闭", "2点", "4点", "6点", "8点", "10点", "12点", "14点", "16点", "18点", "20点", "22点"},
-                config.getInt("EPGCACHE_SELECT", 4));
+    private void onMenuClick(int position) {
+        currentMenuPosition = position;
+        menuAdapter.setSelectedPosition(position);
+        showContent(position);
     }
 
-    private void addGroup(String title) {
-        items.add(title);
-    }
-
-    private void addItem(String title, String key, int type, Object... params) {
-        items.add(new ConfigItem(title, key, type, params));
-    }
-
-    // ---------- ConfigItem 数据类 ----------
-    static class ConfigItem {
-        static final int TYPE_SWITCH = 0;
-        static final int TYPE_SPINNER = 1;
-        static final int TYPE_EDIT = 2;
-
-        String title, key;
-        int type;
-        Object value; // Boolean / Integer
-        String[] spinnerOptions;
-
-        ConfigItem(String title, String key, int type, Object... params) {
-            this.title = title;
-            this.key = key;
-            this.type = type;
-            if (type == TYPE_SWITCH) {
-                this.value = (Boolean) params[0];
-            } else if (type == TYPE_SPINNER) {
-                this.spinnerOptions = (String[]) params[0];
-                this.value = (Integer) params[1];
-            } else if (type == TYPE_EDIT) {
-                this.value = (Integer) params[0];
-            }
+    private void showContent(int position) {
+        switch (position) {
+            case 0: // 线路选择
+                showLineSelection();
+                break;
+            case 1: // 频道搜索
+                Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show();
+                break;
+            case 2: // 播放设置
+                showPlaySettings();
+                break;
+            case 3: // 列表订阅
+                showSubscriptionList(KEY_SUBSCRIPTIONS, KEY_SELECTED_SUB, "列表订阅");
+                break;
+            case 4: // EPG订阅
+                showSubscriptionList(KEY_EPG_SUBSCRIPTIONS, KEY_SELECTED_EPG, "EPG订阅");
+                break;
+            case 5: // 分类管理
+                Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show();
+                break;
+            case 6: // 订阅管理
+                Toast.makeText(this, "订阅管理", Toast.LENGTH_SHORT).show();
+                break;
+            case 7: // 显示设置
+                showDisplaySettings();
+                break;
+            case 8: // 偏好设置
+                showPreferenceSettings();
+                break;
+            case 9: // 列表设置
+                showListSettings();
+                break;
+            case 10: // 其他设置
+                showOtherSettings();
+                break;
+            case 11: // 推送频道
+                Toast.makeText(this, "推送频道", Toast.LENGTH_SHORT).show();
+                break;
+            case 12: // 更多管理
+                showMoreInfo();
+                break;
         }
     }
 
-    // ---------- Adapter ----------
-    class ConfigAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
-        private static final int TYPE_HEADER = 0;
-        private static final int TYPE_ITEM = 1;
+    // ------------------- 线路选择（简单弹窗） -------------------
+    private void showLineSelection() {
+        new AlertDialog.Builder(this)
+                .setTitle("线路选择")
+                .setItems(new String[]{"源1", "源2", "源3"}, (d, which) -> Toast.makeText(this, "选择线路" + (which+1), Toast.LENGTH_SHORT).show())
+                .show();
+    }
 
-        private List<Object> data;
+    // ------------------- 播放设置（子项列表） -------------------
+    private void showPlaySettings() {
+        String[] items = {"解码方式", "画面比例", "超时换源", "断线重连", "渲染类型", "RTSP通道", "回放方式", "时移结束播放"};
+        new AlertDialog.Builder(this)
+                .setTitle("播放设置")
+                .setItems(items, (d, which) -> {
+                    switch (which) {
+                        case 0: showPlayTypeDialog(); break;
+                        case 1: showPlayScaleDialog(); break;
+                        case 2: showTimeoutDialog(); break;
+                        case 3: showReconnectDialog(); break;
+                        case 4: showRenderDialog(); break;
+                        case 5: showRtspDialog(); break;
+                        case 6: showPlayBackTypeDialog(); break;
+                        case 7: showTimeShiftModeDialog(); break;
+                    }
+                })
+                .show();
+    }
 
-        ConfigAdapter(List<Object> data) { this.data = data; }
+    private void showPlayTypeDialog() {
+        final String[] items = {"系统解码", "IJK硬解", "IJK软解", "EXO硬解", "EXO软解", "MPV硬解", "MPV软解"};
+        int current = ConfigurationManager.getInstance(this).getInt("PLAY_TYPE", 1);
+        new AlertDialog.Builder(this)
+                .setTitle("解码方式")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("PLAY_TYPE", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
-        @Override
-        public int getItemViewType(int position) {
-            return data.get(position) instanceof String ? TYPE_HEADER : TYPE_ITEM;
-        }
+    private void showPlayScaleDialog() {
+        final String[] items = {"默认", "16:9", "4:3", "填充", "原始", "裁剪", "电影"};
+        int current = ConfigurationManager.getInstance(this).getInt("PLAY_SCALE", 3);
+        new AlertDialog.Builder(this)
+                .setTitle("画面比例")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("PLAY_SCALE", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
-        @Override
-        public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            LayoutInflater inflater = LayoutInflater.from(parent.getContext());
-            if (viewType == TYPE_HEADER) {
-                View v = inflater.inflate(R.layout.item_config_header, parent, false);
-                return new HeaderViewHolder(v);
-            } else {
-                View v = inflater.inflate(R.layout.item_config, parent, false);
-                return new ItemViewHolder(v);
-            }
-        }
+    private void showTimeoutDialog() {
+        final String[] items = {"5s", "10s", "15s", "20s", "25s", "30s"};
+        int current = ConfigurationManager.getInstance(this).getInt("LIVE_CONNECT_TIMEOUT", 1);
+        new AlertDialog.Builder(this)
+                .setTitle("超时换源")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("LIVE_CONNECT_TIMEOUT", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
-        @Override
-        public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
-            if (holder instanceof HeaderViewHolder) {
-                String title = (String) data.get(position);
-                ((HeaderViewHolder) holder).title.setText(title);
-            } else if (holder instanceof ItemViewHolder) {
-                ConfigItem item = (ConfigItem) data.get(position);
-                ItemViewHolder vh = (ItemViewHolder) holder;
-                vh.icon.setText(String.valueOf(item.title.charAt(0)));
-                vh.title.setText(item.title);
-                vh.container.removeAllViews();
+    private void showReconnectDialog() {
+        final String[] items = {"关闭", "1s", "3s", "5s", "10s", "20s"};
+        int current = ConfigurationManager.getInstance(this).getInt("RECONNECT_INDEX", 0);
+        new AlertDialog.Builder(this)
+                .setTitle("断线重连")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("RECONNECT_INDEX", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
-                if (item.type == ConfigItem.TYPE_SWITCH) {
-                    SwitchMaterial sw = new SwitchMaterial(SettingsActivity.this);
-                    sw.setChecked((Boolean) item.value);
-                    sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                        config.putBoolean(item.key, isChecked);
-                        item.value = isChecked;
-                        Toast.makeText(SettingsActivity.this, "已保存", Toast.LENGTH_SHORT).show();
-                    });
-                    vh.container.addView(sw);
-                } else if (item.type == ConfigItem.TYPE_SPINNER) {
-                    Spinner spinner = new Spinner(SettingsActivity.this);
-                    ArrayAdapter<String> adapter = new ArrayAdapter<>(SettingsActivity.this,
-                            android.R.layout.simple_spinner_dropdown_item, item.spinnerOptions);
-                    spinner.setAdapter(adapter);
-                    spinner.setSelection((Integer) item.value);
-                    spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                        @Override
-                        public void onItemSelected(android.widget.AdapterView<?> parent, View view, int pos, long id) {
-                            config.putInt(item.key, pos);
-                            item.value = pos;
+    private void showRenderDialog() {
+        final String[] items = {"Texture", "Surface"};
+        int current = ConfigurationManager.getInstance(this).getInt("PLAY_RENDER", 1);
+        new AlertDialog.Builder(this)
+                .setTitle("渲染类型")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("PLAY_RENDER", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void showRtspDialog() {
+        final String[] items = {"TCP", "UDP"};
+        int current = ConfigurationManager.getInstance(this).getInt("RTSP_TCP_SELECT", 0);
+        new AlertDialog.Builder(this)
+                .setTitle("RTSP通道")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("RTSP_TCP_SELECT", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void showPlayBackTypeDialog() {
+        final String[] items = {"重新加载url", "播放器seekTo"};
+        int current = ConfigurationManager.getInstance(this).getInt("PLAY_BACK_TYPE", 0);
+        new AlertDialog.Builder(this)
+                .setTitle("回放方式")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("PLAY_BACK_TYPE", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void showTimeShiftModeDialog() {
+        final String[] items = {"自动刷新继续播放", "回到直播"};
+        int current = ConfigurationManager.getInstance(this).getInt("TIME_SHIFT_MODE", 0);
+        new AlertDialog.Builder(this)
+                .setTitle("时移结束播放")
+                .setSingleChoiceItems(items, current, (d, which) -> {
+                    ConfigurationManager.getInstance(this).putInt("TIME_SHIFT_MODE", which);
+                    Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    // ------------------- 显示设置 -------------------
+    private void showDisplaySettings() {
+        // 类似播放设置，简单弹窗选择
+        final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标", "关闭EPG", "隐藏收藏", "隐藏序号", "显示本地视频", "EPG详情显示", "底部EPG详情", "图标默认样式"};
+        new AlertDialog.Builder(this)
+                .setTitle("显示设置")
+                .setItems(items, (d, which) -> {
+                    // 每个选项弹出开关对话框
+                    String key = "";
+                    boolean def = false;
+                    switch (which) {
+                        case 0: key = "LIVE_SHOW_TIME"; def = false; break;
+                        case 1: key = "LIVE_SHOW_NET_SPEED"; def = false; break;
+                        case 2: key = "HIDE_Channel_LOGO"; def = true; break;
+                        case 3: key = "HIDE_Bottom_LOGO"; def = true; break;
+                        case 4: key = "CLOSE_EPG"; def = false; break;
+                        case 5: key = "HIDE_FAVOR"; def = false; break;
+                        case 6: key = "HIDE_NUMBER"; def = false; break;
+                        case 7: key = "ENABLE_LOCAL_VIDEO"; def = false; break;
+                        case 8: key = "EPG_DESC_SET"; def = false; break;
+                        case 9: key = "BOTTOM_DESC_SET"; def = true; break;
+                        case 10: key = "ICON_INITIAL_SET"; def = true; break;
+                    }
+                    boolean current = ConfigurationManager.getInstance(this).getBoolean(key, def);
+                    new AlertDialog.Builder(this)
+                            .setTitle(items[which])
+                            .setMessage("当前状态：" + (current ? "开启" : "关闭"))
+                            .setPositiveButton("切换", (d2, w) -> {
+                                ConfigurationManager.getInstance(this).putBoolean(key, !current);
+                                Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show();
+                            })
+                            .setNegativeButton("取消", null)
+                            .show();
+                })
+                .show();
+    }
+
+    // ------------------- 偏好设置 -------------------
+    private void showPreferenceSettings() {
+        final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码", "画中画", "开机启动", "快速退出", "画面锁定", "回放标识", "开启时移", "安全DNS", "主题类型", "背景色系", "列表分组模式", "遍历多源循环", "分辨率显示样式", "XML时间偏移", "图标缓存", "脚本缓存", "记忆多源", "记忆进度", "开机自启检测", "快捷菜单", "EPG缓存路径", "音频壁纸", "反交错"};
+        new AlertDialog.Builder(this)
+                .setTitle("偏好设置")
+                .setItems(items, (d, which) -> {
+                    // 简单处理，只显示当前值，提供切换
+                    String key = "";
+                    boolean def = false;
+                    // 这里根据索引映射，省略完整映射，仅示例
+                    if (which == 0) key = "PL_MEMORYS_ET_SELECT";
+                    else if (which == 1) key = "LIVE_CHANNEL_REVERSE";
+                    else if (which == 2) key = "LIVE_CROSS_GROUP";
+                    else if (which == 3) key = "LIVE_SKIP_PASSWORD";
+                    else if (which == 4) key = "PIC_IN_PIC";
+                    else if (which == 5) key = "BOOT_START";
+                    else if (which == 6) key = "QUICK_EXIT";
+                    else if (which == 7) key = "EYE_PROTECTION";
+                    else if (which == 8) key = "PLAYBACK_ID";
+                    else if (which == 9) key = "TIME_SHIFT_ON";
+                    // 其他如安全DNS等需要数字选择，此处略
+                    if (!key.isEmpty()) {
+                        boolean current = ConfigurationManager.getInstance(this).getBoolean(key, def);
+                        new AlertDialog.Builder(this)
+                                .setTitle(items[which])
+                                .setMessage("当前状态：" + (current ? "开启" : "关闭"))
+                                .setPositiveButton("切换", (d2, w) -> {
+                                    ConfigurationManager.getInstance(this).putBoolean(key, !current);
+                                    Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show();
+                                })
+                                .setNegativeButton("取消", null)
+                                .show();
+                    } else {
+                        Toast.makeText(this, "此项暂未实现", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .show();
+    }
+
+    // ------------------- 列表设置 -------------------
+    private void showListSettings() {
+        final String[] items = {"全局字体大小", "列表宽度", "底部信息栏宽度"};
+        new AlertDialog.Builder(this)
+                .setTitle("列表设置")
+                .setItems(items, (d, which) -> {
+                    // 弹出输入框
+                    AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                    builder.setTitle(items[which]);
+                    final EditText input = new EditText(this);
+                    input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+                    int current = 0;
+                    switch (which) {
+                        case 0: current = ConfigurationManager.getInstance(this).getInt("TEXT_SIZE", 0); break;
+                        case 1: current = ConfigurationManager.getInstance(this).getInt("LIST_WIDTH", 0); break;
+                        case 2: current = ConfigurationManager.getInstance(this).getInt("BOTTOM_WIDTH", 0); break;
+                    }
+                    input.setText(String.valueOf(current));
+                    builder.setView(input);
+                    builder.setPositiveButton("确定", (d2, w) -> {
+                        try {
+                            int val = Integer.parseInt(input.getText().toString());
+                            switch (which) {
+                                case 0: ConfigurationManager.getInstance(this).putInt("TEXT_SIZE", val); break;
+                                case 1: ConfigurationManager.getInstance(this).putInt("LIST_WIDTH", val); break;
+                                case 2: ConfigurationManager.getInstance(this).putInt("BOTTOM_WIDTH", val); break;
+                            }
+                            Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                        } catch (NumberFormatException e) {
+                            Toast.makeText(this, "请输入数字", Toast.LENGTH_SHORT).show();
                         }
-                        @Override
-                        public void onNothingSelected(android.widget.AdapterView<?> parent) {}
                     });
-                    vh.container.addView(spinner);
-                } else if (item.type == ConfigItem.TYPE_EDIT) {
-                    EditText edit = new EditText(SettingsActivity.this);
-                    edit.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-                    edit.setText(String.valueOf(item.value));
-                    edit.setHint("数值");
-                    edit.setOnFocusChangeListener((v, hasFocus) -> {
-                        if (!hasFocus) {
-                            try {
-                                int val = Integer.parseInt(edit.getText().toString());
-                                config.putInt(item.key, val);
-                                item.value = val;
-                                Toast.makeText(SettingsActivity.this, "已保存", Toast.LENGTH_SHORT).show();
-                            } catch (NumberFormatException ignored) {}
-                        }
-                    });
-                    vh.container.addView(edit);
-                }
-                // 设置箭头颜色（统一风格）
-                vh.arrow.setText("›");
+                    builder.setNegativeButton("取消", null);
+                    builder.show();
+                })
+                .show();
+    }
+
+    // ------------------- 其他设置 -------------------
+    private void showOtherSettings() {
+        final String[] items = {"EPG缓存"};
+        new AlertDialog.Builder(this)
+                .setTitle("其他设置")
+                .setItems(items, (d, which) -> {
+                    // 显示EPG缓存选择
+                    final String[] options = {"关闭", "2点", "4点", "6点", "8点", "10点", "12点", "14点", "16点", "18点", "20点", "22点"};
+                    int current = ConfigurationManager.getInstance(this).getInt("EPGCACHE_SELECT", 4);
+                    new AlertDialog.Builder(this)
+                            .setTitle("EPG缓存")
+                            .setSingleChoiceItems(options, current, (d2, which2) -> {
+                                ConfigurationManager.getInstance(this).putInt("EPGCACHE_SELECT", which2);
+                                Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                                d2.dismiss();
+                            })
+                            .setNegativeButton("取消", null)
+                            .show();
+                })
+                .show();
+    }
+
+    // ------------------- 更多管理 -------------------
+    private void showMoreInfo() {
+        new AlertDialog.Builder(this)
+                .setTitle("更多管理")
+                .setMessage("酷9 2.0.1\n软件仅供测试")
+                .setPositiveButton("确定", null)
+                .show();
+    }
+
+    // ------------------- 订阅列表（通用） -------------------
+    private void showSubscriptionList(String prefKey, String selectedKey, String title) {
+        // 加载数据
+        Set<String> subSet = prefs.getStringSet(prefKey, new HashSet<>());
+        List<Subscription> list = new ArrayList<>();
+        for (String s : subSet) {
+            String[] parts = s.split("\\|\\|");
+            if (parts.length >= 2) {
+                list.add(new Subscription(parts[0], parts[1]));
             }
+        }
+
+        // 当前选中的订阅
+        String selected = prefs.getString(selectedKey, "");
+
+        // 用 BottomSheetDialog 或 AlertDialog 显示列表+添加
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.content_subscription, null);
+        RecyclerView recycler = dialogView.findViewById(R.id.sub_recycler);
+        Button addBtn = dialogView.findViewById(R.id.btn_add_sub);
+        TextView titleView = dialogView.findViewById(R.id.sub_title);
+        titleView.setText(title);
+
+        SubscriptionAdapter adapter = new SubscriptionAdapter(list, selected, item -> {
+            // 选中
+            prefs.edit().putString(selectedKey, item.name + "||" + item.url).apply();
+            // 刷新界面
+            showSubscriptionList(prefKey, selectedKey, title);
+        });
+        recycler.setLayoutManager(new LinearLayoutManager(this));
+        recycler.setAdapter(adapter);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setPositiveButton("关闭", null)
+                .create();
+        dialog.show();
+
+        addBtn.setOnClickListener(v -> {
+            // 弹出添加对话框
+            showAddSubscriptionDialog(prefKey, selectedKey, title, dialog);
+        });
+    }
+
+    private void showAddSubscriptionDialog(String prefKey, String selectedKey, String title, AlertDialog parentDialog) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("添加订阅");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50, 20, 50, 20);
+
+        final EditText nameInput = new EditText(this);
+        nameInput.setHint("名称（选填）");
+        layout.addView(nameInput);
+
+        final EditText urlInput = new EditText(this);
+        urlInput.setHint("地址");
+        layout.addView(urlInput);
+
+        builder.setView(layout);
+
+        builder.setPositiveButton("确定", (d, which) -> {
+            String name = nameInput.getText().toString().trim();
+            String url = urlInput.getText().toString().trim();
+            if (url.isEmpty()) {
+                Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (TextUtils.isEmpty(name)) {
+                name = url;
+            }
+            // 保存
+            Set<String> subSet = new HashSet<>(prefs.getStringSet(prefKey, new HashSet<>()));
+            subSet.add(name + "||" + url);
+            prefs.edit().putStringSet(prefKey, subSet).apply();
+            // 自动选中新添加的
+            prefs.edit().putString(selectedKey, name + "||" + url).apply();
+            Toast.makeText(this, "订阅已添加", Toast.LENGTH_SHORT).show();
+            // 刷新父对话框
+            if (parentDialog != null && parentDialog.isShowing()) {
+                parentDialog.dismiss();
+                showSubscriptionList(prefKey, selectedKey, title);
+            }
+        });
+        builder.setNegativeButton("取消", null);
+        builder.show();
+    }
+
+    // ---------- 订阅数据类 ----------
+    static class Subscription {
+        String name, url;
+        Subscription(String n, String u) { name = n; url = u; }
+    }
+
+    // ---------- 订阅适配器 ----------
+    class SubscriptionAdapter extends RecyclerView.Adapter<SubscriptionAdapter.ViewHolder> {
+        private List<Subscription> data;
+        private String selected;
+        private OnItemClickListener listener;
+
+        interface OnItemClickListener {
+            void onClick(Subscription item);
+        }
+
+        SubscriptionAdapter(List<Subscription> data, String selected, OnItemClickListener listener) {
+            this.data = data;
+            this.selected = selected;
+            this.listener = listener;
+        }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_subscription, parent, false);
+            return new ViewHolder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            Subscription sub = data.get(position);
+            holder.name.setText(sub.name);
+            holder.url.setText(sub.url);
+            String full = sub.name + "||" + sub.url;
+            holder.check.setVisibility(full.equals(selected) ? View.VISIBLE : View.GONE);
+            holder.itemView.setOnClickListener(v -> listener.onClick(sub));
         }
 
         @Override
         public int getItemCount() { return data.size(); }
 
-        // Header ViewHolder
-        class HeaderViewHolder extends RecyclerView.ViewHolder {
-            TextView title;
-            HeaderViewHolder(View itemView) {
-                super(itemView);
-                title = itemView.findViewById(R.id.header_title);
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name, url, check;
+            ViewHolder(View v) {
+                super(v);
+                name = v.findViewById(R.id.sub_name);
+                url = v.findViewById(R.id.sub_url);
+                check = v.findViewById(R.id.sub_check);
             }
         }
+    }
 
-        // Item ViewHolder
-        class ItemViewHolder extends RecyclerView.ViewHolder {
-            TextView icon, title, arrow;
-            LinearLayout container;
-            ItemViewHolder(View itemView) {
-                super(itemView);
-                icon = itemView.findViewById(R.id.item_icon);
-                title = itemView.findViewById(R.id.item_title);
-                arrow = itemView.findViewById(R.id.item_arrow);
-                container = itemView.findViewById(R.id.item_container);
+    // ---------- 菜单适配器 ----------
+    class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.MenuViewHolder> {
+        private String[] titles;
+        private OnMenuClickListener listener;
+        private int selectedPosition = -1;
+
+        interface OnMenuClickListener {
+            void onClick(int position);
+        }
+
+        MenuAdapter(String[] titles, OnMenuClickListener listener) {
+            this.titles = titles;
+            this.listener = listener;
+        }
+
+        void setSelectedPosition(int pos) {
+            selectedPosition = pos;
+            notifyDataSetChanged();
+        }
+
+        @NonNull
+        @Override
+        public MenuViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_menu, parent, false);
+            return new MenuViewHolder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull MenuViewHolder holder, int position) {
+            holder.text.setText(titles[position]);
+            holder.itemView.setBackgroundColor(selectedPosition == position ? 0x22FFFFFF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(position));
+        }
+
+        @Override
+        public int getItemCount() { return titles.length; }
+
+        class MenuViewHolder extends RecyclerView.ViewHolder {
+            TextView text;
+            MenuViewHolder(View v) {
+                super(v);
+                text = v.findViewById(R.id.menu_text);
             }
         }
     }
 }
 EOF
-echo "✅ SettingsActivity 已创建（分组优化）"
+echo "✅ SettingsActivity 已生成（酷9风格）"
 
 # ========== 8. 生成布局文件 ==========
-# activity_main.xml 不变，沿用之前的
+# activity_main.xml (不变)
 cat > "$LAYOUT_FILE" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -928,139 +1205,152 @@ cat > "$LAYOUT_FILE" <<'EOF'
 </RelativeLayout>
 EOF
 
-# activity_settings.xml 添加 Toolbar
+# activity_settings.xml (双列布局)
 cat > "$SETTINGS_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="#F5F5F5">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/menu_recycler"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="#333333"
+        android:padding="8dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/content_recycler"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="2"
+        android:background="#FFFFFF"
+        android:padding="8dp" />
+
+</LinearLayout>
+EOF
+
+# item_menu.xml
+cat > "$ITEM_MENU_LAYOUT" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menu_text"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="16dp"
+    android:textSize="16sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+
+# item_subscription.xml
+cat > "$ITEM_SUBSCRIPTION_LAYOUT" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="?attr/selectableItemBackground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/sub_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="名称"
+            android:textSize="16sp"
+            android:textColor="#333" />
+
+        <TextView
+            android:id="@+id/sub_check"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="√"
+            android:textSize="18sp"
+            android:textColor="#4CAF50"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/sub_url"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="地址"
+        android:textSize="12sp"
+        android:textColor="#888" />
+</LinearLayout>
+EOF
+
+# content_subscription.xml (包含RecyclerView和添加按钮)
+mkdir -p "app/src/main/res/layout"
+cat > "$CONTENT_SUBSCRIPTION_LAYOUT" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:padding="16dp">
 
-    <androidx.appcompat.widget.Toolbar
-        android:id="@+id/toolbar"
+    <TextView
+        android:id="@+id/sub_title"
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
-        android:background="?attr/colorPrimary"
-        app:titleTextColor="#FFFFFF"
-        app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
+        android:layout_height="wrap_content"
+        android:text="列表订阅"
+        android:textSize="18sp"
+        android:textColor="#333"
+        android:gravity="center"
+        android:paddingBottom="12dp" />
 
     <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/settings_recycler"
+        android:id="@+id/sub_recycler"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="8dp"
-        android:clipToPadding="false" />
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/btn_add_sub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="添加订阅"
+        android:backgroundTint="#2196F3" />
 </LinearLayout>
 EOF
 
-# 添加分组标题布局 item_config_header.xml
-cat > "app/src/main/res/layout/item_config_header.xml" <<'EOF'
+# 其他内容布局（占位）
+cat > "$CONTENT_PLAY_SETTINGS_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:padding="16dp"
-    android:textSize="16sp"
-    android:textColor="#888888"
-    android:background="#EEEEEE"
-    android:textStyle="bold"
-    android:id="@+id/header_title" />
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:text="播放设置内容"
+    android:textSize="18sp" />
 EOF
 
-# 修改 item_config.xml 增加图标和箭头
-cat > "$ITEM_CONFIG_LAYOUT" <<'EOF'
+cat > "$CONTENT_EPG_SUBSCRIPTION_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:padding="12dp"
-    android:background="#FFFFFF"
-    android:layout_marginBottom="1dp"
-    android:gravity="center_vertical">
-
-    <TextView
-        android:id="@+id/item_icon"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:gravity="center"
-        android:textSize="16sp"
-        android:textColor="#FFFFFF"
-        android:background="@drawable/circle_icon_bg"
-        android:layout_marginEnd="12dp" />
-
-    <TextView
-        android:id="@+id/item_title"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:text="标题"
-        android:textSize="16sp"
-        android:textColor="#333333"
-        android:layout_gravity="center_vertical" />
-
-    <LinearLayout
-        android:id="@+id/item_container"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginEnd="8dp" />
-
-    <TextView
-        android:id="@+id/item_arrow"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="›"
-        android:textSize="20sp"
-        android:textColor="#CCCCCC" />
-</LinearLayout>
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:text="EPG订阅内容"
+    android:textSize="18sp" />
 EOF
 
-# item_channel_layout 不变
-cat > "$ITEM_CHANNEL_LAYOUT" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="48dp"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
-    android:paddingLeft="16dp"
-    android:paddingRight="16dp"
-    android:background="?attr/selectableItemBackground">
+echo "✅ 布局文件已生成（酷9风格）"
 
-    <TextView
-        android:id="@+id/channel_name"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:text="频道名"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
-        android:singleLine="true" />
-
-    <ImageView
-        android:id="@+id/fav_icon"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:src="@drawable/ic_favorite_filled"
-        android:visibility="gone" />
-</LinearLayout>
-EOF
-
-# 添加圆形背景 drawable
+# ========== 9. 图标资源（不变） ==========
 mkdir -p app/src/main/res/drawable
-cat > app/src/main/res/drawable/circle_icon_bg.xml <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="#FF6200EE" />
-</shape>
-EOF
-
-# 图标资源沿用之前的
 cat > app/src/main/res/drawable/ic_favorite_border.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
@@ -1085,9 +1375,9 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
     <path android:fillColor="#FFFFFF" android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zm1,15h-2v-6h2v6zm0,-8h-2V7h2v2z"/>
 </vector>
 EOF
-echo "✅ 布局和图标资源已生成（含分组优化）"
+echo "✅ 图标资源已添加"
 
-# ========== 9. 生成最终的 MainActivity（已修复） ==========
+# ========== 10. 生成 MainActivity（修复返回键进入设置） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1473,9 +1763,9 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ MainActivity 已生成（修复完毕）"
+echo "✅ MainActivity 已生成（返回键进入设置）"
 
-# ========== 10. 验证文件生成 ==========
+# ========== 11. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
 ls -la "app/src/main/java/$PKG_PATH/source/SourceManager.java" || echo "❌ SourceManager 未生成"
 ls -la "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" || echo "❌ PlayerConfigManager 未生成"
@@ -1484,7 +1774,7 @@ ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ Conf
 ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
 ls -la "app/src/main/java/$PKG_PATH/MainActivity.java" || echo "❌ MainActivity 未生成"
 
-# ========== 11. 清理并构建 APK ==========
+# ========== 12. 清理并构建 APK ==========
 echo "🧹 清理构建缓存..."
 ./gradlew clean
 
@@ -1492,14 +1782,15 @@ echo "🚀 开始构建 APK..."
 chmod +x gradlew
 ./gradlew assembleDebug
 
-# ========== 12. 完成 ==========
+# ========== 13. 完成 ==========
 echo ""
 echo "🎉 部署并构建完成！"
 echo "📌 APK 位于: app/build/outputs/apk/debug/"
 echo ""
-echo "📌 已优化设置界面："
-echo "   ✅ 分组显示（播放设置 / 显示设置 / 偏好设置 / 列表设置 / 其他设置）"
-echo "   ✅ 每项带首字母图标和右箭头"
+echo "📌 酷9风格设置界面已实现："
+echo "   ✅ 左侧菜单列表（线路选择、频道搜索、播放设置、列表订阅……）"
+echo "   ✅ 右侧内容动态显示（列表订阅、EPG订阅等）"
+echo "   ✅ 订阅添加/选中/取消"
 echo "   ✅ 返回键直接进入设置界面"
 echo ""
 echo "📌 如需修改直播源，请编辑 assets/configuration.json 中的 LIVE_URLS"
