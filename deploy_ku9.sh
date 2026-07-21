@@ -32,57 +32,17 @@ echo "✅ 依赖已添加"
 # ========== 2. 添加权限 ==========
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 
-# ========== 3. 使用 Python 安全修改 AndroidManifest ==========
-echo "🛠️ 使用 Python 修改 AndroidManifest.xml..."
-python3 <<PYTHON_SCRIPT
-import sys
-import xml.etree.ElementTree as ET
-from xml.dom import minidom
+# ========== 3. 使用 sed 安全修改 AndroidManifest ==========
+echo "🛠️ 修改 AndroidManifest.xml（使用 sed）..."
 
-manifest_file = "$MANIFEST"
-pkg = "com.whyun.witv"
-act = "MainActivity"
+# 删除所有 <activity ...> ... </activity> 标签对（包括多行）
+# 使用 sed 的地址范围删除，但需要注意可能嵌套，但一般 activity 不嵌套。
+sed -i '/<activity/,/<\/activity>/d' "$MANIFEST"
 
-try:
-    tree = ET.parse(manifest_file)
-    root = tree.getroot()
-except Exception as e:
-    print(f"解析 XML 失败: {e}", file=sys.stderr)
-    sys.exit(1)
+# 在 </application> 之前插入新的 Activity
+sed -i "/<\/application>/i \    <activity android:name=\"$PKG.$MAIN_ACT_SIMPLE\" android:exported=\"true\">\n        <intent-filter>\n            <action android:name=\"android.intent.action.MAIN\" />\n            <category android:name=\"android.intent.category.LAUNCHER\" />\n        </intent-filter>\n    </activity>" "$MANIFEST"
 
-application = root.find('application')
-if application is None:
-    print("未找到 application 元素", file=sys.stderr)
-    sys.exit(1)
-
-# 删除所有现有的 activity
-for activity in application.findall('activity'):
-    application.remove(activity)
-
-# 创建新的 activity
-new_activity = ET.Element('activity')
-new_activity.set('android:name', f"{pkg}.{act}")
-new_activity.set('android:exported', 'true')
-
-# 创建 intent-filter
-intent_filter = ET.SubElement(new_activity, 'intent-filter')
-action = ET.SubElement(intent_filter, 'action')
-action.set('android:name', 'android.intent.action.MAIN')
-category = ET.SubElement(intent_filter, 'category')
-category.set('android:name', 'android.intent.category.LAUNCHER')
-
-application.append(new_activity)
-
-# 写回文件
-xml_str = ET.tostring(root, encoding='unicode')
-dom = minidom.parseString(xml_str)
-pretty_xml = dom.toprettyxml(indent="    ")
-pretty_xml = '\n'.join(pretty_xml.split('\n')[1:]) if pretty_xml.startswith('<?xml') else pretty_xml
-with open(manifest_file, 'w') as f:
-    f.write(pretty_xml)
-
-print("✅ AndroidManifest.xml 已成功修改")
-PYTHON_SCRIPT
+echo "✅ AndroidManifest.xml 已修改"
 
 # ========== 4. 创建功能类 ==========
 mkdir -p "app/src/main/java/$PKG_PATH/source"
