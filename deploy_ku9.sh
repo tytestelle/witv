@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终完整版 - 全部修复）"
+echo "🔥 部署酷9播放器（最终统一UI版 - 黑透明风格）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -137,7 +137,7 @@ public class SourceManager {
 }
 EOF
 
-    # ==================== 2. EPGParser.java（优化解析，根据频道名过滤） ====================
+    # ==================== 2. EPGParser.java（优化） ====================
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -214,7 +214,6 @@ public class EPGParser {
                 case XmlPullParser.END_TAG:
                     if ("programme".equals(parser.getName())) {
                         inProgramme = false;
-                        // 仅当频道名匹配或频道名为空时添加（兼容）
                         if (!currentTitle.isEmpty() && (currentChannel.equals(channelName) || currentChannel.isEmpty())) {
                             EpgProgram prog = new EpgProgram();
                             prog.title = currentTitle; prog.desc = currentDesc;
@@ -338,7 +337,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== 6. MainActivity.java（分组列表显示订阅名称 + 关闭按钮） ====================
+    # ==================== 6. MainActivity.java（功能保持不变） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -447,7 +446,6 @@ public class MainActivity extends AppCompatActivity {
             epgAdapter = new EpgAdapter(new ArrayList<>());
             epgRecycler.setAdapter(epgAdapter);
             playerView.setOnClickListener(v -> toggleOverlay());
-            // 关闭按钮
             ImageButton btnCloseOverlay = findViewById(R.id.btn_close_overlay);
             btnCloseOverlay.setOnClickListener(v -> hideOverlay());
             ImageButton btnSettings = findViewById(R.id.btn_settings);
@@ -462,7 +460,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 更新订阅名称
         currentSubName = prefs.getString("selected_sub_name", "");
         loadSource();
     }
@@ -485,17 +482,13 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         groupMap = map;
                         groupNames = names;
-                        // 构建完整分组列表：我的收藏 + 当前订阅名称 + 其他分组
                         List<String> displayGroups = new ArrayList<>();
                         displayGroups.add("我的收藏");
                         if (!currentSubName.isEmpty()) {
                             displayGroups.add("📡 " + currentSubName);
                         }
                         displayGroups.addAll(groupNames);
-                        // 去重（如果分组名已存在则跳过）
-                        // 简单起见，我们直接使用
                         groupAdapter.updateData(displayGroups);
-                        // 尝试恢复选中分组
                         String targetGroup = prefs.getString(KEY_SELECTED_GROUP, "");
                         if (!displayGroups.contains(targetGroup) && !displayGroups.isEmpty()) {
                             targetGroup = displayGroups.get(0);
@@ -532,7 +525,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void showChannelsForGroup(String group) {
         try {
-            // 如果是“我的收藏”
             if ("我的收藏".equals(group)) {
                 List<SourceManager.Channel> favChannels = new ArrayList<>();
                 for (List<SourceManager.Channel> list : groupMap.values()) {
@@ -543,17 +535,13 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 currentChannelList = favChannels;
-            } 
-            // 如果是订阅名称项（以 📡 开头），则不显示频道，或显示全部？我们暂时显示所有频道
-            else if (group.startsWith("📡 ")) {
-                // 显示所有频道（扁平化）
+            } else if (group.startsWith("📡 ")) {
                 List<SourceManager.Channel> allChannels = new ArrayList<>();
                 for (List<SourceManager.Channel> list : groupMap.values()) {
                     allChannels.addAll(list);
                 }
                 currentChannelList = allChannels;
-            } 
-            else {
+            } else {
                 List<SourceManager.Channel> list = groupMap.get(group);
                 if (list == null) list = new ArrayList<>();
                 currentChannelList = list;
@@ -709,7 +697,6 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             String group = data.get(position);
             holder.name.setText(group);
-            // 如果是订阅名称项，用不同颜色区分
             if (group.startsWith("📡 ")) {
                 holder.name.setTextColor(0xFFFFD700);
             } else {
@@ -756,7 +743,6 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
-            // 加载台标
             if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
                 String fileName = ch.name.hashCode() + ".png";
                 File logoFile = new File(logoDir, fileName);
@@ -801,7 +787,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 7. SettingsActivity.java（统一对话框黑透明） ====================
+    # ==================== 7. SettingsActivity.java（统一黑透明，修复按钮） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -968,10 +954,15 @@ public class SettingsActivity extends AppCompatActivity {
             urlInput.setHint("地址（必填）");
             layout.addView(urlInput);
             builder.setView(layout);
+            builder.setPositiveButton("确定", null);
+            builder.setNegativeButton("取消", null);
             AlertDialog dialog = builder.create();
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             dialog.show();
+            // 按钮颜色
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.WHITE);
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.WHITE);
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 try {
                     String name = nameInput.getText().toString().trim();
@@ -1009,10 +1000,14 @@ public class SettingsActivity extends AppCompatActivity {
             urlInput.setHint("EPG地址（XMLTV格式）");
             layout.addView(urlInput);
             builder.setView(layout);
+            builder.setPositiveButton("确定", null);
+            builder.setNegativeButton("取消", null);
             AlertDialog dialog = builder.create();
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             dialog.show();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.WHITE);
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.WHITE);
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String url = urlInput.getText().toString().trim();
                 if (url.isEmpty()) { Toast.makeText(SettingsActivity.this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
@@ -1026,7 +1021,6 @@ public class SettingsActivity extends AppCompatActivity {
             Toast.makeText(this, "打开EPG对话框失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
-    // 其他对话框也统一黑透明，为节省篇幅，仅示例两个，实际使用类似方式
     private void showLineSelection() {
         try {
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -1201,7 +1195,7 @@ public class SettingsActivity extends AppCompatActivity {
                 holder.title.setTextColor(Color.BLUE);
                 holder.check.setVisibility(View.VISIBLE);
             } else {
-                holder.title.setTextColor(Color.BLACK);
+                holder.title.setTextColor(Color.WHITE);
                 holder.check.setVisibility(View.GONE);
             }
             holder.itemView.setOnClickListener(item.listener);
@@ -1215,7 +1209,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 8. 布局文件（调整关闭按钮位置） ====================
+    # ==================== 8. 布局文件（黑透明风格） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1254,7 +1248,6 @@ EOF
             android:layout_weight="2"
             android:background="#55000000"
             android:padding="8dp" />
-        <!-- 关闭按钮置于左上角 -->
         <ImageButton
             android:id="@+id/btn_close_overlay"
             android:layout_width="48dp"
@@ -1265,7 +1258,6 @@ EOF
             android:background="#00000000"
             android:tint="#FFFFFF" />
     </LinearLayout>
-    <!-- 设置按钮置于右上角 -->
     <ImageButton
         android:id="@+id/btn_settings"
         android:layout_width="48dp"
@@ -1281,10 +1273,24 @@ EOF
     cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="horizontal" android:background="#F5F5F5">
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/menu_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#333333" android:padding="8dp" />
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/content_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2" android:background="#FFFFFF" android:padding="8dp" />
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="#DD000000">
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/menu_recycler"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="#33000000"
+        android:padding="8dp" />
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/content_recycler"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="2"
+        android:background="#44000000"
+        android:padding="8dp" />
 </LinearLayout>
 EOF
 
@@ -1379,7 +1385,7 @@ EOF
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="12dp"
-    android:background="?attr/selectableItemBackground">
+    android:background="#22000000">
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -1389,7 +1395,8 @@ EOF
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="16sp" />
+            android:textSize="16sp"
+            android:textColor="#FFFFFF" />
         <TextView
             android:id="@+id/content_check"
             android:layout_width="wrap_content"
@@ -1404,7 +1411,7 @@ EOF
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="12sp"
-        android:textColor="#888" />
+        android:textColor="#AAAAAA" />
 </LinearLayout>
 EOF
 
@@ -1500,12 +1507,11 @@ echo "🧹 清理并构建..."
 
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
+echo "📌 UI 已统一为黑透明风格，对话框按钮可见"
 echo "📌 使用说明："
 echo "   1. 打开应用，点击右上角齿轮进入设置"
-echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
-echo "   3. 点击订阅可切换选中/取消（选中字体变蓝）"
-echo "   4. 返回主界面自动加载频道，点击屏幕左侧或左上角关闭按钮可隐藏列表"
-echo "   5. 左侧分组列表显示'我的收藏'和当前订阅名称（带📡图标）"
-echo "   6. 中间频道列表（含台标），右侧 EPG 节目单（根据频道名过滤）"
-echo "   7. 长按频道可收藏/取消收藏"
-echo "   8. 所有设置对话框背景已改为黑色透明"
+echo "   2. 选择「列表订阅」，添加订阅（名称必填）"
+echo "   3. 点击订阅可切换选中（蓝色）"
+echo "   4. 返回主界面自动加载频道"
+echo "   5. 点击屏幕左侧或左上角关闭按钮可隐藏频道列表"
+echo "   6. 长按频道收藏/取消收藏"
