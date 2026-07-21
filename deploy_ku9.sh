@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终修正版 - 分组解析 + 台标 + 交互）"
+echo "🔥 部署酷9播放器（最终完善版 - 修复EPG闪退 + 订阅交互 + 关闭按钮）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -14,7 +14,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== 1. SourceManager.java（完整解析） ====================
+    # ==================== 1. SourceManager.java ====================
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -96,7 +96,6 @@ public class SourceManager {
     private void parseM3U(String content) {
         groupMap.clear(); groupNames.clear();
         String[] lines = content.split("\n");
-        String currentGroup = "默认分组";
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
             if (line.startsWith("#EXTM3U")) continue;
@@ -138,7 +137,7 @@ public class SourceManager {
 }
 EOF
 
-    # ==================== 2. EPGParser.java ====================
+    # ==================== 2. EPGParser.java（优化：超时 + 资源释放） ====================
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -148,6 +147,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -155,19 +155,32 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
     public static void loadEpg(String url, String channelName, OnEpgLoadListener listener) {
         new Thread(() -> {
+            OkHttpClient client = null;
+            Response response = null;
+            InputStream is = null;
             try {
-                OkHttpClient client = new OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                client = new OkHttpClient.Builder()
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
                     .build();
                 Request request = new Request.Builder().url(url).build();
-                Response response = client.newCall(request).execute();
-                if (response.code() != 200) throw new Exception("HTTP " + response.code());
-                InputStream is = response.body().byteStream();
+                response = client.newCall(request).execute();
+                if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
+                is = response.body().byteStream();
                 List<EpgProgram> programs = parseXmltv(is, channelName);
-                listener.onLoaded(programs);
+                if (listener != null) {
+                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                    mainHandler.post(() -> listener.onLoaded(programs));
+                }
             } catch (Exception e) {
-                listener.onError(e.getMessage());
+                e.printStackTrace();
+                if (listener != null) {
+                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                    mainHandler.post(() -> listener.onError(e.getMessage()));
+                }
+            } finally {
+                try { if (is != null) is.close(); } catch (Exception e) {}
+                try { if (response != null) response.close(); } catch (Exception e) {}
             }
         }).start();
     }
@@ -322,7 +335,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== 6. MainActivity.java（修正 ChannelAdapter） ====================
+    # ==================== 6. MainActivity.java（增加关闭按钮） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -429,6 +442,9 @@ public class MainActivity extends AppCompatActivity {
             epgAdapter = new EpgAdapter(new ArrayList<>());
             epgRecycler.setAdapter(epgAdapter);
             playerView.setOnClickListener(v -> toggleOverlay());
+            // 关闭按钮
+            ImageButton btnCloseOverlay = findViewById(R.id.btn_close_overlay);
+            btnCloseOverlay.setOnClickListener(v -> hideOverlay());
             ImageButton btnSettings = findViewById(R.id.btn_settings);
             btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
             loadSource();
@@ -559,13 +575,6 @@ public class MainActivity extends AppCompatActivity {
                 e.printStackTrace();
             }
         }).start();
-    }
-
-    private File getLogoFile(String channelName) {
-        String fileName = channelName.hashCode() + ".png";
-        File f = new File(logoDir, fileName);
-        if (f.exists()) return f;
-        return null;
     }
 
     private void playChannel(SourceManager.Channel channel) {
@@ -762,11 +771,12 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 7. SettingsActivity.java（完整） ====================
+    # ==================== 7. SettingsActivity.java（修复订阅交互） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.view.LayoutInflater;
@@ -876,10 +886,20 @@ public class SettingsActivity extends AppCompatActivity {
                     String url = parts.length > 1 ? parts[1] : "";
                     boolean isSelected = entry.equals(selected);
                     items.add(new ContentItem(name, url, isSelected, v -> {
-                        prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
-                        prefs.edit().putString("selected_sub_url", url).apply();
-                        prefs.edit().putString("selected_sub_name", name).apply();
-                        Toast.makeText(SettingsActivity.this, "已选中: " + name, Toast.LENGTH_SHORT).show();
+                        // 取消之前的选中
+                        // 如果当前已经选中，则取消选中
+                        if (isSelected) {
+                            prefs.edit().putString(KEY_SELECTED_SUB, "").apply();
+                            prefs.edit().putString("selected_sub_url", "").apply();
+                            prefs.edit().putString("selected_sub_name", "").apply();
+                            Toast.makeText(SettingsActivity.this, "已取消选中", Toast.LENGTH_SHORT).show();
+                        } else {
+                            // 选中新的
+                            prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
+                            prefs.edit().putString("selected_sub_url", url).apply();
+                            prefs.edit().putString("selected_sub_name", name).apply();
+                            Toast.makeText(SettingsActivity.this, "已选中: " + name, Toast.LENGTH_SHORT).show();
+                        }
                         showContent(3);
                         finish();
                     }));
@@ -979,7 +999,12 @@ public class SettingsActivity extends AppCompatActivity {
     private void showOtherSettings() { try { final String[] items = {"EPG缓存"}; new AlertDialog.Builder(this).setTitle("其他设置").setItems(items, (d, which) -> { Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "其他设置失败", Toast.LENGTH_SHORT).show(); } }
     private void showMoreInfo() { try { new AlertDialog.Builder(this).setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null).show(); } catch (Exception e) { Toast.makeText(this, "更多管理失败", Toast.LENGTH_SHORT).show(); } }
 
-    static class ContentItem { String title, subtitle; boolean isSelected; View.OnClickListener listener; ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; } ContentItem(String t, String s, boolean sel, View.OnClickListener l) { title=t; subtitle=s; isSelected=sel; listener=l; } }
+    // ===== ContentItem 和适配器（支持选中颜色） =====
+    static class ContentItem {
+        String title, subtitle; boolean isSelected; View.OnClickListener listener;
+        ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; }
+        ContentItem(String t, String s, boolean sel, View.OnClickListener l) { title=t; subtitle=s; isSelected=sel; listener=l; }
+    }
     static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private String[] titles; private OnMenuClickListener listener; private int selected=-1;
         interface OnMenuClickListener { void onClick(int pos); }
@@ -1008,7 +1033,14 @@ public class SettingsActivity extends AppCompatActivity {
             ContentItem item = items.get(position);
             holder.title.setText(item.title);
             holder.subtitle.setText(item.subtitle);
-            holder.check.setVisibility(item.isSelected ? View.VISIBLE : View.GONE);
+            // 根据选中状态设置颜色
+            if (item.isSelected) {
+                holder.title.setTextColor(Color.BLUE);
+                holder.check.setVisibility(View.VISIBLE);
+            } else {
+                holder.title.setTextColor(Color.BLACK);
+                holder.check.setVisibility(View.GONE);
+            }
             holder.itemView.setOnClickListener(item.listener);
         }
         @Override public int getItemCount() { return items.size(); }
@@ -1020,7 +1052,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 8. 布局文件 ====================
+    # ==================== 8. 布局文件（增加关闭按钮） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1059,6 +1091,15 @@ EOF
             android:layout_weight="2"
             android:background="#55000000"
             android:padding="8dp" />
+        <ImageButton
+            android:id="@+id/btn_close_overlay"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_close"
+            android:layout_gravity="top|end"
+            android:layout_margin="8dp"
+            android:background="#00000000"
+            android:tint="#FFFFFF" />
     </LinearLayout>
     <ImageButton
         android:id="@+id/btn_settings"
@@ -1183,8 +1224,7 @@ EOF
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="16sp"
-            android:textColor="#333" />
+            android:textSize="16sp" />
         <TextView
             android:id="@+id/content_check"
             android:layout_width="wrap_content"
@@ -1206,6 +1246,11 @@ EOF
     cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
+</vector>
+EOF
+    cat > "$TEMPLATE_DIR/res/drawable/ic_close.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M19,6.41L17.59,5 12,10.59 6.41,5 5,6.41 10.59,12 5,17.59 6.41,19 12,13.41 17.59,19 19,17.59 13.41,12z"/>
 </vector>
 EOF
     cat > "$TEMPLATE_DIR/res/drawable/ic_menu.xml" <<'EOF'
@@ -1293,8 +1338,8 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 使用说明："
 echo "   1. 打开应用，点击右上角齿轮进入设置"
 echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
-echo "   3. 添加后自动选中，返回主界面即可加载频道"
-echo "   4. 点击屏幕左侧（左半部分）呼出/隐藏频道列表"
+echo "   3. 点击订阅可切换选中/取消（选中字体变蓝）"
+echo "   4. 返回主界面自动加载频道，点击屏幕左侧或右上角关闭按钮可隐藏列表"
 echo "   5. 左侧分组列表，中间频道列表（含台标），右侧 EPG 节目单"
 echo "   6. 长按频道可收藏/取消收藏"
-echo "   7. TXT 支持 #genre# 分组，M3U 支持 group-title 和 tvg-logo"
+echo "   7. EPG 解析已优化，避免大文件闪退"
