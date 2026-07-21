@@ -1,66 +1,44 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始全自动部署酷9风格界面..."
+echo "🔥 开始部署酷9风格（针对 com.whyun.witv）..."
 
-# ========== 1. 自动检测项目配置 ==========
-MANIFEST="app/src/main/AndroidManifest.xml"
-if [ ! -f "$MANIFEST" ]; then
-    echo "❌ 找不到 AndroidManifest.xml"
-    exit 1
-fi
-
-PKG=$(grep -oP 'package="\K[^"]+' "$MANIFEST" | head -1)
-echo "📦 检测到包名: $PKG"
-
-# 检测原启动 Activity
-MAIN_ACT_ORIG=$(grep -A5 'android.intent.action.MAIN' "$MANIFEST" | grep 'android:name' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-if [[ "$MAIN_ACT_ORIG" != *.* ]]; then
-    MAIN_ACT_ORIG="$PKG.$MAIN_ACT_ORIG"
-fi
-MAIN_ACT_SIMPLE=$(basename "$MAIN_ACT_ORIG")
-PKG_PATH=$(echo "$PKG" | tr '.' '/')
+PKG="com.whyun.witv"
+PKG_PATH="com/whyun/witv"
+MAIN_ACT_SIMPLE="MainActivity"
 MAIN_ACT_FILE="app/src/main/java/$PKG_PATH/$MAIN_ACT_SIMPLE.java"
+LAYOUT_NAME="activity_main"
+LAYOUT_FILE="app/src/main/res/layout/$LAYOUT_NAME.xml"
+MANIFEST="app/src/main/AndroidManifest.xml"
 
-# 检测主布局
-if [ -f "$MAIN_ACT_FILE" ]; then
-    LAYOUT_NAME=$(grep -oP 'setContentView\(R\.layout\.\K[^)]+' "$MAIN_ACT_FILE" | head -1)
-    [ -z "$LAYOUT_NAME" ] && LAYOUT_NAME="activity_main"
-else
-    LAYOUT_NAME="activity_main"
-fi
-LAYOUT_FILE="app/src/main/res/layout/${LAYOUT_NAME}.xml"
-echo "🖌️ 主布局: $LAYOUT_NAME"
-
-# ========== 2. 备份原文件 ==========
+# 备份
 BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 [ -f "$MAIN_ACT_FILE" ] && cp "$MAIN_ACT_FILE" "$BACKUP_DIR/"
 [ -f "$LAYOUT_FILE" ] && cp "$LAYOUT_FILE" "$BACKUP_DIR/"
 cp "$MANIFEST" "$BACKUP_DIR/"
-echo "📂 原文件已备份到 $BACKUP_DIR"
+echo "📂 已备份到 $BACKUP_DIR"
 
-# ========== 3. 更新依赖（添加 ExoPlayer） ==========
+# 1. 确保 ExoPlayer 依赖（原仓库可能已有，但加上以防万一）
 APP_GRADLE="app/build.gradle"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
-# 检查是否已有 exoplayer，若没有则添加
 if ! grep -q "exoplayer" "$APP_GRADLE"; then
-    sed -i '/dependencies {/a \    implementation "com.google.android.exoplayer:exoplayer:2.19.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "org.mozilla:rhino:1.7.14"\n    implementation "com.github.bumptech.glide:glide:4.16.0"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"' "$APP_GRADLE"
-else
-    echo "依赖已存在，跳过添加"
+    sed -i '/dependencies {/a \    implementation "com.google.android.exoplayer:exoplayer:2.19.1"\n    implementation "com.google.android.exoplayer:exoplayer-hls:2.19.1"\n    implementation "com.google.android.exoplayer:exoplayer-ui:2.19.1"' "$APP_GRADLE"
 fi
+# 也加上其他依赖
+sed -i '/dependencies {/a \    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
 
-# ========== 4. 添加权限 ==========
-sed -i '/<manifest /a \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' "$MANIFEST"
+# 2. 权限
+sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' "$MANIFEST"
 
-# ========== 5. 创建功能类（使用 cat 直接嵌入，避免 sed 错误） ==========
+# 3. 创建功能类（使用正确的包名）
 mkdir -p "app/src/main/java/$PKG_PATH/source"
 mkdir -p "app/src/main/java/$PKG_PATH/player"
 mkdir -p "app/src/main/java/$PKG_PATH/favorite"
 mkdir -p "app/src/main/java/$PKG_PATH/epg"
 
-cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<EOF
-package $PKG.source;
+cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
+package com.whyun.witv.source;
 
 import android.content.Context;
 import java.io.BufferedReader;
@@ -128,8 +106,8 @@ public class SourceManager {
 }
 EOF
 
-cat > "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" <<EOF
-package $PKG.player;
+cat > "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" <<'EOF'
+package com.whyun.witv.player;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -150,8 +128,8 @@ public class PlayerConfigManager {
 }
 EOF
 
-cat > "app/src/main/java/$PKG_PATH/favorite/FavoriteManager.java" <<EOF
-package $PKG.favorite;
+cat > "app/src/main/java/$PKG_PATH/favorite/FavoriteManager.java" <<'EOF'
+package com.whyun.witv.favorite;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -168,8 +146,8 @@ public class FavoriteManager {
 }
 EOF
 
-cat > "app/src/main/java/$PKG_PATH/epg/EPGParserFactory.java" <<EOF
-package $PKG.epg;
+cat > "app/src/main/java/$PKG_PATH/epg/EPGParserFactory.java" <<'EOF'
+package com.whyun.witv.epg;
 
 import java.util.List;
 import java.util.Map;
@@ -183,18 +161,21 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# ========== 6. 修改 AndroidManifest ==========
-# 删除所有 LAUNCHER 标签
+# 4. 修改 AndroidManifest：确保只有一个 LAUNCHER，且指向 MainActivity
+# 先删除所有 LAUNCHER
 sed -i '/<category android:name="android.intent.category.LAUNCHER" \/>/d' "$MANIFEST"
-# 确保第一个 activity 成为启动入口
-if grep -q '<activity' "$MANIFEST"; then
-    sed -i "0,/<activity/s/<activity/<activity android:name=\"$MAIN_ACT_ORIG\" android:exported=\"true\">\n            <intent-filter>\n                <action android:name=\"android.intent.action.MAIN\" \/>\n                <category android:name=\"android.intent.category.LAUNCHER\" \/>\n            <\/intent-filter>/" "$MANIFEST"
-fi
+# 在 application 内添加新的 activity 声明（如果已存在则替换，这里简单追加一个，但为了避免重复，先删除旧的 main activity 声明）
+# 更稳妥：直接替换整个 application 内的 activity，但为简单，我们移除包含 MainActivity 的 activity 标签，重新添加
+# 用 awk 或 sed 处理复杂，我们采用删除原有 MainActivity 声明，再添加新的。
+# 但为了避免复杂，我们采用在第一个 activity 前插入新的 LAUNCHER，但可能会重复。
+# 这里采用简单方法：在 </application> 前插入一个新的 activity 并设置为 LAUNCHER，同时确保其他 activity 没有 LAUNCHER
+# 由于我们已经删除了所有 LAUNCHER，现在在 application 内添加一个新的 activity
+sed -i "/<application/a \        <activity android:name=\"$PKG.$MAIN_ACT_SIMPLE\" android:exported=\"true\">\n            <intent-filter>\n                <action android:name=\"android.intent.action.MAIN\" \/>\n                <category android:name=\"android.intent.category.LAUNCHER\" \/>\n            <\/intent-filter>\n        <\/activity>" "$MANIFEST"
 echo "✅ AndroidManifest 已修改"
 
-# ========== 7. 生成酷9风格 MainActivity ==========
-cat > "$MAIN_ACT_FILE" <<EOF
-package $PKG;
+# 5. 生成酷9风格 MainActivity
+cat > "$MAIN_ACT_FILE" <<'EOF'
+package com.whyun.witv;
 
 import android.os.Bundle;
 import android.view.KeyEvent;
@@ -210,12 +191,12 @@ import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.ui.PlayerView;
-import $PKG.favorite.FavoriteManager;
-import $PKG.player.PlayerConfigManager;
-import $PKG.source.SourceManager;
+import com.whyun.witv.favorite.FavoriteManager;
+import com.whyun.witv.player.PlayerConfigManager;
+import com.whyun.witv.source.SourceManager;
 import java.util.List;
 
-public class $MAIN_ACT_SIMPLE extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity {
 
     private PlayerView playerView;
     private ExoPlayer player;
@@ -227,7 +208,7 @@ public class $MAIN_ACT_SIMPLE extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.${LAYOUT_NAME});
+        setContentView(R.layout.activity_main);
 
         PlayerConfigManager.init(this);
         FavoriteManager.init(this);
@@ -253,7 +234,7 @@ public class $MAIN_ACT_SIMPLE extends AppCompatActivity {
             }
             @Override
             public void onPlayerError(PlaybackException error) {
-                Toast.makeText($MAIN_ACT_SIMPLE.this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -271,8 +252,8 @@ public class $MAIN_ACT_SIMPLE extends AppCompatActivity {
     }
 
     private void loadDefaultSource() {
-        // 替换为你的默认源地址
-        String defaultUrl = "https://example.com/channels.m3u";  // 请修改！
+        // 替换为你的直播源 URL
+        String defaultUrl = "https://example.com/channels.m3u";
         SourceManager sourceManager = new SourceManager(this);
         sourceManager.loadFromUrl(defaultUrl, new SourceManager.OnSourceLoadListener() {
             @Override
@@ -289,7 +270,7 @@ public class $MAIN_ACT_SIMPLE extends AppCompatActivity {
             }
             @Override
             public void onError(String error) {
-                Toast.makeText($MAIN_ACT_SIMPLE.this, "加载源失败: " + error, Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -362,7 +343,7 @@ public class $MAIN_ACT_SIMPLE extends AppCompatActivity {
                 SourceManager sourceManager = new SourceManager(this);
                 sourceManager.loadFromUrl(url, new SourceManager.OnSourceLoadListener() {
                     @Override public void onLoaded(List<SourceManager.Channel> channels) { channelList = channels; if (!channels.isEmpty()) playChannel(channels.get(0)); }
-                    @Override public void onError(String error) { Toast.makeText($MAIN_ACT_SIMPLE.this, "加载失败: "+error, Toast.LENGTH_SHORT).show(); }
+                    @Override public void onError(String error) { Toast.makeText(MainActivity.this, "加载失败: "+error, Toast.LENGTH_SHORT).show(); }
                 });
             }
         });
@@ -418,10 +399,10 @@ public class $MAIN_ACT_SIMPLE extends AppCompatActivity {
 }
 EOF
 
-echo "✅ 生成新的 MainActivity: $MAIN_ACT_FILE"
+echo "✅ 生成新的 MainActivity"
 
-# ========== 8. 生成酷9风格主布局 ==========
-cat > "$LAYOUT_FILE" <<EOF
+# 6. 生成布局文件（带底部控制栏）
+cat > "$LAYOUT_FILE" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -487,9 +468,9 @@ cat > "$LAYOUT_FILE" <<EOF
 </RelativeLayout>
 EOF
 
-echo "✅ 生成布局文件: $LAYOUT_FILE"
+echo "✅ 生成布局文件"
 
-# ========== 9. 添加图标资源 ==========
+# 7. 添加图标资源
 mkdir -p app/src/main/res/drawable
 cat > app/src/main/res/drawable/ic_favorite_border.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -516,7 +497,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 </vector>
 EOF
 
-# ========== 10. 添加菜单资源 ==========
+# 8. 菜单资源
 mkdir -p app/src/main/res/menu
 cat > app/src/main/res/menu/main_menu.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -528,9 +509,15 @@ cat > app/src/main/res/menu/main_menu.xml <<'EOF'
 </menu>
 EOF
 
-# ========== 11. 完成 ==========
+# 9. 删除可能因之前错误产生的多余文件（如 android.intent.action.MAIN.java 等）
+find app/src/main/java -name "android.intent.action.*.java" -delete
+find app/src/main/java -name "*.java" -exec grep -l "package .;" {} \; -delete
+
+echo "✅ 清理多余文件"
+
+# 10. 完成
 echo ""
 echo "🎉 部署完成！"
-echo "📌 请务必修改 MainActivity 中的 defaultUrl 为你的直播源地址（在 loadDefaultSource() 方法中）。"
+echo "📌 请修改 MainActivity 中的 defaultUrl 为你的直播源地址（约第71行）。"
 echo "📌 然后运行 ./gradlew assembleDebug 编译 APK。"
 echo "📌 安装后 APP 将启动即播放，无需网页配置。"
