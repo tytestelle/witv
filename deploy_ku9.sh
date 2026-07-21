@@ -1420,9 +1420,12 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ========== 11. 强制移除接口 static 修饰（预防旧文件残留） ==========
-sed -i '/interface OnChannelClickListener/s/static //g' "$MAIN_ACT_FILE"
-echo "✅ 已强制移除接口 static"
+# ========== 11. 彻底清除任何残留的 static interface ==========
+# 使用更精确的正则，匹配可能包含空格的 "static" 和 "interface"
+sed -i 's/\bstatic\s\+interface\s\+OnChannelClickListener/interface OnChannelClickListener/g' "$MAIN_ACT_FILE"
+# 若还有遗漏，再清除一次
+sed -i 's/static interface OnChannelClickListener/interface OnChannelClickListener/g' "$MAIN_ACT_FILE"
+echo "✅ 已彻底移除接口 static 修饰"
 
 # ========== 12. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
@@ -1433,7 +1436,10 @@ ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ Conf
 ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
 ls -la "app/src/main/java/$PKG_PATH/MainActivity.java" || echo "❌ MainActivity 未生成"
 
-# ========== 13. 构建 APK ==========
+# ========== 13. 清理并构建 APK ==========
+echo "🧹 清理构建缓存..."
+./gradlew clean
+
 echo "🚀 开始构建 APK..."
 chmod +x gradlew
 ./gradlew assembleDebug
