@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格（修复闪退版）..."
+echo "🔥 开始部署酷9风格（针对 com.whyun.witv）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -19,25 +19,35 @@ mkdir -p "$BACKUP_DIR"
 cp "$MANIFEST" "$BACKUP_DIR/"
 echo "📂 已备份到 $BACKUP_DIR"
 
-# 1. 添加 ExoPlayer 和 OkHttp 依赖
+# 1. 更新 build.gradle（确保 ExoPlayer 依赖）
 APP_GRADLE="app/build.gradle"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
+
+# 检查是否已有 exoplayer，若没有则添加
 if ! grep -q "exoplayer" "$APP_GRADLE"; then
+    # 在 dependencies 块内插入依赖
     sed -i '/dependencies {/a \    implementation "com.google.android.exoplayer:exoplayer:2.19.1"\n    implementation "com.google.android.exoplayer:exoplayer-hls:2.19.1"\n    implementation "com.google.android.exoplayer:exoplayer-ui:2.19.1"' "$APP_GRADLE"
 fi
-sed -i '/dependencies {/a \    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
 
-# 2. 添加权限到 AndroidManifest
-sed -i '/<manifest /a \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+# 添加其他依赖（确保不重复）
+for dep in "com.squareup.okhttp3:okhttp:4.12.0" "com.google.code.gson:gson:2.10.1" "androidx.preference:preference:1.2.1"; do
+    if ! grep -q "$dep" "$APP_GRADLE"; then
+        sed -i "/dependencies {/a \    implementation \"$dep\"" "$APP_GRADLE"
+    fi
+done
 
-# 3. 创建功能类（正确包名）
+echo "✅ 依赖已添加"
+
+# 2. 添加权限
+if ! grep -q "READ_EXTERNAL_STORAGE" "$MANIFEST"; then
+    sed -i '/<manifest /a \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+fi
+
+# 3. 创建功能类（完整实现）
 mkdir -p "app/src/main/java/$PKG_PATH/source"
-mkdir -p "app/src/main/java/$PKG_PATH/player"
-mkdir -p "app/src/main/java/$PKG_PATH/favorite"
-mkdir -p "app/src/main/java/$PKG_PATH/epg"
+cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
+package com.whyun.witv.source;
 
-cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<EOF
-package $PKG.source;
 import android.content.Context;
 import java.io.BufferedReader;
 import java.io.File;
@@ -104,8 +114,9 @@ public class SourceManager {
 }
 EOF
 
-cat > "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" <<EOF
-package $PKG.player;
+mkdir -p "app/src/main/java/$PKG_PATH/player"
+cat > "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" <<'EOF'
+package com.whyun.witv.player;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
@@ -124,8 +135,9 @@ public class PlayerConfigManager {
 }
 EOF
 
-cat > "app/src/main/java/$PKG_PATH/favorite/FavoriteManager.java" <<EOF
-package $PKG.favorite;
+mkdir -p "app/src/main/java/$PKG_PATH/favorite"
+cat > "app/src/main/java/$PKG_PATH/favorite/FavoriteManager.java" <<'EOF'
+package com.whyun.witv.favorite;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
@@ -140,8 +152,9 @@ public class FavoriteManager {
 }
 EOF
 
-cat > "app/src/main/java/$PKG_PATH/epg/EPGParserFactory.java" <<EOF
-package $PKG.epg;
+mkdir -p "app/src/main/java/$PKG_PATH/epg"
+cat > "app/src/main/java/$PKG_PATH/epg/EPGParserFactory.java" <<'EOF'
+package com.whyun.witv.epg;
 import java.util.List;
 import java.util.Map;
 public class EPGParserFactory {
@@ -153,12 +166,15 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# 4. 安全修改 AndroidManifest（删除所有 LAUNCHER，添加新 LAUNCHER）
-echo "🛠️ 修复 AndroidManifest..."
+# 4. 修改 AndroidManifest（安全方式）
+echo "🛠️ 正在修复 AndroidManifest.xml..."
+# 使用 awk 删除所有 LAUNCHER 并添加新的
 awk -v pkg="$PKG" -v act="$MAIN_ACT_SIMPLE" '
 BEGIN { printed=0; }
 {
-    if ($0 ~ /android.intent.category.LAUNCHER/) { next }
+    if ($0 ~ /android.intent.category.LAUNCHER/) {
+        next
+    }
     if ($0 ~ /<activity/ && printed==0) {
         printed=1
         print "    <activity android:name=\"" pkg "." act "\" android:exported=\"true\">"
@@ -173,101 +189,27 @@ BEGIN { printed=0; }
 ' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 echo "✅ AndroidManifest 已修复"
 
-# 5. 生成酷9风格布局（使用 PlayerView）
-cat > "$LAYOUT_FILE" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#000000">
-
-    <com.google.android.exoplayer2.ui.PlayerView
-        android:id="@+id/player_view"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:use_controller="false" />
-
-    <LinearLayout
-        android:id="@+id/bottom_controls"
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:layout_alignParentBottom="true"
-        android:background="#CC000000"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingLeft="16dp"
-        android:paddingRight="16dp">
-
-        <TextView
-            android:id="@+id/bottom_channel_name"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="频道名称"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/bottom_epg_info"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginRight="16dp"
-            android:text="节目信息"
-            android:textColor="#AAAAAA"
-            android:textSize="14sp" />
-
-        <ImageView
-            android:id="@+id/btn_favorite"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_favorite_border"
-            android:layout_marginRight="12dp" />
-
-        <ImageView
-            android:id="@+id/btn_settings"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_settings"
-            android:layout_marginRight="12dp" />
-
-        <ImageView
-            android:id="@+id/btn_epg"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_info" />
-    </LinearLayout>
-
-</RelativeLayout>
-EOF
-
-# 6. 生成酷9风格 MainActivity（修复类型和权限）
+# 5. 生成酷9风格 MainActivity
 cat > "$MAIN_ACT_FILE" <<'EOF'
-package PACKAGE_PLACEHOLDER;
+package com.whyun.witv;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.ui.PlayerView;
-import PACKAGE_PLACEHOLDER.favorite.FavoriteManager;
-import PACKAGE_PLACEHOLDER.player.PlayerConfigManager;
-import PACKAGE_PLACEHOLDER.source.SourceManager;
+import com.whyun.witv.favorite.FavoriteManager;
+import com.whyun.witv.player.PlayerConfigManager;
+import com.whyun.witv.source.SourceManager;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -278,7 +220,6 @@ public class MainActivity extends AppCompatActivity {
     private ImageView btnFavorite, btnSettings, btnEpg;
     private SourceManager.Channel currentChannel;
     private List<SourceManager.Channel> channelList;
-    private static final int REQUEST_STORAGE = 100;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -288,7 +229,7 @@ public class MainActivity extends AppCompatActivity {
         PlayerConfigManager.init(this);
         FavoriteManager.init(this);
 
-        playerView = findViewById(R.id.player_view);
+        playerView = findViewById(R.id.player_container);
         bottomChannelName = findViewById(R.id.bottom_channel_name);
         bottomEpgInfo = findViewById(R.id.bottom_epg_info);
         btnFavorite = findViewById(R.id.btn_favorite);
@@ -296,60 +237,20 @@ public class MainActivity extends AppCompatActivity {
         btnEpg = findViewById(R.id.btn_epg);
 
         initPlayer();
-        checkPermissionsAndLoad();
-        setupClickListeners();
-        setupPlayerListener();
-    }
+        loadDefaultSource();
 
-    private void checkPermissionsAndLoad() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                    REQUEST_STORAGE);
-        } else {
-            loadDefaultSource();
-        }
-    }
+        btnFavorite.setOnClickListener(v -> toggleFavorite());
+        btnSettings.setOnClickListener(v -> showSettingsDialog());
+        btnEpg.setOnClickListener(v -> showEpgDialog());
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_STORAGE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                loadDefaultSource();
-            } else {
-                Toast.makeText(this, "需要存储权限以读取本地源", Toast.LENGTH_LONG).show();
-                loadDefaultSource(); // 仍尝试加载网络源
-            }
-        }
-    }
-
-    private void loadDefaultSource() {
-        String defaultUrl = "https://example.com/channels.m3u"; // 替换为你的源
-        SourceManager sourceManager = new SourceManager(this);
-        sourceManager.loadFromUrl(defaultUrl, new SourceManager.OnSourceLoadListener() {
+        player.addListener(new Player.Listener() {
             @Override
-            public void onLoaded(List<SourceManager.Channel> channels) {
-                channelList = channels;
-                if (!channels.isEmpty()) {
-                    SourceManager.Channel target = null;
-                    for (SourceManager.Channel ch : channels) {
-                        if (FavoriteManager.isFavorite(ch.name)) {
-                            target = ch;
-                            break;
-                        }
-                    }
-                    if (target == null) target = channels.get(0);
-                    playChannel(target);
-                } else {
-                    Toast.makeText(MainActivity.this, "未获取到频道", Toast.LENGTH_SHORT).show();
-                }
+            public void onPlaybackStateChanged(int playbackState) {
+                if (playbackState == Player.STATE_READY) updateUI();
             }
             @Override
-            public void onError(String error) {
-                Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_LONG).show();
+            public void onPlayerError(PlaybackException error) {
+                Toast.makeText(MainActivity.this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -366,27 +267,31 @@ public class MainActivity extends AppCompatActivity {
         playerView.setPlayer(player);
     }
 
-    private void setupClickListeners() {
-        btnFavorite.setOnClickListener(v -> toggleFavorite());
-        btnSettings.setOnClickListener(v -> showSettingsDialog());
-        btnEpg.setOnClickListener(v -> showEpgDialog());
-    }
-
-    private void setupPlayerListener() {
-        player.addListener(new Player.Listener() {
+    private void loadDefaultSource() {
+        // TODO: 替换为你的直播源地址
+        String defaultUrl = "https://example.com/channels.m3u";
+        SourceManager sourceManager = new SourceManager(this);
+        sourceManager.loadFromUrl(defaultUrl, new SourceManager.OnSourceLoadListener() {
             @Override
-            public void onPlaybackStateChanged(int playbackState) {
-                if (playbackState == Player.STATE_READY) updateUI();
+            public void onLoaded(List<SourceManager.Channel> channels) {
+                channelList = channels;
+                if (!channels.isEmpty()) {
+                    SourceManager.Channel target = null;
+                    for (SourceManager.Channel ch : channels) {
+                        if (FavoriteManager.isFavorite(ch.name)) { target = ch; break; }
+                    }
+                    if (target == null) target = channels.get(0);
+                    playChannel(target);
+                }
             }
             @Override
-            public void onPlayerError(PlaybackException error) {
-                Toast.makeText(MainActivity.this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+            public void onError(String error) {
+                Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_SHORT).show();
             }
         });
     }
 
     private void playChannel(SourceManager.Channel channel) {
-        if (channel == null) return;
         currentChannel = channel;
         MediaItem mediaItem = MediaItem.fromUri(channel.url);
         player.setMediaItem(mediaItem);
@@ -510,8 +415,76 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# 替换包名占位符
-sed -i "s/PACKAGE_PLACEHOLDER/$PKG/g" "$MAIN_ACT_FILE"
+echo "✅ 生成 MainActivity"
+
+# 6. 生成布局文件
+cat > "$LAYOUT_FILE" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <FrameLayout
+        android:id="@+id/player_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:id="@+id/bottom_controls"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_alignParentBottom="true"
+        android:background="#CC000000"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp">
+
+        <TextView
+            android:id="@+id/bottom_channel_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="频道名称"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/bottom_epg_info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginRight="16dp"
+            android:text="节目信息"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp" />
+
+        <ImageView
+            android:id="@+id/btn_favorite"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_favorite_border"
+            android:layout_marginRight="12dp" />
+
+        <ImageView
+            android:id="@+id/btn_settings"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_settings"
+            android:layout_marginRight="12dp" />
+
+        <ImageView
+            android:id="@+id/btn_epg"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_info" />
+    </LinearLayout>
+
+</RelativeLayout>
+EOF
+
+echo "✅ 生成布局文件"
 
 # 7. 添加图标资源
 mkdir -p app/src/main/res/drawable
@@ -542,7 +515,7 @@ EOF
 
 echo "✅ 图标资源已添加"
 
-# 8. 添加菜单（可选）
+# 8. 添加菜单
 mkdir -p app/src/main/res/menu
 cat > app/src/main/res/menu/main_menu.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -556,5 +529,4 @@ EOF
 
 echo ""
 echo "🎉 部署完成！"
-echo "📌 请修改 MainActivity 中的 defaultUrl 为你的直播源地址（位于 loadDefaultSource() 方法）。"
-echo "📌 运行 ./gradlew assembleDebug 编译 APK。"
+echo "📌 请修改 MainActivity 中的 defaultUrl 为你的直播源地址，然后编译。"
