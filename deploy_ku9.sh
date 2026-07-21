@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终稳定版 - 修复加载 + 列表宽度）"
+echo "🔥 部署酷9播放器（最终修正版 - 分组列表显示订阅名 + 缩进 + 去逗号）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -9,12 +9,10 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
     mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
 
-    # ==================== configuration.json ====================
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== 1. SourceManager.java ====================
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -137,7 +135,6 @@ public class SourceManager {
 }
 EOF
 
-    # ==================== 2. EPGParser.java ====================
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -238,7 +235,6 @@ public class EPGParser {
 }
 EOF
 
-    # ==================== 3. PlayerConfigManager.java ====================
     cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -258,7 +254,6 @@ public class PlayerConfigManager {
 }
 EOF
 
-    # ==================== 4. FavoriteManager.java ====================
     cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -283,7 +278,6 @@ public class FavoriteManager {
 }
 EOF
 
-    # ==================== 5. ConfigurationManager.java ====================
     cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -337,7 +331,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== 6. MainActivity.java（修正加载逻辑 + 调整列表宽度） ====================
+    # ==================== MainActivity.java (修改分组列表逻辑) ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -514,7 +508,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 每次返回都重新加载
         loadSource();
     }
 
@@ -559,10 +552,11 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         groupMap = map;
                         groupNames = names;
+                        // 构建分组列表：我的收藏 + 当前订阅源名称 + 其他分组
                         List<String> displayGroups = new ArrayList<>();
                         displayGroups.add("我的收藏");
                         if (!currentSubName.isEmpty()) {
-                            displayGroups.add("📡 " + currentSubName);
+                            displayGroups.add(currentSubName);  // 直接显示订阅名称，不加前缀
                         }
                         displayGroups.addAll(groupNames);
                         groupAdapter.updateData(displayGroups);
@@ -617,16 +611,17 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 currentChannelList = favChannels;
-            } else if (group.startsWith("📡 ")) {
+            } else if (groupNames.contains(group)) {
+                List<SourceManager.Channel> list = groupMap.get(group);
+                if (list == null) list = new ArrayList<>();
+                currentChannelList = list;
+            } else {
+                // 可能是订阅名称（不是分组），显示所有频道
                 List<SourceManager.Channel> allChannels = new ArrayList<>();
                 for (List<SourceManager.Channel> list : groupMap.values()) {
                     allChannels.addAll(list);
                 }
                 currentChannelList = allChannels;
-            } else {
-                List<SourceManager.Channel> list = groupMap.get(group);
-                if (list == null) list = new ArrayList<>();
-                currentChannelList = list;
             }
             channelAdapter.updateData(currentChannelList);
             for (SourceManager.Channel ch : currentChannelList) {
@@ -687,7 +682,12 @@ public class MainActivity extends AppCompatActivity {
             player.setMediaItem(MediaItem.fromUri(channel.url));
             player.prepare();
             player.play();
-            tvChannelName.setText(channel.name);
+            // 去除频道名末尾的逗号
+            String displayName = channel.name;
+            if (displayName.endsWith("，") || displayName.endsWith(",")) {
+                displayName = displayName.substring(0, displayName.length() - 1);
+            }
+            tvChannelName.setText(displayName);
         } catch (Exception e) {
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -782,7 +782,11 @@ public class MainActivity extends AppCompatActivity {
             TextView tvCurrentEpg = popupView.findViewById(R.id.popup_current_epg);
             TextView tvNextEpg = popupView.findViewById(R.id.popup_next_epg);
 
-            tvName.setText(currentChannel.name);
+            String displayName = currentChannel.name;
+            if (displayName.endsWith("，") || displayName.endsWith(",")) {
+                displayName = displayName.substring(0, displayName.length() - 1);
+            }
+            tvName.setText(displayName);
             File logoFile = null;
             if (currentChannel.logoUrl != null && !currentChannel.logoUrl.isEmpty()) {
                 String fileName = currentChannel.name.hashCode() + ".png";
@@ -857,8 +861,13 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             String group = data.get(position);
             holder.name.setText(group);
-            if (group.startsWith("📡 ")) holder.name.setTextColor(0xFFFFD700);
-            else holder.name.setTextColor(0xFFFFFFFF);
+            // 如果不是“我的收藏”且不是订阅名（订阅名通常不是分组），则使用普通颜色
+            // 我们统一用白色，但“我的收藏”高亮
+            if ("我的收藏".equals(group)) {
+                holder.name.setTextColor(0xFFFFD700);
+            } else {
+                holder.name.setTextColor(0xFFFFFFFF);
+            }
             holder.itemView.setBackgroundColor(group.equals(selectedGroup) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(group));
         }
@@ -891,7 +900,12 @@ public class MainActivity extends AppCompatActivity {
         }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SourceManager.Channel ch = data.get(position);
-            holder.name.setText(ch.name);
+            // 去除末尾逗号
+            String displayName = ch.name;
+            if (displayName.endsWith("，") || displayName.endsWith(",")) {
+                displayName = displayName.substring(0, displayName.length() - 1);
+            }
+            holder.name.setText(displayName);
             boolean isFav = favoriteSet.contains(ch.name);
             holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
@@ -942,7 +956,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 7. SettingsActivity.java（完整） ====================
+    # ==================== SettingsActivity.java（不变） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1312,7 +1326,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 8. 布局文件（调整列表宽度） ====================
+    # ==================== 布局文件（分组项缩进） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1320,13 +1334,11 @@ EOF
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- 播放器 -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 左侧点击区域（用于显示频道列表） -->
     <View
         android:id="@+id/left_click_area"
         android:layout_width="48dp"
@@ -1334,7 +1346,6 @@ EOF
         android:layout_gravity="start"
         android:background="#00000000" />
 
-    <!-- 右侧点击区域（用于关闭频道列表） -->
     <View
         android:id="@+id/right_click_area"
         android:layout_width="80dp"
@@ -1342,7 +1353,6 @@ EOF
         android:layout_gravity="end"
         android:background="#00000000" />
 
-    <!-- 顶部：分组名称 -->
     <TextView
         android:id="@+id/tv_group_name"
         android:layout_width="wrap_content"
@@ -1355,7 +1365,6 @@ EOF
         android:textSize="16sp"
         android:textStyle="bold" />
 
-    <!-- 底部信息栏 -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
@@ -1416,7 +1425,6 @@ EOF
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- 频道列表覆盖层（缩窄宽度，右侧留白） -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -1425,7 +1433,6 @@ EOF
         android:background="#CC000000"
         android:visibility="gone">
 
-        <!-- 列表容器，宽度设为 match_parent 但右侧留出空白区域 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1459,7 +1466,6 @@ EOF
 
         </LinearLayout>
 
-        <!-- 右侧空白区域（点击关闭） -->
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1602,7 +1608,7 @@ EOF
     android:layout_width="match_parent"
     android:layout_height="48dp"
     android:gravity="center_vertical"
-    android:paddingLeft="12dp"
+    android:paddingLeft="20dp"
     android:textSize="14sp"
     android:textColor="#FFFFFF"
     android:background="?attr/selectableItemBackground" />
@@ -1716,7 +1722,7 @@ EOF
 </LinearLayout>
 EOF
 
-    # ==================== 11. 图标资源 ====================
+    # ==================== 图标资源 ====================
     cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
@@ -1809,9 +1815,11 @@ echo "🧹 清理并构建..."
 
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 修复内容："
-echo "   ✅ 订阅选中后自动加载频道（onResume 强制刷新）"
-echo "   ✅ 频道列表宽度缩小为屏幕 75%"
-echo "   ✅ 右侧空白区域点击可关闭列表"
-echo "   ✅ 5秒自动关闭"
-echo "   ✅ 主界面按返回键进入设置"
+echo "📌 修改内容："
+echo "   ✅ 分组列表：第一项 '我的收藏'，第二项为当前订阅源名称（无前缀）"
+echo "   ✅ 分组列表项向右缩进（paddingLeft=20dp）"
+echo "   ✅ 频道名去除末尾逗号（中文逗号、英文逗号）"
+echo "   ✅ 订阅选中后自动加载频道"
+echo "   ✅ 频道列表宽度缩小为屏幕75%"
+echo "   ✅ 右侧空白点击关闭列表，5秒自动关闭"
+echo "   ✅ 按返回键进入设置"
