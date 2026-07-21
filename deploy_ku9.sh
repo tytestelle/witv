@@ -15,7 +15,7 @@ sed -i '/<manifest /a \    <uses-permission android:name="android.permission.REA
 # ========== 3. 创建所有新类（完整实现） ==========
 PKG="com/whyun/witv"
 
-# 3.1 PlayerConfigManager（解码、比例、收藏等配置管理）
+# 3.1 PlayerConfigManager
 mkdir -p app/src/main/java/$PKG/player
 cat > app/src/main/java/$PKG/player/PlayerConfigManager.java <<'EOF'
 package com.whyun.witv.player;
@@ -57,23 +57,17 @@ public class PlayerConfigManager {
 }
 EOF
 
-# 3.2 SourceManager（支持 TXT/M3U/本地/网络）
+# 3.2 SourceManager
 mkdir -p app/src/main/java/$PKG/source
 cat > app/src/main/java/$PKG/source/SourceManager.java <<'EOF'
 package com.whyun.witv.source;
 
 import android.content.Context;
-import android.net.Uri;
-import android.util.Log;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
-import java.io.InputStreamReader;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -103,7 +97,6 @@ public class SourceManager {
                 } else if (url.endsWith(".txt")) {
                     parseTXT(content);
                 } else {
-                    // 自动检测
                     if (content.contains("#EXTM3U")) parseM3U(content);
                     else parseTXT(content);
                 }
@@ -134,7 +127,6 @@ public class SourceManager {
     }
 
     private void parseM3U(String content) {
-        // 简单解析，实际需处理#EXTINF等
         String[] lines = content.split("\n");
         for (int i=0; i<lines.length; i++) {
             String line = lines[i].trim();
@@ -171,7 +163,7 @@ public class SourceManager {
 }
 EOF
 
-# 3.3 EPG 多格式解析器
+# 3.3 EPGParserFactory（修正版：去除未实现的内部类，保证编译通过）
 mkdir -p app/src/main/java/$PKG/epg
 cat > app/src/main/java/$PKG/epg/EPGParserFactory.java <<'EOF'
 package com.whyun.witv.epg;
@@ -181,13 +173,9 @@ import java.util.Map;
 
 public class EPGParserFactory {
     public static EPGParser getParser(String format) {
-        switch (format) {
-            case "diyp": return new DIYPParser();
-            case "baichuan": return new BaichuanParser();
-            case "supertv": return new SuperTVParser();
-            case "xmltv": return new XMLTVParser();
-            default: return new XMLTVParser();
-        }
+        // TODO: 根据 format 返回对应的解析器实现（DIYP、百川、超级TV、XMLTV）
+        // 目前返回 null，后续可扩展
+        return null;
     }
 
     public interface EPGParser {
@@ -197,24 +185,10 @@ public class EPGParserFactory {
     public static class EPGProgram {
         public String title, startTime, endTime, desc;
     }
-
-    // 以下各解析器简化实现，请根据实际格式补全
-    static class DIYPParser implements EPGParser {
-        public Map<String, List<EPGProgram>> parse(String data) { return null; }
-    }
-    static class BaichuanParser implements EPGParser {
-        public Map<String, List<EPGProgram>> parse(String data) { return null; }
-    }
-    static class SuperTVParser implements EPGParser {
-        public Map<String, List<EPGProgram>> parse(String data) { return null; }
-    }
-    static class XMLTVParser implements EPGParser {
-        public Map<String, List<EPGProgram>> parse(String data) { return null; }
-    }
 }
 EOF
 
-# 3.4 收藏管理器
+# 3.4 FavoriteManager
 mkdir -p app/src/main/java/$PKG/favorite
 cat > app/src/main/java/$PKG/favorite/FavoriteManager.java <<'EOF'
 package com.whyun.witv.favorite;
@@ -245,10 +219,7 @@ EOF
 # ========== 4. 修改主 Activity（插入菜单、收藏、搜索等） ==========
 MAIN_ACT="app/src/main/java/$PKG/MainActivity.java"
 if [ -f "$MAIN_ACT" ]; then
-    # 在 onCreate 中初始化配置
     sed -i '/super.onCreate/ a \        PlayerConfigManager.init(this);\n        FavoriteManager.init(this);' "$MAIN_ACT"
-
-    # 添加菜单处理方法（如果不存在则追加）
     grep -q "onOptionsItemSelected" "$MAIN_ACT" || cat >> "$MAIN_ACT" <<'EOF'
 
     @Override
@@ -257,7 +228,6 @@ if [ -f "$MAIN_ACT" ]; then
         if (id == R.id.action_decoder_hw) {
             PlayerConfigManager.setDecoder(PlayerConfigManager.DECODER_HARDWARE);
             Toast.makeText(this, "已切换为硬解", Toast.LENGTH_SHORT).show();
-            // 此处应重启播放器
             return true;
         } else if (id == R.id.action_decoder_sw) {
             PlayerConfigManager.setDecoder(PlayerConfigManager.DECODER_SOFTWARE);
@@ -313,11 +283,11 @@ EOF
 cat > app/src/main/res/drawable/ic_favorite_filled.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFD700" android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"/>
+    <path android:fillColor="#FFD700" android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,8.42 22,11.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"/>
 </vector>
 EOF
 
-# ========== 8. 工作流文件（.github/workflows/build.yml） ==========
+# ========== 8. 工作流文件（.github/workflows/build.yml）已更新为 Java 17 和 upload-artifact@v4 ==========
 mkdir -p .github/workflows
 cat > .github/workflows/build.yml <<'EOF'
 name: Build APK with Ku9 Enhancements
@@ -327,9 +297,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up JDK 11
-        uses: actions/setup-java@v3
-        with: { java-version: '11', distribution: 'temurin' }
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
       - name: Run Ku9 deployment
         run: |
           chmod +x deploy_ku9.sh
@@ -339,7 +311,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ku9-like-app
           path: app/build/outputs/apk/debug/app-debug.apk
@@ -349,7 +321,7 @@ echo "✅ 全部部署完成！"
 echo "请手动检查以下事项："
 echo "1. 确保 MainActivity 中引用了 MenuItem、Toast 等，并导入相应包。"
 echo "2. 在播放器初始化时应用 PlayerConfigManager 的解码/比例设置。"
-echo "3. 实现 EPG 各格式的具体解析逻辑（现为骨架）。"
+echo "3. 实现 EPG 各格式的具体解析逻辑（现在为占位，返回 null，需后续填充）。"
 echo "4. 实现 JS 脚本代理（可参考 Rhino 示例）。"
 echo "5. 添加 U 盘文件选择界面（可使用 Intent.ACTION_OPEN_DOCUMENT）。"
 echo "6. 编译运行：./gradlew assembleDebug"
