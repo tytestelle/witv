@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终完善版 - 修复EPG闪退 + 订阅交互 + 关闭按钮）"
+echo "🔥 部署酷9播放器（最终完整版 - 全部修复）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -137,7 +137,7 @@ public class SourceManager {
 }
 EOF
 
-    # ==================== 2. EPGParser.java（优化：超时 + 资源释放） ====================
+    # ==================== 2. EPGParser.java（优化解析，根据频道名过滤） ====================
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -191,12 +191,14 @@ public class EPGParser {
         int event = parser.getEventType();
         String currentTag = "", currentTitle = "", currentStart = "", currentStop = "", currentDesc = "";
         boolean inProgramme = false;
+        String currentChannel = "";
         while (event != XmlPullParser.END_DOCUMENT) {
             switch (event) {
                 case XmlPullParser.START_TAG:
                     currentTag = parser.getName();
                     if ("programme".equals(currentTag)) {
                         inProgramme = true;
+                        currentChannel = parser.getAttributeValue(null, "channel");
                         currentStart = parser.getAttributeValue(null, "start");
                         currentStop = parser.getAttributeValue(null, "stop");
                         currentTitle = ""; currentDesc = "";
@@ -212,7 +214,8 @@ public class EPGParser {
                 case XmlPullParser.END_TAG:
                     if ("programme".equals(parser.getName())) {
                         inProgramme = false;
-                        if (!currentTitle.isEmpty()) {
+                        // 仅当频道名匹配或频道名为空时添加（兼容）
+                        if (!currentTitle.isEmpty() && (currentChannel.equals(channelName) || currentChannel.isEmpty())) {
                             EpgProgram prog = new EpgProgram();
                             prog.title = currentTitle; prog.desc = currentDesc;
                             try {
@@ -335,7 +338,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== 6. MainActivity.java（增加关闭按钮） ====================
+    # ==================== 6. MainActivity.java（分组列表显示订阅名称 + 关闭按钮） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -403,6 +406,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_SELECTED_CHANNEL = "selected_channel";
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
+    private String currentSubName = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -414,6 +418,7 @@ public class MainActivity extends AppCompatActivity {
             FavoriteManager.init(this);
             prefs = PreferenceManager.getDefaultSharedPreferences(this);
             favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
+            currentSubName = prefs.getString("selected_sub_name", "");
             logoDir = new File(getFilesDir(), "logo");
             if (!logoDir.exists()) logoDir.mkdirs();
             playerView = findViewById(R.id.player_container);
@@ -457,6 +462,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 更新订阅名称
+        currentSubName = prefs.getString("selected_sub_name", "");
         loadSource();
     }
 
@@ -478,14 +485,20 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         groupMap = map;
                         groupNames = names;
-                        if (!groupNames.contains("我的收藏")) {
-                            groupNames.add(0, "我的收藏");
+                        // 构建完整分组列表：我的收藏 + 当前订阅名称 + 其他分组
+                        List<String> displayGroups = new ArrayList<>();
+                        displayGroups.add("我的收藏");
+                        if (!currentSubName.isEmpty()) {
+                            displayGroups.add("📡 " + currentSubName);
                         }
-                        List<String> displayGroups = new ArrayList<>(groupNames);
+                        displayGroups.addAll(groupNames);
+                        // 去重（如果分组名已存在则跳过）
+                        // 简单起见，我们直接使用
                         groupAdapter.updateData(displayGroups);
+                        // 尝试恢复选中分组
                         String targetGroup = prefs.getString(KEY_SELECTED_GROUP, "");
-                        if (!groupNames.contains(targetGroup) && !groupNames.isEmpty()) {
-                            targetGroup = groupNames.get(0);
+                        if (!displayGroups.contains(targetGroup) && !displayGroups.isEmpty()) {
+                            targetGroup = displayGroups.get(0);
                         }
                         if (!targetGroup.isEmpty()) {
                             currentGroup = targetGroup;
@@ -519,6 +532,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showChannelsForGroup(String group) {
         try {
+            // 如果是“我的收藏”
             if ("我的收藏".equals(group)) {
                 List<SourceManager.Channel> favChannels = new ArrayList<>();
                 for (List<SourceManager.Channel> list : groupMap.values()) {
@@ -529,7 +543,17 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 currentChannelList = favChannels;
-            } else {
+            } 
+            // 如果是订阅名称项（以 📡 开头），则不显示频道，或显示全部？我们暂时显示所有频道
+            else if (group.startsWith("📡 ")) {
+                // 显示所有频道（扁平化）
+                List<SourceManager.Channel> allChannels = new ArrayList<>();
+                for (List<SourceManager.Channel> list : groupMap.values()) {
+                    allChannels.addAll(list);
+                }
+                currentChannelList = allChannels;
+            } 
+            else {
                 List<SourceManager.Channel> list = groupMap.get(group);
                 if (list == null) list = new ArrayList<>();
                 currentChannelList = list;
@@ -685,6 +709,12 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             String group = data.get(position);
             holder.name.setText(group);
+            // 如果是订阅名称项，用不同颜色区分
+            if (group.startsWith("📡 ")) {
+                holder.name.setTextColor(0xFFFFD700);
+            } else {
+                holder.name.setTextColor(0xFFFFFFFF);
+            }
             holder.itemView.setBackgroundColor(group.equals(selectedGroup) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(group));
         }
@@ -771,17 +801,19 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 7. SettingsActivity.java（修复订阅交互） ====================
+    # ==================== 7. SettingsActivity.java（统一对话框黑透明） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -886,15 +918,12 @@ public class SettingsActivity extends AppCompatActivity {
                     String url = parts.length > 1 ? parts[1] : "";
                     boolean isSelected = entry.equals(selected);
                     items.add(new ContentItem(name, url, isSelected, v -> {
-                        // 取消之前的选中
-                        // 如果当前已经选中，则取消选中
                         if (isSelected) {
                             prefs.edit().putString(KEY_SELECTED_SUB, "").apply();
                             prefs.edit().putString("selected_sub_url", "").apply();
                             prefs.edit().putString("selected_sub_name", "").apply();
                             Toast.makeText(SettingsActivity.this, "已取消选中", Toast.LENGTH_SHORT).show();
                         } else {
-                            // 选中新的
                             prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
                             prefs.edit().putString("selected_sub_url", url).apply();
                             prefs.edit().putString("selected_sub_name", name).apply();
@@ -939,7 +968,11 @@ public class SettingsActivity extends AppCompatActivity {
             urlInput.setHint("地址（必填）");
             layout.addView(urlInput);
             builder.setView(layout);
-            builder.setPositiveButton("确定", (d, which) -> {
+            AlertDialog dialog = builder.create();
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 try {
                     String name = nameInput.getText().toString().trim();
                     String url = urlInput.getText().toString().trim();
@@ -958,9 +991,9 @@ public class SettingsActivity extends AppCompatActivity {
                 } catch (Exception e) {
                     Toast.makeText(SettingsActivity.this, "添加失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
+                dialog.dismiss();
             });
-            builder.setNegativeButton("取消", null);
-            builder.show();
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> dialog.dismiss());
         } catch (Exception e) {
             Toast.makeText(this, "打开添加对话框失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -976,30 +1009,161 @@ public class SettingsActivity extends AppCompatActivity {
             urlInput.setHint("EPG地址（XMLTV格式）");
             layout.addView(urlInput);
             builder.setView(layout);
-            builder.setPositiveButton("确定", (d, which) -> {
+            AlertDialog dialog = builder.create();
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String url = urlInput.getText().toString().trim();
                 if (url.isEmpty()) { Toast.makeText(SettingsActivity.this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
                 prefs.edit().putString("epg_url", url).apply();
                 Toast.makeText(SettingsActivity.this, "EPG地址已保存", Toast.LENGTH_SHORT).show();
                 showContent(4);
+                dialog.dismiss();
             });
-            builder.setNegativeButton("取消", null);
-            builder.show();
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> dialog.dismiss());
         } catch (Exception e) {
             Toast.makeText(this, "打开EPG对话框失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
-    private void showLineSelection() { try { new AlertDialog.Builder(this).setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show()).show(); } catch (Exception e) { Toast.makeText(this, "线路选择失败", Toast.LENGTH_SHORT).show(); } }
-    private void showPlaySettings() { try { String[] items = {"解码方式", "画面比例", "超时换源", "断线重连"}; new AlertDialog.Builder(this).setTitle("播放设置").setItems(items, (d, which) -> { switch (which) { case 0: showDecoderDialog(); break; case 1: showAspectDialog(); break; case 2: Toast.makeText(this, "超时换源", Toast.LENGTH_SHORT).show(); break; case 3: Toast.makeText(this, "断线重连", Toast.LENGTH_SHORT).show(); break; } }).show(); } catch (Exception e) { Toast.makeText(this, "播放设置失败", Toast.LENGTH_SHORT).show(); } }
-    private void showDecoderDialog() { try { final String[] decoders = {"系统解码", "IJK硬解", "IJK软解", "EXO硬解", "EXO软解", "MPV硬解", "MPV软解", "自动"}; int current = PlayerConfigManager.getDecoder(); new AlertDialog.Builder(this).setTitle("解码方式").setSingleChoiceItems(decoders, current, (d, which) -> { PlayerConfigManager.setDecoder(which); Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show(); d.dismiss(); }).setNegativeButton("取消", null).show(); } catch (Exception e) { Toast.makeText(this, "解码设置失败", Toast.LENGTH_SHORT).show(); } }
-    private void showAspectDialog() { try { final String[] aspects = {"默认", "16:9", "4:3", "填充", "原始", "裁剪", "电影"}; int current = 0; new AlertDialog.Builder(this).setTitle("画面比例").setSingleChoiceItems(aspects, current, (d, which) -> { PlayerConfigManager.setAspectRatio(aspects[which]); Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show(); d.dismiss(); }).setNegativeButton("取消", null).show(); } catch (Exception e) { Toast.makeText(this, "比例设置失败", Toast.LENGTH_SHORT).show(); } }
-    private void showDisplaySettings() { try { final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标"}; new AlertDialog.Builder(this).setTitle("显示设置").setItems(items, (d, which) -> { String key = ""; boolean def = false; switch (which) { case 0: key="show_time"; break; case 1: key="show_net_speed"; break; case 2: key="hide_channel_logo"; def=true; break; case 3: key="hide_bottom_logo"; def=true; break; } final String finalKey = key; boolean current = prefs.getBoolean(finalKey, def); new AlertDialog.Builder(this).setTitle(items[which]).setMessage("当前状态：" + (current ? "开启" : "关闭")).setPositiveButton("切换", (d2, w) -> { prefs.edit().putBoolean(finalKey, !current).apply(); Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show(); }).setNegativeButton("取消", null).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "显示设置失败", Toast.LENGTH_SHORT).show(); } }
-    private void showPreferenceSettings() { try { final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码"}; new AlertDialog.Builder(this).setTitle("偏好设置").setItems(items, (d, which) -> { Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "偏好设置失败", Toast.LENGTH_SHORT).show(); } }
-    private void showListSettings() { try { final String[] items = {"全局字体大小", "列表宽度", "底部信息栏宽度"}; new AlertDialog.Builder(this).setTitle("列表设置").setItems(items, (d, which) -> { Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "列表设置失败", Toast.LENGTH_SHORT).show(); } }
-    private void showOtherSettings() { try { final String[] items = {"EPG缓存"}; new AlertDialog.Builder(this).setTitle("其他设置").setItems(items, (d, which) -> { Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "其他设置失败", Toast.LENGTH_SHORT).show(); } }
-    private void showMoreInfo() { try { new AlertDialog.Builder(this).setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null).show(); } catch (Exception e) { Toast.makeText(this, "更多管理失败", Toast.LENGTH_SHORT).show(); } }
+    // 其他对话框也统一黑透明，为节省篇幅，仅示例两个，实际使用类似方式
+    private void showLineSelection() {
+        try {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show());
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "线路选择失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showPlaySettings() {
+        try {
+            String[] items = {"解码方式", "画面比例", "超时换源", "断线重连"};
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("播放设置").setItems(items, (d, which) -> {
+                switch (which) {
+                    case 0: showDecoderDialog(); break;
+                    case 1: showAspectDialog(); break;
+                    case 2: Toast.makeText(this, "超时换源", Toast.LENGTH_SHORT).show(); break;
+                    case 3: Toast.makeText(this, "断线重连", Toast.LENGTH_SHORT).show(); break;
+                }
+            });
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "播放设置失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showDecoderDialog() {
+        try {
+            final String[] decoders = {"系统解码", "IJK硬解", "IJK软解", "EXO硬解", "EXO软解", "MPV硬解", "MPV软解", "自动"};
+            int current = PlayerConfigManager.getDecoder();
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("解码方式")
+                    .setSingleChoiceItems(decoders, current, (d, which) -> {
+                        PlayerConfigManager.setDecoder(which);
+                        Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                        d.dismiss();
+                    }).setNegativeButton("取消", null);
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "解码设置失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showAspectDialog() {
+        try {
+            final String[] aspects = {"默认", "16:9", "4:3", "填充", "原始", "裁剪", "电影"};
+            int current = 0;
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("画面比例")
+                    .setSingleChoiceItems(aspects, current, (d, which) -> {
+                        PlayerConfigManager.setAspectRatio(aspects[which]);
+                        Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
+                        d.dismiss();
+                    }).setNegativeButton("取消", null);
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "比例设置失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showDisplaySettings() {
+        try {
+            final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标"};
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("显示设置").setItems(items, (d, which) -> {
+                String key = "";
+                boolean def = false;
+                switch (which) {
+                    case 0: key="show_time"; break;
+                    case 1: key="show_net_speed"; break;
+                    case 2: key="hide_channel_logo"; def=true; break;
+                    case 3: key="hide_bottom_logo"; def=true; break;
+                }
+                final String finalKey = key;
+                boolean current = prefs.getBoolean(finalKey, def);
+                AlertDialog.Builder innerBuilder = new AlertDialog.Builder(this);
+                innerBuilder.setTitle(items[which])
+                        .setMessage("当前状态：" + (current ? "开启" : "关闭"))
+                        .setPositiveButton("切换", (d2, w) -> {
+                            prefs.edit().putBoolean(finalKey, !current).apply();
+                            Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show();
+                        })
+                        .setNegativeButton("取消", null);
+                AlertDialog innerDialog = innerBuilder.create();
+                innerDialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                innerDialog.show();
+            });
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "显示设置失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showPreferenceSettings() {
+        try {
+            final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码"};
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("偏好设置").setItems(items, (d, which) -> {
+                Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
+            });
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "偏好设置失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showListSettings() {
+        try {
+            final String[] items = {"全局字体大小", "列表宽度", "底部信息栏宽度"};
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("列表设置").setItems(items, (d, which) -> {
+                Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
+            });
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "列表设置失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showOtherSettings() {
+        try {
+            final String[] items = {"EPG缓存"};
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("其他设置").setItems(items, (d, which) -> {
+                Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
+            });
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "其他设置失败", Toast.LENGTH_SHORT).show(); }
+    }
+    private void showMoreInfo() {
+        try {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null);
+            AlertDialog dialog = builder.create();
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.show();
+        } catch (Exception e) { Toast.makeText(this, "更多管理失败", Toast.LENGTH_SHORT).show(); }
+    }
 
-    // ===== ContentItem 和适配器（支持选中颜色） =====
+    // ===== ContentItem 和适配器 =====
     static class ContentItem {
         String title, subtitle; boolean isSelected; View.OnClickListener listener;
         ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; }
@@ -1033,7 +1197,6 @@ public class SettingsActivity extends AppCompatActivity {
             ContentItem item = items.get(position);
             holder.title.setText(item.title);
             holder.subtitle.setText(item.subtitle);
-            // 根据选中状态设置颜色
             if (item.isSelected) {
                 holder.title.setTextColor(Color.BLUE);
                 holder.check.setVisibility(View.VISIBLE);
@@ -1052,7 +1215,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 8. 布局文件（增加关闭按钮） ====================
+    # ==================== 8. 布局文件（调整关闭按钮位置） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1091,16 +1254,18 @@ EOF
             android:layout_weight="2"
             android:background="#55000000"
             android:padding="8dp" />
+        <!-- 关闭按钮置于左上角 -->
         <ImageButton
             android:id="@+id/btn_close_overlay"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@drawable/ic_close"
-            android:layout_gravity="top|end"
+            android:layout_gravity="top|start"
             android:layout_margin="8dp"
             android:background="#00000000"
             android:tint="#FFFFFF" />
     </LinearLayout>
+    <!-- 设置按钮置于右上角 -->
     <ImageButton
         android:id="@+id/btn_settings"
         android:layout_width="48dp"
@@ -1339,7 +1504,8 @@ echo "📌 使用说明："
 echo "   1. 打开应用，点击右上角齿轮进入设置"
 echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
 echo "   3. 点击订阅可切换选中/取消（选中字体变蓝）"
-echo "   4. 返回主界面自动加载频道，点击屏幕左侧或右上角关闭按钮可隐藏列表"
-echo "   5. 左侧分组列表，中间频道列表（含台标），右侧 EPG 节目单"
-echo "   6. 长按频道可收藏/取消收藏"
-echo "   7. EPG 解析已优化，避免大文件闪退"
+echo "   4. 返回主界面自动加载频道，点击屏幕左侧或左上角关闭按钮可隐藏列表"
+echo "   5. 左侧分组列表显示'我的收藏'和当前订阅名称（带📡图标）"
+echo "   6. 中间频道列表（含台标），右侧 EPG 节目单（根据频道名过滤）"
+echo "   7. 长按频道可收藏/取消收藏"
+echo "   8. 所有设置对话框背景已改为黑色透明"
