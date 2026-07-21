@@ -1034,7 +1034,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 EOF
 echo "✅ 图标资源已添加"
 
-# ========== 10. 生成最终的 MainActivity ==========
+# ========== 10. 生成最终的 MainActivity（ChannelAdapter 改为静态内部类） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1354,8 +1354,8 @@ public class MainActivity extends AppCompatActivity {
         mainHandler.removeCallbacks(hideControlsRunnable);
     }
 
-    // ---------- ChannelAdapter ----------
-    private class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
+    // ---------- 静态内部类 ChannelAdapter ----------
+    private static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
         private OnChannelClickListener listener;
         private int selectedPosition = -1;
@@ -1381,7 +1381,8 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            View view = getLayoutInflater().inflate(R.layout.item_channel, parent, false);
+            View view = parent.getContext().getSystemService(android.view.LayoutInflater.class)
+                    .inflate(R.layout.item_channel, parent, false);
             return new ViewHolder(view);
         }
 
@@ -1397,7 +1398,7 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setOnLongClickListener(v -> {
                 FavoriteManager.toggleFavorite(channel.name);
                 notifyItemChanged(position);
-                Toast.makeText(MainActivity.this,
+                Toast.makeText(parent.getContext(),
                         FavoriteManager.isFavorite(channel.name) ? "已收藏 ❤️" : "已取消收藏",
                         Toast.LENGTH_SHORT).show();
                 return true;
@@ -1419,15 +1420,9 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
+echo "✅ MainActivity 已生成（ChannelAdapter 为静态内部类）"
 
-# ========== 11. 彻底清除任何残留的 static interface ==========
-# 使用更精确的正则，匹配可能包含空格的 "static" 和 "interface"
-sed -i 's/\bstatic\s\+interface\s\+OnChannelClickListener/interface OnChannelClickListener/g' "$MAIN_ACT_FILE"
-# 若还有遗漏，再清除一次
-sed -i 's/static interface OnChannelClickListener/interface OnChannelClickListener/g' "$MAIN_ACT_FILE"
-echo "✅ 已彻底移除接口 static 修饰"
-
-# ========== 12. 验证文件生成 ==========
+# ========== 11. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
 ls -la "app/src/main/java/$PKG_PATH/source/SourceManager.java" || echo "❌ SourceManager 未生成"
 ls -la "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" || echo "❌ PlayerConfigManager 未生成"
@@ -1436,7 +1431,7 @@ ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ Conf
 ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
 ls -la "app/src/main/java/$PKG_PATH/MainActivity.java" || echo "❌ MainActivity 未生成"
 
-# ========== 13. 清理并构建 APK ==========
+# ========== 12. 清理并构建 APK ==========
 echo "🧹 清理构建缓存..."
 ./gradlew clean
 
@@ -1444,7 +1439,7 @@ echo "🚀 开始构建 APK..."
 chmod +x gradlew
 ./gradlew assembleDebug
 
-# ========== 14. 完成 ==========
+# ========== 13. 完成 ==========
 echo ""
 echo "🎉 部署并构建完成！"
 echo "📌 APK 位于: app/build/outputs/apk/debug/"
