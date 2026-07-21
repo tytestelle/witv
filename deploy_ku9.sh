@@ -1034,7 +1034,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 EOF
 echo "✅ 图标资源已添加"
 
-# ========== 10. 生成最终的 MainActivity（ChannelAdapter 改为静态内部类） ==========
+# ========== 10. 生成最终的 MainActivity（修复 parent 问题） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1043,6 +1043,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -1381,8 +1382,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            View view = parent.getContext().getSystemService(android.view.LayoutInflater.class)
-                    .inflate(R.layout.item_channel, parent, false);
+            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false);
             return new ViewHolder(view);
         }
 
@@ -1398,7 +1398,7 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setOnLongClickListener(v -> {
                 FavoriteManager.toggleFavorite(channel.name);
                 notifyItemChanged(position);
-                Toast.makeText(parent.getContext(),
+                Toast.makeText(holder.itemView.getContext(),
                         FavoriteManager.isFavorite(channel.name) ? "已收藏 ❤️" : "已取消收藏",
                         Toast.LENGTH_SHORT).show();
                 return true;
@@ -1420,7 +1420,7 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ MainActivity 已生成（ChannelAdapter 为静态内部类）"
+echo "✅ MainActivity 已生成（修复 Context 获取）"
 
 # ========== 11. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
