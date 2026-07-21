@@ -32,7 +32,7 @@ echo "✅ 依赖已添加"
 # ========== 2. 添加权限（先删除已有的 INTERNET，避免重复） ==========
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-echo "✅ 权限已添加（去重）"
+echo "✅ 权限已添加"
 
 # ========== 3. 使用 Python 安全修改 AndroidManifest ==========
 echo "🛠️ 使用 Python 修改 AndroidManifest.xml..."
@@ -93,7 +93,6 @@ mkdir -p "app/src/main/java/$PKG_PATH/player"
 mkdir -p "app/src/main/java/$PKG_PATH/favorite"
 mkdir -p "app/src/main/java/$PKG_PATH/epg"
 
-# 修正 SourceManager 中的 split 语法错误
 cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 
@@ -155,7 +154,7 @@ public class SourceManager {
         for (String line : content.split("\n")) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
-            String[] parts = line.split(",");  // 修正：去掉多余的双引号
+            String[] parts = line.split(",");
             if (parts.length >= 2) channels.add(new Channel(parts[0].trim(), parts[1].trim(), ""));
         }
     }
@@ -216,20 +215,28 @@ public class EPGParserFactory {
 }
 EOF
 
-echo "✅ 功能类已创建（修正 split 语法）"
+echo "✅ 功能类已创建"
 
-# ========== 5. 生成酷9风格 MainActivity（Media3 版本） ==========
+# ========== 5. 生成酷9风格 MainActivity（带崩溃日志写入功能） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -239,10 +246,19 @@ import androidx.media3.ui.PlayerView;
 import com.whyun.witv.favorite.FavoriteManager;
 import com.whyun.witv.player.PlayerConfigManager;
 import com.whyun.witv.source.SourceManager;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "MainActivity";
+    private static final int PERMISSION_REQUEST_CODE = 100;
     private PlayerView playerView;
     private ExoPlayer player;
     private TextView bottomChannelName, bottomEpgInfo;
@@ -250,10 +266,55 @@ public class MainActivity extends AppCompatActivity {
     private SourceManager.Channel currentChannel;
     private List<SourceManager.Channel> channelList;
 
+    // ====== 全局异常捕获，写入日志文件 ======
+    static {
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            try {
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                throwable.printStackTrace(pw);
+                String stack = sw.toString();
+                String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
+                String log = "=== Crash at " + time + " ===\n" + stack + "\n\n";
+                // 写入 /sdcard/Download/crash.log
+                File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (dir != null && (dir.exists() || dir.mkdirs())) {
+                    File file = new File(dir, "crash.log");
+                    try (FileOutputStream fos = new FileOutputStream(file, true)) {
+                        fos.write(log.getBytes());
+                    }
+                }
+                // 如果无法写入，尝试应用私有目录
+                try {
+                    File privateDir = new File("/data/data/com.whyun.witv/files/");
+                    if (privateDir.exists() || privateDir.mkdirs()) {
+                        File file = new File(privateDir, "crash.log");
+                        try (FileOutputStream fos = new FileOutputStream(file, true)) {
+                            fos.write(log.getBytes());
+                        }
+                    }
+                } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+            // 退出进程
+            android.os.Process.killProcess(android.os.Process.myPid());
+            System.exit(1);
+        });
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        // 动态请求存储权限（Android 6.0+）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                        PERMISSION_REQUEST_CODE);
+            }
+        }
 
         PlayerConfigManager.init(this);
         FavoriteManager.init(this);
@@ -280,19 +341,24 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Toast.makeText(MainActivity.this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                writeLog("播放错误: " + error.getMessage());
             }
         });
     }
 
     private void initPlayer() {
-        DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-        player = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
-        playerView.setPlayer(player);
+        try {
+            DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+            player = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
+            playerView.setPlayer(player);
+        } catch (Exception e) {
+            writeLog("initPlayer 异常: " + Log.getStackTraceString(e));
+            Toast.makeText(this, "播放器初始化失败", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void loadDefaultSource() {
-        // 请修改为你的真实直播源地址
-        String defaultUrl = "https://example.com/channels.m3u";
+        String defaultUrl = "https://example.com/channels.m3u"; // 请修改
         SourceManager sourceManager = new SourceManager(this);
         sourceManager.loadFromUrl(defaultUrl, new SourceManager.OnSourceLoadListener() {
             @Override
@@ -310,17 +376,23 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onError(String error) {
                 Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_SHORT).show();
+                writeLog("加载源失败: " + error);
             }
         });
     }
 
     private void playChannel(SourceManager.Channel channel) {
-        currentChannel = channel;
-        MediaItem mediaItem = MediaItem.fromUri(channel.url);
-        player.setMediaItem(mediaItem);
-        player.prepare();
-        player.play();
-        updateUI();
+        try {
+            currentChannel = channel;
+            MediaItem mediaItem = MediaItem.fromUri(channel.url);
+            player.setMediaItem(mediaItem);
+            player.prepare();
+            player.play();
+            updateUI();
+        } catch (Exception e) {
+            writeLog("播放频道异常: " + Log.getStackTraceString(e));
+            Toast.makeText(this, "播放失败", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void updateUI() {
@@ -382,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
                 SourceManager sourceManager = new SourceManager(this);
                 sourceManager.loadFromUrl(url, new SourceManager.OnSourceLoadListener() {
                     @Override public void onLoaded(List<SourceManager.Channel> channels) { channelList = channels; if (!channels.isEmpty()) playChannel(channels.get(0)); }
-                    @Override public void onError(String error) { Toast.makeText(MainActivity.this, "加载失败: "+error, Toast.LENGTH_SHORT).show(); }
+                    @Override public void onError(String error) { Toast.makeText(MainActivity.this, "加载失败: "+error, Toast.LENGTH_SHORT).show(); writeLog("切换源失败: "+error); }
                 });
             }
         });
@@ -435,10 +507,37 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() { super.onDestroy(); if (player != null) { player.release(); player = null; } }
+
+    // ====== 写入日志工具方法 ======
+    private void writeLog(String msg) {
+        try {
+            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
+            String log = "[" + time + "] " + msg + "\n";
+            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (dir != null && (dir.exists() || dir.mkdirs())) {
+                File file = new File(dir, "crash.log");
+                try (FileOutputStream fos = new FileOutputStream(file, true)) {
+                    fos.write(log.getBytes());
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "存储权限已授予", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "存储权限被拒绝，无法写入日志", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
 }
 EOF
 
-echo "✅ 生成 MainActivity"
+echo "✅ 生成 MainActivity（带日志功能）"
 
 # ========== 6. 生成酷9风格主布局（PlayerView） ==========
 cat > "$LAYOUT_FILE" <<'EOF'
@@ -556,3 +655,4 @@ echo ""
 echo "🎉 部署完成！"
 echo "📌 请修改 MainActivity 中的 defaultUrl 为你的真实直播源地址。"
 echo "📌 然后运行 ./gradlew assembleDebug 编译 APK。"
+echo "📌 日志路径：/sdcard/Download/crash.log（可在文件管理器中查看）"
