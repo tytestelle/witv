@@ -1,223 +1,294 @@
 #!/bin/bash
-# enhance_to_ku9.sh - 将 witv 项目改造为类似酷9播放器的功能增强脚本
+set -e
 
-set -e # 遇到错误立即退出
+echo "🔥 开始增强 witv → 酷9风格..."
 
-echo "🚀 开始将 witv 改造为酷9风格播放器..."
+PKG="com/whyun/witv"
+SRC="app/src/main/java/$PKG"
 
-# --- 1. 更新 build.gradle 依赖 ---
-echo "📦 更新项目依赖..."
-APP_BUILD_GRADLE="app/build.gradle"
-
-# 检查文件是否存在
-if [ ! -f "$APP_BUILD_GRADLE" ]; then
-    echo "❌ 错误: 找不到 $APP_BUILD_GRADLE 文件，请确认你在项目根目录运行此脚本。"
-    exit 1
+# ============================================================
+# 1. 修改 PreferenceManager —— 增加解码、比例、收藏等设置
+# ============================================================
+PREF_FILE="$SRC/data/PreferenceManager.java"
+if [ -f "$PREF_FILE" ]; then
+    # 在类末尾添加新方法（在最后一个 } 之前插入）
+    sed -i '/^}/i \
+    // ========== 酷9增强设置 ==========\n\
+    private static final String KEY_DECODER_MODE = "decoder_mode";\n\
+    private static final String KEY_ASPECT_RATIO = "aspect_ratio";\n\
+    private static final String KEY_FAVORITE_PREFIX = "fav_";\n\
+    public static final int DECODER_HARDWARE = 0;\n\
+    public static final int DECODER_SOFTWARE = 1;\n\
+    public void setDecoderMode(int mode) { prefs.edit().putInt(KEY_DECODER_MODE, mode).apply(); }\n\
+    public int getDecoderMode() { return prefs.getInt(KEY_DECODER_MODE, DECODER_HARDWARE); }\n\
+    public void setAspectRatio(String ratio) { prefs.edit().putString(KEY_ASPECT_RATIO, ratio).apply(); }\n\
+    public String getAspectRatio() { return prefs.getString(KEY_ASPECT_RATIO, "16:9"); }\n\
+    public boolean isFavorite(long channelId) { return prefs.getBoolean(KEY_FAVORITE_PREFIX + channelId, false); }\n\
+    public void toggleFavorite(long channelId) {\n\
+        boolean cur = isFavorite(channelId);\n\
+        prefs.edit().putBoolean(KEY_FAVORITE_PREFIX + channelId, !cur).apply();\n\
+    }\n' "$PREF_FILE"
+    echo "✅ PreferenceManager 已增强"
+else
+    echo "⚠️ 未找到 PreferenceManager.java"
 fi
 
-# 备份原文件
-cp "$APP_BUILD_GRADLE" "$APP_BUILD_GRADLE.bak"
+# ============================================================
+# 2. 修改 PlayerManager —— 支持硬解/软解切换
+# ============================================================
+PLAYER_FILE="$SRC/player/PlayerManager.java"
+if [ -f "$PLAYER_FILE" ]; then
+    # 在 initialize 方法中，ExoPlayer.Builder 创建之前插入渲染器配置
+    sed -i '/ExoPlayer.Builder context/i \
+        // 酷9: 根据设置选择解码器\n\
+        PreferenceManager pm = new PreferenceManager(context);\n\
+        int decoderMode = pm.getDecoderMode();\n\
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(context);\n\
+        if (decoderMode == PreferenceManager.DECODER_SOFTWARE) {\n\
+            renderersFactory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF);\n\
+        } else {\n\
+            renderersFactory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);\n\
+        }\n' "$PLAYER_FILE"
+    
+    # 修改 ExoPlayer.Builder 创建，使用自定义渲染器工厂
+    sed -i 's/new ExoPlayer.Builder(context)/new ExoPlayer.Builder(context, renderersFactory)/' "$PLAYER_FILE"
+    echo "✅ PlayerManager 已增强（支持硬解/软解切换）"
+else
+    echo "⚠️ 未找到 PlayerManager.java"
+fi
 
-# 添加新依赖 (使用 sed 在 dependencies 块内插入)
-# 注意：此操作较为简单，复杂情况可能需要手动调整
-sed -i '/dependencies {/a \    // 酷9风格增强依赖\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    // JS脚本支持 (示例)\n    implementation "org.mozilla:rhino:1.7.14"\n    // 图片加载 (用于台标)\n    implementation "com.github.bumptech.glide:glide:4.16.0"' "$APP_BUILD_GRADLE"
+# ============================================================
+# 3. 修改 PlayerActivity —— 添加菜单、搜索、收藏交互
+# ============================================================
+ACTIVITY_FILE="$SRC/ui/PlayerActivity.java"
+if [ -f "$ACTIVITY_FILE" ]; then
+    # 在类中注入菜单处理方法（在最后一个 } 之前插入）
+    sed -i '/^}/i \
+    // ========== 酷9: 菜单处理 ==========\n\
+    @Override\n\
+    public boolean onCreateOptionsMenu(Menu menu) {\n\
+        getMenuInflater().inflate(R.menu.player_menu, menu);\n\
+        return true;\n\
+    }\n\
+    @Override\n\
+    public boolean onOptionsItemSelected(MenuItem item) {\n\
+        int id = item.getItemId();\n\
+        if (id == R.id.action_decoder_hw) {\n\
+            preferenceManager.setDecoderMode(PreferenceManager.DECODER_HARDWARE);\n\
+            Toast.makeText(this, "已切换为硬解，重启播放生效", Toast.LENGTH_SHORT).show();\n\
+            restartPlayer();\n\
+            return true;\n\
+        } else if (id == R.id.action_decoder_sw) {\n\
+            preferenceManager.setDecoderMode(PreferenceManager.DECODER_SOFTWARE);\n\
+            Toast.makeText(this, "已切换为软解，重启播放生效", Toast.LENGTH_SHORT).show();\n\
+            restartPlayer();\n\
+            return true;\n\
+        } else if (id == R.id.action_aspect_ratio) {\n\
+            showAspectRatioDialog();\n\
+            return true;\n\
+        } else if (id == R.id.action_search) {\n\
+            showSearchDialog();\n\
+            return true;\n\
+        }\n\
+        return super.onOptionsItemSelected(item);\n\
+    }\n\
+    private void showAspectRatioDialog() {\n\
+        String[] ratios = {"16:9", "4:3", "全屏"};\n\
+        new AlertDialog.Builder(this)\n\
+            .setTitle("选择画面比例")\n\
+            .setItems(ratios, (d, which) -> {\n\
+                String ratio = ratios[which];\n\
+                preferenceManager.setAspectRatio(ratio);\n\
+                applyAspectRatio(ratio);\n\
+            })\n\
+            .show();\n\
+    }\n\
+    private void applyAspectRatio(String ratio) {\n\
+        View videoView = findViewById(R.id.player_view);\n\
+        if (videoView == null) return;\n\
+        ViewGroup.LayoutParams params = videoView.getLayoutParams();\n\
+        if ("16:9".equals(ratio)) {\n\
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;\n\
+            params.height = (int) (getResources().getDisplayMetrics().widthPixels * 9f / 16f);\n\
+        } else if ("4:3".equals(ratio)) {\n\
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;\n\
+            params.height = (int) (getResources().getDisplayMetrics().widthPixels * 3f / 4f);\n\
+        } else { // 全屏\n\
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;\n\
+            params.height = ViewGroup.LayoutParams.MATCH_PARENT;\n\
+        }\n\
+        videoView.setLayoutParams(params);\n\
+    }\n\
+    private void showSearchDialog() {\n\
+        EditText input = new EditText(this);\n\
+        input.setHint("输入频道名称");\n\
+        new AlertDialog.Builder(this)\n\
+            .setTitle("搜索频道")\n\
+            .setView(input)\n\
+            .setPositiveButton("搜索", (d, which) -> {\n\
+                String keyword = input.getText().toString().trim();\n\
+                if (keyword.isEmpty()) return;\n\
+                filterChannelList(keyword);\n\
+            })\n\
+            .setNegativeButton("取消", null)\n\
+            .show();\n\
+    }\n\
+    private void filterChannelList(String keyword) {\n\
+        if (allChannels == null) return;\n\
+        List<Channel> filtered = new ArrayList<>();\n\
+        for (Channel ch : allChannels) {\n\
+            if (ch.displayName != null && ch.displayName.contains(keyword)) {\n\
+                filtered.add(ch);\n\
+            }\n\
+        }\n\
+        // 更新频道列表适配器（假设使用 channelListAdapter）\n\
+        if (channelListAdapter != null) {\n\
+            channelListAdapter.updateData(filtered);\n\
+        }\n\
+    }\n\
+    private void restartPlayer() {\n\
+        if (currentChannel != null) {\n\
+            playChannel(currentChannel);\n\
+        }\n\
+    }\n\
+    // 收藏按钮点击处理（在现有 favoriteIcon 点击事件中调用）\n\
+    private void toggleFavorite() {\n\
+        if (currentChannel == null) return;\n\
+        preferenceManager.toggleFavorite(currentChannel.id);\n\
+        updateFavoriteIcon();\n\
+    }\n\
+    private void updateFavoriteIcon() {\n\
+        if (currentChannel == null || favoriteIcon == null) return;\n\
+        boolean fav = preferenceManager.isFavorite(currentChannel.id);\n\
+        favoriteIcon.setImageResource(fav ? R.drawable.ic_favorite_filled : R.drawable.ic_favorite_border);\n\
+    }\n' "$ACTIVITY_FILE"
+    
+    # 在 onCreate 中初始化收藏图标点击事件（在 setContentView 之后插入）
+    sed -i '/setContentView/i \
+        // 酷9: 收藏图标点击\n\
+        favoriteIcon = findViewById(R.id.iv_favorite);\n\
+        if (favoriteIcon != null) {\n\
+            favoriteIcon.setOnClickListener(v -> toggleFavorite());\n\
+        }\n' "$ACTIVITY_FILE"
+    
+    echo "✅ PlayerActivity 已增强（菜单、搜索、收藏、比例）"
+else
+    echo "⚠️ 未找到 PlayerActivity.java"
+fi
 
-echo "✅ 依赖更新完成。"
-
-# --- 2. 创建新的包和类结构 (示例) ---
-echo "📁 创建新的代码结构..."
-
-# 创建新包路径
-mkdir -p app/src/main/java/com/whyun/witv/ku9/feature
-mkdir -p app/src/main/java/com/whyun/witv/ku9/manager
-mkdir -p app/src/main/java/com/whyun/witv/ku9/parser
-mkdir -p app/src/main/java/com/whyun/witv/ku9/ui
-
-# 创建示例类文件 (空文件，供开发者填充)
-cat > app/src/main/java/com/whyun/witv/ku9/manager/SourceManager.java <<EOF
-package com.whyun.witv.ku9.manager;
-
-import android.content.Context;
-// 导入必要的类...
-
-/**
- * 增强的源管理器
- * 功能：支持 TXT/M3U 格式、本地文件、网络 URL
- */
-public class SourceManager {
-    private static final String TAG = "SourceManager";
-    private Context context;
-
-    public SourceManager(Context context) {
-        this.context = context;
-    }
-
-    // TODO: 实现添加本地文件、解析TXT等方法
-    public void addLocalSource(String filePath) {
-        // 实现本地源添加逻辑
-    }
-
-    public void addNetworkSource(String url) {
-        // 实现网络源添加逻辑
-    }
-}
-EOF
-
-cat > app/src/main/java/com/whyun/witv/ku9/manager/PlayerConfigManager.java <<EOF
-package com.whyun.witv.ku9.manager;
-
-/**
- * 播放配置管理器
- * 功能：硬解/软解切换、画面比例调整
- */
-public class PlayerConfigManager {
-    // TODO: 实现解码方式、画面比例等配置的保存和应用
-    public static final int DECODER_HARDWARE = 0;
-    public static final int DECODER_SOFTWARE = 1;
-
-    private int currentDecoder = DECODER_HARDWARE;
-    private String aspectRatio = "16:9";
-
-    public void setDecoder(int decoder) {
-        this.currentDecoder = decoder;
-        // 应用解码设置
-    }
-
-    public void setAspectRatio(String ratio) {
-        this.aspectRatio = ratio;
-        // 应用画面比例
-    }
-}
-EOF
-
-cat > app/src/main/java/com/whyun/witv/ku9/parser/EPGParserFactory.java <<EOF
-package com.whyun.witv.ku9.parser;
-
-/**
- * EPG 解析器工厂
- * 功能：兼容 DIYP/百川/超级TV/XMLTV 格式
- */
-public class EPGParserFactory {
-    // TODO: 实现不同格式EPG的解析
-    public static final String FORMAT_DIYP = "diyp";
-    public static final String FORMAT_BAICHUAN = "baichuan";
-    public static final String FORMAT_SUPERTV = "supertv";
-    public static final String FORMAT_XMLTV = "xmltv";
-
-    public static Object getParser(String format) {
-        // 根据格式返回对应的解析器实例
-        return null;
-    }
-}
-EOF
-
-echo "✅ 新代码结构创建完成。"
-
-# --- 3. 修改布局文件 (示例) ---
-echo "🖌️ 调整UI布局文件 (示例)..."
-
-# 创建一个新的布局文件示例，用于展示频道列表和EPG
-mkdir -p app/src/main/res/layout
-cat > app/src/main/res/layout/activity_ku9_player.xml <<EOF
+# ============================================================
+# 4. 添加菜单资源文件
+# ============================================================
+mkdir -p app/src/main/res/menu
+cat > app/src/main/res/menu/player_menu.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical">
-
-    <!-- 视频播放器区域 -->
-    <FrameLayout
-        android:id="@+id/player_container"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
-
-    <!-- 底部信息栏 (EPG, 控制按钮等) -->
-    <LinearLayout
-        android:id="@+id/bottom_controls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
-        android:background="#CC000000">
-
-        <!-- 频道名称 -->
-        <TextView
-            android:id="@+id/channel_name"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="频道名称"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp" />
-
-        <!-- 收藏按钮 -->
-        <ImageView
-            android:id="@+id/favorite_button"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_favorite_border" />
-
-        <!-- EPG信息按钮 -->
-        <ImageView
-            android:id="@+id/epg_info_button"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_info" />
-
-    </LinearLayout>
-</LinearLayout>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/action_decoder_hw" android:title="硬解" />
+    <item android:id="@+id/action_decoder_sw" android:title="软解" />
+    <item android:id="@+id/action_aspect_ratio" android:title="画面比例" />
+    <item android:id="@+id/action_search" android:title="搜索频道" />
+</menu>
 EOF
+echo "✅ 菜单资源已添加"
 
-echo "✅ UI布局文件创建完成。"
-
-# --- 4. 添加资源文件 (示例) ---
-echo "🖼️ 添加图标资源 (示例)..."
-
-# 创建 drawable 目录并添加占位图标
+# ============================================================
+# 5. 添加收藏图标资源
+# ============================================================
 mkdir -p app/src/main/res/drawable
-cat > app/src/main/res/drawable/ic_favorite_border.xml <<EOF
+cat > app/src/main/res/drawable/ic_favorite_border.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"/>
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"/>
 </vector>
 EOF
-
-cat > app/src/main/res/drawable/ic_info.xml <<EOF
+cat > app/src/main/res/drawable/ic_favorite_filled.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zm1,15h-2v-6h2v6zm0,-8h-2V7h2v2z"/>
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFD700" android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"/>
 </vector>
 EOF
+echo "✅ 收藏图标已添加"
 
-echo "✅ 资源文件创建完成。"
+# ============================================================
+# 6. 修改频道列表布局，添加收藏按钮
+# ============================================================
+ITEM_LAYOUT="app/src/main/res/layout/item_channel.xml"
+if [ -f "$ITEM_LAYOUT" ]; then
+    sed -i '/<\/LinearLayout>/ i \    <ImageView\n        android:id="@+id/iv_favorite"\n        android:layout_width="24dp"\n        android:layout_height="24dp"\n        android:src="@drawable/ic_favorite_border"\n        android:layout_gravity="center_vertical"\n        android:padding="4dp" />' "$ITEM_LAYOUT"
+    echo "✅ 频道列表布局已添加收藏按钮"
+else
+    echo "⚠️ 未找到 item_channel.xml，请手动添加"
+fi
 
-# --- 5. 总结与后续步骤 ---
+# ============================================================
+# 7. 添加 TXT 源支持（修改 M3UParser）
+# ============================================================
+M3U_PARSER="$SRC/data/parser/M3UParser.java"
+if [ -f "$M3U_PARSER" ]; then
+    sed -i '/public.*parse/i \
+    // 酷9: 支持 TXT 格式解析\n\
+    public static List<Channel> parseTxt(String content) {\n\
+        List<Channel> channels = new ArrayList<>();\n\
+        String[] lines = content.split("\\n");\n\
+        for (String line : lines) {\n\
+            line = line.trim();\n\
+            if (line.isEmpty() || line.startsWith("#")) continue;\n\
+            String[] parts = line.split(",", 2);\n\
+            if (parts.length >= 2) {\n\
+                Channel ch = new Channel();\n\
+                ch.displayName = parts[0].trim();\n\
+                ch.url = parts[1].trim();\n\
+                channels.add(ch);\n\
+            }\n\
+        }\n\
+        return channels;\n\
+    }\n' "$M3U_PARSER"
+    echo "✅ M3UParser 已添加 TXT 解析支持"
+else
+    echo "⚠️ 未找到 M3UParser.java"
+fi
+
+# ============================================================
+# 8. 更新 build.gradle 依赖
+# ============================================================
+APP_GRADLE="app/build.gradle"
+if [ -f "$APP_GRADLE" ]; then
+    # 检查是否已添加 glide，避免重复
+    if ! grep -q "glide" "$APP_GRADLE"; then
+        sed -i '/dependencies {/a \    implementation "com.github.bumptech.glide:glide:4.16.0"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
+        echo "✅ build.gradle 依赖已更新"
+    else
+        echo "✅ build.gradle 依赖已存在"
+    fi
+else
+    echo "⚠️ 未找到 build.gradle"
+fi
+
+# ============================================================
+# 9. 添加 AndroidManifest 权限（U盘读取）
+# ============================================================
+MANIFEST="app/src/main/AndroidManifest.xml"
+if [ -f "$MANIFEST" ]; then
+    if ! grep -q "READ_EXTERNAL_STORAGE" "$MANIFEST"; then
+        sed -i '/<manifest /a \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+        echo "✅ AndroidManifest 权限已添加"
+    else
+        echo "✅ AndroidManifest 权限已存在"
+    fi
+else
+    echo "⚠️ 未找到 AndroidManifest.xml"
+fi
+
 echo ""
-echo "🎉 脚本执行完成！"
+echo "🎉 增强完成！"
 echo ""
-echo "📝 接下来的手动工作："
-echo "1. 在 AndroidManifest.xml 中注册新的 Activity (如果创建了新的)。"
-echo "2. 实现上述 TODO 中的核心逻辑，例如："
-echo "   - 解析 TXT 格式的直播源 (SourceManager.java)"
-echo "   - 读取并处理本地 U 盘中的源文件 (SourceManager.java)"
-echo "   - 实现解码方式切换的逻辑 (PlayerConfigManager.java)"
-echo "   - 为不同的 EPG 格式编写解析器 (EPGParserFactory.java)"
-echo "   - 在 UI 中添加收藏、搜索、二级分组等功能的交互。"
-echo "3. 参考酷9的UI设计，调整现有的 Leanback 界面或创建新的界面。"
-echo "4. 集成 Rhino 或类似库来实现 JS 脚本功能 (高级功能)。"
+echo "📝 接下来你需要："
+echo "1. 在 PlayerActivity 中导入缺失的类："
+echo "   - import android.view.Menu;"
+echo "   - import android.view.MenuItem;"
+echo "   - import android.widget.EditText;"
+echo "   - import androidx.appcompat.app.AlertDialog;"
+echo "2. 确保 PlayerActivity 中有 allChannels 和 channelListAdapter 变量"
+echo "3. 编译测试：./gradlew assembleDebug"
 echo ""
-echo "🔧 你可以使用以下命令构建 APK 进行测试："
-echo "  ./gradlew assembleDebug"
-echo ""
-echo "⚠️ 注意：此脚本仅创建了代码骨架和示例文件，完整的功能实现需要你根据项目架构进行详细编码。"
+echo "⚠️ 脚本修改了多个 Java 文件，可能需要手动调整导入语句"
