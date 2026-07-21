@@ -29,8 +29,9 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    // 酷9依赖 (Media3)\n    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
-# ========== 2. 添加权限 ==========
-sed -i '/<manifest /a \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+# ========== 2. 添加权限（包含 INTERNET） ==========
+sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+echo "✅ 权限已添加（含 INTERNET）"
 
 # ========== 3. 使用 Python 安全修改 AndroidManifest ==========
 echo "🛠️ 使用 Python 修改 AndroidManifest.xml..."
@@ -152,7 +153,7 @@ public class SourceManager {
         for (String line : content.split("\n")) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
-            String[] parts = line.split(",");
+            String[] parts = line.split(","");
             if (parts.length >= 2) channels.add(new Channel(parts[0].trim(), parts[1].trim(), ""));
         }
     }
@@ -215,7 +216,7 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# ========== 5. 生成酷9风格 MainActivity（Media3 版本，导入路径修正） ==========
+# ========== 5. 生成酷9风格 MainActivity（Media3 版本） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -437,7 +438,7 @@ EOF
 
 echo "✅ 生成 MainActivity"
 
-# ========== 6. 生成酷9风格主布局（关键修正：使用 PlayerView 替代 FrameLayout） ==========
+# ========== 6. 生成酷9风格主布局（PlayerView） ==========
 cat > "$LAYOUT_FILE" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -507,7 +508,7 @@ cat > "$LAYOUT_FILE" <<'EOF'
 </RelativeLayout>
 EOF
 
-echo "✅ 生成布局文件（已修正为 PlayerView）"
+echo "✅ 生成布局文件（PlayerView）"
 
 # ========== 7. 添加图标资源 ==========
 mkdir -p app/src/main/res/drawable
