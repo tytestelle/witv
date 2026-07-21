@@ -19,14 +19,16 @@ mkdir -p "$BACKUP_DIR"
 cp "$MANIFEST" "$BACKUP_DIR/"
 echo "📂 已备份到 $BACKUP_DIR"
 
-# ========== 1. 添加依赖 ==========
+# ========== 1. 添加依赖（Media3） ==========
 APP_GRADLE="app/build.gradle"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
+# 删除可能已有的旧依赖（如果有）
 sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
 sed -i '/implementation.*preference/d' "$APP_GRADLE"
-sed -i '/dependencies {/a \    // 酷9依赖\n    implementation "com.google.android.exoplayer:exoplayer:2.19.1"\n    implementation "com.google.android.exoplayer:exoplayer-hls:2.19.1"\n    implementation "com.google.android.exoplayer:exoplayer-ui:2.19.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
+# 插入新依赖（Media3 + 其他）
+sed -i '/dependencies {/a \    // 酷9依赖 (Media3)\n    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
 # ========== 2. 添加权限 ==========
@@ -39,7 +41,6 @@ import sys
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
-# 注册 android 命名空间
 ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
 
 manifest_file = "$MANIFEST"
@@ -53,7 +54,6 @@ except Exception as e:
     print(f"解析 XML 失败: {e}", file=sys.stderr)
     sys.exit(1)
 
-# 查找 application
 application = root.find('application')
 if application is None:
     print("未找到 application 元素", file=sys.stderr)
@@ -68,7 +68,6 @@ new_activity = ET.Element('activity')
 new_activity.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.{act}")
 new_activity.set('{http://schemas.android.com/apk/res/android}exported', 'true')
 
-# 创建 intent-filter
 intent_filter = ET.SubElement(new_activity, 'intent-filter')
 action = ET.SubElement(intent_filter, 'action')
 action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
@@ -77,11 +76,10 @@ category.set('{http://schemas.android.com/apk/res/android}name', 'android.intent
 
 application.append(new_activity)
 
-# 写回文件（保留格式）
+# 写回文件
 xml_str = ET.tostring(root, encoding='unicode')
 dom = minidom.parseString(xml_str)
 pretty_xml = dom.toprettyxml(indent="    ")
-# 移除 XML 声明
 pretty_xml = '\n'.join(pretty_xml.split('\n')[1:]) if pretty_xml.startswith('<?xml') else pretty_xml
 with open(manifest_file, 'w') as f:
     f.write(pretty_xml)
@@ -89,7 +87,7 @@ with open(manifest_file, 'w') as f:
 print("✅ AndroidManifest.xml 已成功修改")
 PYTHON_SCRIPT
 
-# ========== 4. 创建功能类 ==========
+# ========== 4. 创建功能类（SourceManager, PlayerConfigManager, FavoriteManager, EPGParserFactory） ==========
 mkdir -p "app/src/main/java/$PKG_PATH/source"
 mkdir -p "app/src/main/java/$PKG_PATH/player"
 mkdir -p "app/src/main/java/$PKG_PATH/favorite"
@@ -219,7 +217,7 @@ EOF
 
 echo "✅ 功能类已创建"
 
-# ========== 5. 生成酷9风格 MainActivity ==========
+# ========== 5. 生成酷9风格 MainActivity（Media3 版本） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -231,12 +229,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import com.google.android.exoplayer2.ExoPlayer;
-import com.google.android.exoplayer2.MediaItem;
-import com.google.android.exoplayer2.PlaybackException;
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
-import com.google.android.exoplayer2.ui.PlayerView;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.MediaItem;
+import androidx.media3.exoplayer.PlaybackException;
+import androidx.media3.exoplayer.Player;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.ui.PlayerView;
 import com.whyun.witv.favorite.FavoriteManager;
 import com.whyun.witv.player.PlayerConfigManager;
 import com.whyun.witv.source.SourceManager;
@@ -287,12 +285,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void initPlayer() {
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-        trackSelector.setParameters(
-                trackSelector.buildUponParameters()
-                        .setMaxVideoSize(1920, 1080)
-                        .setPreferredVideoRole(PlayerConfigManager.getDecoder() == PlayerConfigManager.DECODER_SOFTWARE ?
-                                DefaultTrackSelector.Role.ROLE_SOFTWARE_CODEC : null)
-        );
+        // 简化，不设置软件解码偏好，避免找不到常量
         player = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
         playerView.setPlayer(player);
     }
