@@ -18,7 +18,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
     echo "📁 首次运行，创建模板目录并写入所有文件..."
     mkdir -p "$TEMPLATE_DIR"
 
-    # 将模板文件写入 template/ 子目录（此处将模板内容压缩为几个核心块）
+    # 1. configuration.json
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {
   "Configuration": {
@@ -82,17 +82,15 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 }
 EOF
 
-    # 生成 Java 源文件（分类放置到 template/src/ 下）
+    # 2. Java 源文件（分类放置到 template/src/ 下）
     mkdir -p "$TEMPLATE_DIR/src/source" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
+    
     # SourceManager.java
     cat > "$TEMPLATE_DIR/src/source/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.List;
 import okhttp3.OkHttpClient;
@@ -214,11 +212,10 @@ public class ConfigurationManager {
     public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }
     public int getPlayType() { return getInt("PLAY_TYPE", 7); }
     public int getPlayScale() { return getInt("PLAY_SCALE", 3); }
-    // 其他快捷方法可按需添加
 }
 EOF
 
-    # MainActivity.java (核心播放)
+    # MainActivity.java
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -310,7 +307,6 @@ public class MainActivity extends AppCompatActivity {
     private void showChannelList() { isListVisible = true; channelListView.setVisibility(View.VISIBLE); }
     private void hideChannelList() { isListVisible = false; channelListView.setVisibility(View.GONE); }
     @Override protected void onDestroy() { super.onDestroy(); if (player != null) { player.release(); player = null; } }
-    // ChannelAdapter
     private static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
         private OnChannelClickListener listener;
@@ -333,7 +329,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java (使用双栏 RecyclerView，无 Fragment)
+    # SettingsActivity.java
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -399,9 +395,7 @@ public class SettingsActivity extends AppCompatActivity {
         String[] items = {"解码方式","画面比例","超时换源","断线重连"};
         new AlertDialog.Builder(this).setTitle("播放设置").setItems(items, (d,w) -> Toast.makeText(this, "设置项"+w, Toast.LENGTH_SHORT).show()).show();
     }
-    // 数据类
     static class ContentItem { String title, subtitle; View.OnClickListener listener; ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; listener=l; } }
-    // MenuAdapter
     static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private String[] titles; private OnMenuClickListener listener; private int selected=-1;
         interface OnMenuClickListener { void onClick(int pos); }
@@ -419,7 +413,6 @@ public class SettingsActivity extends AppCompatActivity {
         @Override public int getItemCount() { return titles.length; }
         static class ViewHolder extends RecyclerView.ViewHolder { TextView text; ViewHolder(View v) { super(v); text=v.findViewById(R.id.menu_text); } }
     }
-    // ContentAdapter
     static class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.ViewHolder> {
         private List<ContentItem> items = new ArrayList<>();
         void setItems(List<ContentItem> list) { items=list; notifyDataSetChanged(); }
@@ -575,11 +568,16 @@ else
     echo "📂 模板目录已存在，直接使用"
 fi
 
+# === 关键：清理旧文件，防止残留的 ui/SettingsActivity 干扰 ===
+echo "🧹 清理旧的 ui 目录和残留 SettingsActivity..."
+rm -rf "$SRC_JAVA/ui"
+rm -f "$SRC_JAVA/SettingsActivity.java"  # 删除旧的根包下的 SettingsActivity（若存在）
+
 # 复制模板到项目
 echo "📂 从模板复制文件到项目..."
-cp -r "$TEMPLATE_DIR/src/." "$SRC_JAVA/" 2>/dev/null || true
-cp -r "$TEMPLATE_DIR/res/." "app/src/main/res/" 2>/dev/null || true
-cp "$TEMPLATE_DIR/configuration.json" "$ASSETS/" 2>/dev/null || true
+cp -r "$TEMPLATE_DIR/src/." "$SRC_JAVA/"
+cp -r "$TEMPLATE_DIR/res/." "app/src/main/res/"
+cp "$TEMPLATE_DIR/configuration.json" "$ASSETS/"
 
 # 创建必要的文件夹结构
 mkdir -p "$ASSETS/localData" "$ASSETS/backup" "$ASSETS/download" "$ASSETS/videoFile" \
