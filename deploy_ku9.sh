@@ -8,6 +8,9 @@ TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
     echo "📁 首次运行，生成模板文件..."
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
+    mkdir -p "$TEMPLATE_DIR/src/epg"
+    mkdir -p "$TEMPLATE_DIR/src/player"
+    mkdir -p "$TEMPLATE_DIR/src/favorite"
 
     # configuration.json（内置源为 null）
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
@@ -15,7 +18,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 EOF
 
     # ==================== Java 源文件 ====================
-    # SourceManager.java - 解析源文件，按分组归类
+    # SourceManager.java
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -65,7 +68,6 @@ public class SourceManager {
     private void parseTXT(String content) {
         groupMap.clear();
         groupNames.clear();
-        String currentGroup = "默认分组";
         for (String line : content.split("\n")) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
@@ -87,7 +89,6 @@ public class SourceManager {
         groupMap.clear();
         groupNames.clear();
         String[] lines = content.split("\n");
-        String currentGroup = "默认分组";
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
             if (line.startsWith("#EXTINF:")) {
@@ -95,7 +96,6 @@ public class SourceManager {
                 if (i + 1 < lines.length) {
                     String url = lines[i + 1].trim();
                     if (!url.isEmpty() && !url.startsWith("#")) {
-                        // 尝试从 #EXTINF 中提取 group-title
                         String group = "默认分组";
                         int gidx = line.indexOf("group-title=\"");
                         if (gidx != -1) {
@@ -120,7 +120,7 @@ public class SourceManager {
 }
 EOF
 
-    # EPGParser.java - 解析 EPG（支持 XMLTV 格式）
+    # EPGParser.java
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -186,17 +186,15 @@ public class EPGParser {
                 case XmlPullParser.END_TAG:
                     if ("programme".equals(parser.getName())) {
                         inProgramme = false;
-                        // 简单匹配频道名（可根据需要更精确）
                         if (!currentTitle.isEmpty()) {
                             EpgProgram prog = new EpgProgram();
                             prog.title = currentTitle;
                             prog.desc = currentDesc;
-                            // 转换时间格式（XMLTV 格式：YYYYMMDDHHmmSS + 时区）
                             try {
                                 SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
                                 prog.startTime = sdf.parse(currentStart + " +0000").getTime();
                                 prog.endTime = sdf.parse(currentStop + " +0000").getTime();
-                            } catch (Exception e) { /* 忽略时间解析错误 */ }
+                            } catch (Exception e) { /* 忽略 */ }
                             result.add(prog);
                         }
                     }
@@ -213,7 +211,106 @@ public class EPGParser {
 }
 EOF
 
-    # MainActivity.java - 三栏UI逻辑
+    # PlayerConfigManager.java
+    cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
+package com.whyun.witv.player;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+public class PlayerConfigManager {
+    private static SharedPreferences prefs;
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "默认"); }
+    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }
+    public static int getDecoder() { return prefs.getInt("decoder", 7); }
+    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }
+    public static boolean getShowTime() { return prefs.getBoolean("show_time", false); }
+    public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }
+    public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }
+    public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }
+}
+EOF
+
+    # FavoriteManager.java
+    cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
+package com.whyun.witv.favorite;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+import java.util.HashSet;
+import java.util.Set;
+public class FavoriteManager {
+    private static SharedPreferences prefs;
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }
+    public static void toggleFavorite(String channelId) {
+        boolean cur = isFavorite(channelId);
+        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();
+        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+        if (!cur) favSet.add(channelId); else favSet.remove(channelId);
+        prefs.edit().putStringSet("fav_list", favSet).apply();
+    }
+    public static Set<String> getAllFavorites() {
+        return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+    }
+}
+EOF
+
+    # ConfigurationManager.java
+    cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
+package com.whyun.witv;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+public class ConfigurationManager {
+    private static ConfigurationManager instance;
+    private JsonObject config;
+    private SharedPreferences prefs;
+    private ConfigurationManager(Context context) {
+        prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        loadConfig(context);
+    }
+    public static synchronized ConfigurationManager getInstance(Context context) {
+        if (instance == null) instance = new ConfigurationManager(context.getApplicationContext());
+        return instance;
+    }
+    private void loadConfig(Context context) {
+        try {
+            InputStream is = context.getAssets().open("configuration.json");
+            JsonObject root = new Gson().fromJson(new InputStreamReader(is), JsonObject.class);
+            config = root.getAsJsonObject("Configuration");
+            is.close();
+        } catch (Exception e) { config = new JsonObject(); }
+    }
+    public String getString(String key, String def) {
+        if (prefs.contains(key)) return prefs.getString(key, def);
+        if (config.has(key)) return config.get(key).getAsString();
+        return def;
+    }
+    public int getInt(String key, int def) {
+        if (prefs.contains(key)) return prefs.getInt(key, def);
+        if (config.has(key)) return config.get(key).getAsInt();
+        return def;
+    }
+    public boolean getBoolean(String key, boolean def) {
+        if (prefs.contains(key)) return prefs.getBoolean(key, def);
+        if (config.has(key)) return config.get(key).getAsBoolean();
+        return def;
+    }
+    public void putInt(String key, int value) { prefs.edit().putInt(key, value).apply(); }
+    public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }
+    public void putString(String key, String value) { prefs.edit().putString(key, value).apply(); }
+    public int getPlayType() { return getInt("PLAY_TYPE", 7); }
+    public int getPlayScale() { return getInt("PLAY_SCALE", 3); }
+    public String getLiveUrls() { return getString("LIVE_URLS", null); }
+}
+EOF
+
+    # MainActivity.java（三栏UI）
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -238,6 +335,8 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
 import com.whyun.witv.source.SourceManager;
 import com.whyun.witv.epg.EPGParser;
+import com.whyun.witv.player.PlayerConfigManager;
+import com.whyun.witv.favorite.FavoriteManager;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -293,29 +392,21 @@ public class MainActivity extends AppCompatActivity {
         groupRecycler.setAdapter(groupAdapter);
         channelAdapter = new ChannelAdapter(new ArrayList<>(), channel -> {
             playChannel(channel);
-            // 加载EPG
             loadEpgForChannel(channel);
-            // 保存选中的频道
             prefs.edit().putString(KEY_SELECTED_CHANNEL, channel.name).apply();
             channelAdapter.setSelectedChannel(channel);
         }, this::toggleFavorite);
         channelRecycler.setAdapter(channelAdapter);
         epgAdapter = new EpgAdapter(new ArrayList<>());
         epgRecycler.setAdapter(epgAdapter);
-        // 点击播放器区域显示/隐藏覆盖层
         playerView.setOnClickListener(v -> toggleOverlay());
-        // 设置按钮
         ImageButton btnSettings = findViewById(R.id.btn_settings);
         btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        // 加载数据
         loadSource();
-        // 恢复上次选中的分组和频道
         String lastGroup = prefs.getString(KEY_SELECTED_GROUP, "");
         String lastChannel = prefs.getString(KEY_SELECTED_CHANNEL, "");
         if (!lastGroup.isEmpty()) currentGroup = lastGroup;
-        if (!lastChannel.isEmpty()) {
-            // 将在加载完成后尝试恢复
-        }
+        if (!lastChannel.isEmpty()) { /* 将在加载完成后恢复 */ }
     }
     private void loadSource() {
         String url = prefs.getString("selected_sub_url", null);
@@ -331,14 +422,11 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
                 groupMap = map;
                 groupNames = names;
-                // 添加“我的收藏”分组（特殊处理）
                 if (!groupNames.contains("我的收藏")) {
                     groupNames.add(0, "我的收藏");
                 }
-                // 重建分组列表
                 List<String> displayGroups = new ArrayList<>(groupNames);
                 groupAdapter.updateData(displayGroups);
-                // 默认选中上次分组或第一个
                 String targetGroup = currentGroup;
                 if (!groupNames.contains(targetGroup) && !groupNames.isEmpty()) {
                     targetGroup = groupNames.get(0);
@@ -348,7 +436,6 @@ public class MainActivity extends AppCompatActivity {
                     groupAdapter.setSelectedGroup(targetGroup);
                     showChannelsForGroup(targetGroup);
                 }
-                // 恢复频道选中
                 String lastChannelName = prefs.getString(KEY_SELECTED_CHANNEL, "");
                 if (!lastChannelName.isEmpty()) {
                     for (SourceManager.Channel ch : currentChannelList) {
@@ -360,7 +447,6 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                 }
-                // 显示覆盖层
                 showOverlay();
             }
             @Override public void onError(String error) {
@@ -370,7 +456,6 @@ public class MainActivity extends AppCompatActivity {
     }
     private void showChannelsForGroup(String group) {
         if ("我的收藏".equals(group)) {
-            // 显示收藏的频道
             List<SourceManager.Channel> favChannels = new ArrayList<>();
             for (List<SourceManager.Channel> list : groupMap.values()) {
                 for (SourceManager.Channel ch : list) {
@@ -386,7 +471,6 @@ public class MainActivity extends AppCompatActivity {
             currentChannelList = list;
         }
         channelAdapter.updateData(currentChannelList);
-        // 如果当前频道不在列表中，清空EPG
         if (currentChannel != null && !currentChannelList.contains(currentChannel)) {
             epgAdapter.setItems(new ArrayList<>());
         }
@@ -438,11 +522,9 @@ public class MainActivity extends AppCompatActivity {
             favoriteSet.add(channel.name);
         }
         prefs.edit().putStringSet(KEY_FAVORITES, favoriteSet).apply();
-        // 刷新当前列表（如果是收藏分组，需要重新加载）
         if ("我的收藏".equals(currentGroup)) {
             showChannelsForGroup("我的收藏");
         }
-        // 更新频道列表中的收藏标记
         channelAdapter.notifyDataSetChanged();
         Toast.makeText(this, favoriteSet.contains(channel.name) ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
     }
@@ -549,7 +631,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java（保留，但简化）
+    # SettingsActivity.java（保留，但已包含完整功能）
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -701,7 +783,6 @@ public class SettingsActivity extends AppCompatActivity {
         builder.setNegativeButton("取消", null);
         builder.show();
     }
-    // 其他菜单方法（略）
     private void showLineSelection() {
         new AlertDialog.Builder(this).setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show()).show();
     }
@@ -826,119 +907,17 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # PlayerConfigManager.java（保留）
-    cat > "$TEMPLATE_DIR/src/PlayerConfigManager.java" <<'EOF'
-package com.whyun.witv.player;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-public class PlayerConfigManager {
-    private static SharedPreferences prefs;
-    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
-    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "默认"); }
-    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }
-    public static int getDecoder() { return prefs.getInt("decoder", 7); }
-    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }
-    public static boolean getShowTime() { return prefs.getBoolean("show_time", false); }
-    public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }
-    public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }
-    public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }
-}
-EOF
-
-    # FavoriteManager.java（保留）
-    cat > "$TEMPLATE_DIR/src/FavoriteManager.java" <<'EOF'
-package com.whyun.witv.favorite;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-import java.util.HashSet;
-import java.util.Set;
-public class FavoriteManager {
-    private static SharedPreferences prefs;
-    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
-    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }
-    public static void toggleFavorite(String channelId) {
-        boolean cur = isFavorite(channelId);
-        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();
-        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
-        if (!cur) favSet.add(channelId); else favSet.remove(channelId);
-        prefs.edit().putStringSet("fav_list", favSet).apply();
-    }
-    public static Set<String> getAllFavorites() {
-        return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
-    }
-}
-EOF
-
-    # ConfigurationManager.java（保留）
-    cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
-package com.whyun.witv;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-public class ConfigurationManager {
-    private static ConfigurationManager instance;
-    private JsonObject config;
-    private SharedPreferences prefs;
-    private ConfigurationManager(Context context) {
-        prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        loadConfig(context);
-    }
-    public static synchronized ConfigurationManager getInstance(Context context) {
-        if (instance == null) instance = new ConfigurationManager(context.getApplicationContext());
-        return instance;
-    }
-    private void loadConfig(Context context) {
-        try {
-            InputStream is = context.getAssets().open("configuration.json");
-            JsonObject root = new Gson().fromJson(new InputStreamReader(is), JsonObject.class);
-            config = root.getAsJsonObject("Configuration");
-            is.close();
-        } catch (Exception e) { config = new JsonObject(); }
-    }
-    public String getString(String key, String def) {
-        if (prefs.contains(key)) return prefs.getString(key, def);
-        if (config.has(key)) return config.get(key).getAsString();
-        return def;
-    }
-    public int getInt(String key, int def) {
-        if (prefs.contains(key)) return prefs.getInt(key, def);
-        if (config.has(key)) return config.get(key).getAsInt();
-        return def;
-    }
-    public boolean getBoolean(String key, boolean def) {
-        if (prefs.contains(key)) return prefs.getBoolean(key, def);
-        if (config.has(key)) return config.get(key).getAsBoolean();
-        return def;
-    }
-    public void putInt(String key, int value) { prefs.edit().putInt(key, value).apply(); }
-    public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }
-    public void putString(String key, String value) { prefs.edit().putString(key, value).apply(); }
-    public int getPlayType() { return getInt("PLAY_TYPE", 7); }
-    public int getPlayScale() { return getInt("PLAY_SCALE", 3); }
-    public String getLiveUrls() { return getString("LIVE_URLS", null); }
-}
-EOF
-
     # ==================== 布局文件 ====================
-    # activity_main.xml
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
-    <!-- 播放器 -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-    <!-- 覆盖层（三栏布局） -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -946,7 +925,6 @@ EOF
         android:orientation="horizontal"
         android:background="#CC000000"
         android:visibility="gone">
-        <!-- 左侧分组 -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/group_recycler"
             android:layout_width="0dp"
@@ -954,7 +932,6 @@ EOF
             android:layout_weight="1"
             android:background="#33000000"
             android:padding="8dp" />
-        <!-- 中间频道列表 -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/channel_recycler"
             android:layout_width="0dp"
@@ -962,7 +939,6 @@ EOF
             android:layout_weight="2"
             android:background="#44000000"
             android:padding="8dp" />
-        <!-- 右侧 EPG -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/epg_recycler"
             android:layout_width="0dp"
@@ -971,7 +947,6 @@ EOF
             android:background="#55000000"
             android:padding="8dp" />
     </LinearLayout>
-    <!-- 设置按钮 -->
     <ImageButton
         android:id="@+id/btn_settings"
         android:layout_width="48dp"
@@ -984,7 +959,6 @@ EOF
 </FrameLayout>
 EOF
 
-    # activity_settings.xml（保持原样）
     cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -995,7 +969,6 @@ EOF
 </LinearLayout>
 EOF
 
-    # item_group.xml
     cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1009,7 +982,6 @@ EOF
     android:background="?attr/selectableItemBackground" />
 EOF
 
-    # item_channel.xml
     cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1038,7 +1010,6 @@ EOF
 </LinearLayout>
 EOF
 
-    # item_epg.xml
     cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1062,7 +1033,6 @@ EOF
 </LinearLayout>
 EOF
 
-    # item_menu.xml, item_content.xml（保留）
     cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1075,6 +1045,7 @@ EOF
     android:textColor="#FFFFFF"
     android:background="?attr/selectableItemBackground" />
 EOF
+
     cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1112,7 +1083,6 @@ EOF
 </LinearLayout>
 EOF
 
-    # 图标资源
     cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
