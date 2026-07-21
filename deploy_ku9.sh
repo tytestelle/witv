@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终正确版 - 订阅源/分组/频道三栏）"
+echo "🔥 部署酷9播放器（修正选中加载问题）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -14,7 +14,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== 1. SourceManager.java（修正：去除频道名逗号） ====================
+    # ==================== SourceManager.java（修正频道名逗号） ====================
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -82,7 +82,6 @@ public class SourceManager {
             String[] parts = line.split(",");
             if (parts.length >= 2) {
                 String name = parts[0].trim();
-                // 去除可能的尾随逗号
                 if (name.endsWith(",")) name = name.substring(0, name.length()-1).trim();
                 String url = parts[1].trim();
                 if (name.isEmpty() || url.isEmpty()) continue;
@@ -140,7 +139,7 @@ public class SourceManager {
 }
 EOF
 
-    # ==================== 2. EPGParser.java（保持不变） ====================
+    # ==================== EPGParser.java ====================
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -241,7 +240,7 @@ public class EPGParser {
 }
 EOF
 
-    # ==================== 3. PlayerConfigManager.java ====================
+    # ==================== PlayerConfigManager.java ====================
     cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -261,7 +260,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-    # ==================== 4. FavoriteManager.java ====================
+    # ==================== FavoriteManager.java ====================
     cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -286,7 +285,7 @@ public class FavoriteManager {
 }
 EOF
 
-    # ==================== 5. ConfigurationManager.java ====================
+    # ==================== ConfigurationManager.java ====================
     cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -340,7 +339,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== 6. MainActivity.java（全新三栏逻辑） ====================
+    # ==================== MainActivity.java（修正 onResume 加载逻辑） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -406,7 +405,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isOverlayVisible = false;
     private Set<String> favoriteSet = new HashSet<>();
     private static final String KEY_FAVORITES = "favorites";
-    private static final String KEY_SELECTED_SUB = "selected_sub"; // 存储选中的订阅 entry (name||url)
+    private static final String KEY_SELECTED_SUB = "selected_sub";
     private static final String KEY_SUB_LIST = "sub_list";
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
@@ -453,6 +452,8 @@ public class MainActivity extends AppCompatActivity {
                 currentSubUrl = entry.url;
                 prefs.edit().putString(KEY_SELECTED_SUB, entry.name + "||" + entry.url).apply();
                 loadSourceForUrl(entry.url);
+                // 隐藏列表
+                hideOverlay();
             });
             subRecycler.setAdapter(subAdapter);
 
@@ -488,7 +489,6 @@ public class MainActivity extends AppCompatActivity {
                     float y = event.getY();
                     float height = v.getHeight();
                     if (y > height * 0.5 && y < height * 0.85) {
-                        // 显示信息窗口（此处省略，可保留之前实现）
                         Toast.makeText(this, "信息窗口（模拟）", Toast.LENGTH_SHORT).show();
                         return true;
                     }
@@ -504,7 +504,7 @@ public class MainActivity extends AppCompatActivity {
             });
             findViewById(R.id.btn_announce).setOnClickListener(v -> Toast.makeText(this, "使用公告", Toast.LENGTH_SHORT).show());
 
-            // 默认选中第一个订阅或之前选中的
+            // 读取选中的订阅
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
@@ -516,11 +516,17 @@ public class MainActivity extends AppCompatActivity {
             if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
                 loadSourceForUrl(currentSubUrl);
             } else if (!subEntryList.isEmpty()) {
-                currentSubName = subEntryList.get(0).name;
-                currentSubUrl = subEntryList.get(0).url;
-                loadSourceForUrl(currentSubUrl);
+                // 自动选中第一个非收藏订阅
+                for (SubEntry se : subEntryList) {
+                    if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                        currentSubName = se.name;
+                        currentSubUrl = se.url;
+                        prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                        loadSourceForUrl(se.url);
+                        break;
+                    }
+                }
             } else {
-                // 尝试从 config 读取默认源
                 String defaultUrl = config.getLiveUrls();
                 if (defaultUrl != null && !defaultUrl.isEmpty()) {
                     currentSubName = "默认源";
@@ -546,11 +552,32 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 重新加载订阅列表和当前源
+        // 重新从 SharedPreferences 读取选中的订阅
+        String selected = prefs.getString(KEY_SELECTED_SUB, "");
+        if (!selected.isEmpty()) {
+            String[] parts = selected.split("\\|\\|");
+            if (parts.length == 2) {
+                currentSubName = parts[0];
+                currentSubUrl = parts[1];
+            }
+        }
+        // 重新加载订阅列表
         loadSubscriptions();
         subAdapter.updateData(subEntryList);
+        // 如果有选中的订阅，加载它
         if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
             loadSourceForUrl(currentSubUrl);
+        } else if (!subEntryList.isEmpty()) {
+            // 尝试选中第一个有 URL 的订阅
+            for (SubEntry se : subEntryList) {
+                if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                    currentSubName = se.name;
+                    currentSubUrl = se.url;
+                    prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                    loadSourceForUrl(se.url);
+                    break;
+                }
+            }
         }
     }
 
@@ -609,25 +636,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showChannelsForGroup(String group) {
-        if ("我的收藏".equals(group) && groupMap == null) {
-            // 如果当前没有数据，尝试从 favoriteSet 构建
-            List<SourceManager.Channel> favChannels = new ArrayList<>();
-            // 遍历所有 groupMap 中的频道
+        List<SourceManager.Channel> list;
+        if ("我的收藏".equals(group)) {
+            list = new ArrayList<>();
             if (groupMap != null) {
-                for (List<SourceManager.Channel> list : groupMap.values()) {
-                    for (SourceManager.Channel ch : list) {
+                for (List<SourceManager.Channel> clist : groupMap.values()) {
+                    for (SourceManager.Channel ch : clist) {
                         if (favoriteSet.contains(ch.name)) {
-                            favChannels.add(ch);
+                            list.add(ch);
                         }
                     }
                 }
             }
-            currentChannelList = favChannels;
         } else {
-            List<SourceManager.Channel> list = groupMap.get(group);
+            list = groupMap.get(group);
             if (list == null) list = new ArrayList<>();
-            currentChannelList = list;
         }
+        currentChannelList = list;
         channelAdapter.updateData(currentChannelList);
         tvGroupName.setText(group);
     }
@@ -728,7 +753,6 @@ public class MainActivity extends AppCompatActivity {
             favoriteSet.add(channel.name);
         }
         prefs.edit().putStringSet(KEY_FAVORITES, favoriteSet).apply();
-        // 刷新当前列表
         showChannelsForGroup(currentGroup);
         channelAdapter.updateFavorites(favoriteSet);
         Toast.makeText(this, favoriteSet.contains(channel.name) ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
@@ -880,7 +904,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 7. SettingsActivity.java（保持不变，已支持订阅列表） ====================
+    # ==================== SettingsActivity.java（保持不变） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1250,7 +1274,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 8. 布局文件（三栏布局） ====================
+    # ==================== 布局文件 ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1264,7 +1288,7 @@ EOF
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 左侧点击区域（用于显示频道列表） -->
+    <!-- 左侧点击区域 -->
     <View
         android:id="@+id/left_click_area"
         android:layout_width="48dp"
@@ -1272,7 +1296,7 @@ EOF
         android:layout_gravity="start"
         android:background="#00000000" />
 
-    <!-- 右侧点击区域（用于关闭频道列表） -->
+    <!-- 右侧点击区域 -->
     <View
         android:id="@+id/right_click_area"
         android:layout_width="80dp"
@@ -1354,7 +1378,7 @@ EOF
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- 覆盖层（三栏：订阅源 | 分组 | 频道） -->
+    <!-- 覆盖层 -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -1363,7 +1387,6 @@ EOF
         android:background="#CC000000"
         android:visibility="gone">
 
-        <!-- 列容器 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1371,7 +1394,6 @@ EOF
             android:orientation="horizontal"
             android:background="#CC000000">
 
-            <!-- 订阅源列表 -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/sub_recycler"
                 android:layout_width="0dp"
@@ -1380,7 +1402,6 @@ EOF
                 android:background="#33000000"
                 android:padding="8dp" />
 
-            <!-- 分组列表 -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/group_recycler"
                 android:layout_width="0dp"
@@ -1389,7 +1410,6 @@ EOF
                 android:background="#44000000"
                 android:padding="8dp" />
 
-            <!-- 频道列表 -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/channel_recycler"
                 android:layout_width="0dp"
@@ -1400,7 +1420,6 @@ EOF
 
         </LinearLayout>
 
-        <!-- 右侧关闭区域 -->
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1412,7 +1431,6 @@ EOF
 </FrameLayout>
 EOF
 
-    # ==================== 新增 item_sub.xml（订阅源列表项） ====================
     cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1426,7 +1444,6 @@ EOF
     android:background="?attr/selectableItemBackground" />
 EOF
 
-    # ==================== 其他布局文件（item_group, item_channel, item_epg 等，与之前一致） ====================
     cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1651,9 +1668,8 @@ echo "🧹 清理并构建..."
 
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 修正内容："
-echo "   ✅ 左侧列显示订阅源名称（含“我的收藏”），中间列显示分组，右侧列显示频道"
+echo "📌 修复内容："
+echo "   ✅ 从设置选中订阅后，返回主界面自动加载该订阅的频道"
 echo "   ✅ 频道名称不再带有逗号"
-echo "   ✅ 选中订阅自动加载频道"
+echo "   ✅ 左侧列显示订阅源名称（含“我的收藏”），中间列显示分组，右侧列显示频道"
 echo "   ✅ 频道列表宽度合适，5秒自动关闭或点击右侧空白关闭"
-echo "   ✅ 按返回键进入设置"
