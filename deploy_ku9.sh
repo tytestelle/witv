@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格播放器（完整自动解码版）..."
+echo "🔥 开始部署酷9风格播放器（默认测试源）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -22,11 +22,9 @@ CONTENT_PLAY_SETTINGS_LAYOUT="app/src/main/res/layout/content_play_settings.xml"
 MANIFEST="app/src/main/AndroidManifest.xml"
 ASSETS_DIR="app/src/main/assets"
 
-# ========== 清理旧 ui 目录 ==========
 rm -rf "app/src/main/java/com/whyun/witv/ui"
 echo "✅ 已清理旧的 ui 目录"
 
-# ========== 备份 ==========
 BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 [ -f "$MAIN_ACT_FILE" ] && cp "$MAIN_ACT_FILE" "$BACKUP_DIR/"
@@ -75,11 +73,9 @@ if application is None:
     print("未找到 application 元素", file=sys.stderr)
     sys.exit(1)
 
-# 删除所有旧 activity
 for activity in application.findall('activity'):
     application.remove(activity)
 
-# 主 Activity
 main_act = ET.Element('activity')
 main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.{act}")
 main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
@@ -90,7 +86,6 @@ category = ET.SubElement(intent_filter, 'category')
 category.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
 application.append(main_act)
 
-# Settings Activity
 settings_act_el = ET.Element('activity')
 settings_act_el.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.{settings_act}")
 settings_act_el.set('{http://schemas.android.com/apk/res/android}exported', 'true')
@@ -103,10 +98,10 @@ pretty_xml = '\n'.join(pretty_xml.split('\n')[1:]) if pretty_xml.startswith('<?x
 with open(manifest_file, 'w') as f:
     f.write(pretty_xml)
 
-print("✅ AndroidManifest.xml 已修改（含 SettingsActivity）")
+print("✅ AndroidManifest.xml 已修改")
 PYTHON_SCRIPT
 
-# ========== 4. 创建 assets 配置 ==========
+# ========== 4. 创建 assets 配置（默认测试源） ==========
 mkdir -p "$ASSETS_DIR"
 cat > "$ASSETS_DIR/configuration.json" <<'EOF'
 {
@@ -131,7 +126,7 @@ cat > "$ASSETS_DIR/configuration.json" <<'EOF'
     "time_format": "HH:mm EE",
     "Speed_value": "0.5,3,0.25,0.5,1,2",
     "icon_background_color": "#32FFFFFF",
-    "LIVE_URLS": "http://io8.myartsonline.com/z/5c.txt$5c直播",
+    "LIVE_URLS": "http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8$Apple测试",
     "EPG_URLS": null,
     "LIVE_JSONS": null,
     "HEADERS_URLS": null,
@@ -214,7 +209,6 @@ mkdir -p "app/src/main/java/$PKG_PATH/player"
 mkdir -p "app/src/main/java/$PKG_PATH/favorite"
 mkdir -p "app/src/main/java/$PKG_PATH/epg"
 
-# SourceManager
 cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 
@@ -318,7 +312,6 @@ public class SourceManager {
 }
 EOF
 
-# PlayerConfigManager
 cat > "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 
@@ -344,7 +337,6 @@ public class PlayerConfigManager {
 }
 EOF
 
-# FavoriteManager
 cat > "app/src/main/java/$PKG_PATH/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 
@@ -371,7 +363,6 @@ public class FavoriteManager {
 }
 EOF
 
-# EPGParserFactory
 cat > "app/src/main/java/$PKG_PATH/epg/EPGParserFactory.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -390,7 +381,6 @@ public class EPGParserFactory {
     }
 }
 EOF
-
 echo "✅ 功能类已创建"
 
 # ========== 7. ConfigurationManager ==========
@@ -477,7 +467,6 @@ public class ConfigurationManager {
         prefs.edit().putString(key, value).apply();
     }
 
-    // 常用配置快捷方法
     public int getPlayType() { return getInt("PLAY_TYPE", 7); }
     public int getPlayScale() { return getInt("PLAY_SCALE", 3); }
     public boolean getShowTime() { return getBoolean("LIVE_SHOW_TIME", false); }
@@ -535,7 +524,7 @@ public class ConfigurationManager {
 EOF
 echo "✅ ConfigurationManager 已创建"
 
-# ========== 8. SettingsActivity（完整版，含自动解码选项） ==========
+# ========== 8. SettingsActivity ==========
 cat > "$SETTINGS_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1240,7 +1229,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 EOF
 echo "✅ 图标资源已添加"
 
-# ========== 11. MainActivity（修正版，移除不存在的API） ==========
+# ========== 11. MainActivity（修正版） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1290,7 +1279,6 @@ public class MainActivity extends AppCompatActivity {
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private ConfigurationManager config;
 
-    // 解码器常量（仅用于显示和后续扩展）
     private static final int DECODER_SYSTEM = 0;
     private static final int DECODER_IJK_HW = 1;
     private static final int DECODER_IJK_SW = 2;
@@ -1324,7 +1312,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyConfig() {
-        // 应用画面比例等（可扩展）
         int scale = config.getPlayScale();
         PlayerConfigManager.setAspectRatio(getScaleString(scale));
     }
@@ -1360,7 +1347,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadDefaultSource() {
-        String defaultUrl = config.getString("LIVE_URLS", "https://example.com/channels.m3u");
+        String defaultUrl = config.getString("LIVE_URLS", "http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8");
         if (defaultUrl.contains("$")) {
             defaultUrl = defaultUrl.substring(0, defaultUrl.indexOf("$"));
         }
@@ -1408,9 +1395,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void createPlayer(int decoderType) {
         currentDecoderType = decoderType;
-        isHardwareAttempt = true;  // 用于自动重试
-
-        // 简单创建播放器，默认使用系统解码（通常自动硬解）
+        isHardwareAttempt = true;
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
         player = new ExoPlayer.Builder(this)
                 .setTrackSelector(trackSelector)
@@ -1434,20 +1419,17 @@ public class MainActivity extends AppCompatActivity {
     private void handlePlaybackError(PlaybackException error) {
         Toast.makeText(this, "播放出错: " + error.getMessage(), Toast.LENGTH_SHORT).show();
         int decoderType = config.getPlayType();
-        // 自动模式：先硬解尝试，失败则切换软解
         if (decoderType == DECODER_AUTO) {
             if (isHardwareAttempt) {
                 isHardwareAttempt = false;
                 Toast.makeText(this, "硬解失败，自动切换软解重试", Toast.LENGTH_SHORT).show();
                 releasePlayer();
-                // 强制使用软解（这里仅作标识，实际无法强制，但可重新创建播放器）
-                createPlayer(DECODER_EXO_SW); // 注意：此值仅用于标识，实际未改变硬件加速
+                createPlayer(DECODER_EXO_SW);
                 if (currentChannel != null) playChannel(currentChannel);
             } else {
                 Toast.makeText(this, "播放失败，请检查地址或切换其他解码方式", Toast.LENGTH_LONG).show();
             }
         } else {
-            // 非自动模式，若是硬解选项，尝试软解
             boolean isHardware = (decoderType == DECODER_IJK_HW || decoderType == DECODER_EXO_HW || decoderType == DECODER_MPV_HW);
             if (isHardware) {
                 Toast.makeText(this, "硬解失败，尝试切换软解", Toast.LENGTH_SHORT).show();
@@ -1702,5 +1684,5 @@ chmod +x gradlew
 echo ""
 echo "🎉 部署并构建完成！"
 echo "📌 APK 位于: app/build/outputs/apk/debug/"
-echo "📌 解码器支持自动切换（先硬解，失败自动软解）"
-echo "📌 设置中可选择“自动”模式"
+echo "📌 默认使用 Apple 测试源，开箱即播"
+echo "📌 如需更换源，请在设置->列表订阅中添加"
