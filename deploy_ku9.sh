@@ -18,7 +18,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 EOF
 
     # ==================== Java 源文件 ====================
-    # SourceManager.java（同上）
+    # SourceManager.java
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -120,7 +120,7 @@ public class SourceManager {
 }
 EOF
 
-    # EPGParser.java（同上）
+    # EPGParser.java
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -310,7 +310,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # MainActivity.java（修正内部类为静态）
+    # MainActivity.java（修正静态访问问题）
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -390,7 +390,7 @@ public class MainActivity extends AppCompatActivity {
             groupAdapter.setSelectedGroup(group);
         });
         groupRecycler.setAdapter(groupAdapter);
-        channelAdapter = new ChannelAdapter(new ArrayList<>(), channel -> {
+        channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, channel -> {
             playChannel(channel);
             loadEpgForChannel(channel);
             prefs.edit().putString(KEY_SELECTED_CHANNEL, channel.name).apply();
@@ -525,7 +525,8 @@ public class MainActivity extends AppCompatActivity {
         if ("我的收藏".equals(currentGroup)) {
             showChannelsForGroup("我的收藏");
         }
-        channelAdapter.notifyDataSetChanged();
+        // 更新适配器中的收藏集合
+        channelAdapter.updateFavorites(favoriteSet);
         Toast.makeText(this, favoriteSet.contains(channel.name) ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
     }
     private void toggleOverlay() {
@@ -582,12 +583,14 @@ public class MainActivity extends AppCompatActivity {
         private SourceManager.Channel selectedChannel;
         private OnChannelClickListener listener;
         private OnFavoriteClickListener favListener;
+        private Set<String> favoriteSet;
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
-        ChannelAdapter(List<SourceManager.Channel> data, OnChannelClickListener listener, OnFavoriteClickListener favListener) {
-            this.data = data; this.listener = listener; this.favListener = favListener;
+        ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, OnChannelClickListener listener, OnFavoriteClickListener favListener) {
+            this.data = data; this.favoriteSet = favorites; this.listener = listener; this.favListener = favListener;
         }
         void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
+        void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
         void setSelectedChannel(SourceManager.Channel ch) { this.selectedChannel = ch; notifyDataSetChanged(); }
         @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
@@ -595,7 +598,7 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SourceManager.Channel ch = data.get(position);
             holder.name.setText(ch.name);
-            boolean isFav = MainActivity.favoriteSet.contains(ch.name);
+            boolean isFav = favoriteSet.contains(ch.name);
             holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
@@ -631,7 +634,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java（完整订阅管理，含IP和端口显示、二维码占位）
+    # SettingsActivity.java（完整订阅管理，含IP和端口显示）
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -725,10 +728,8 @@ public class SettingsActivity extends AppCompatActivity {
         contentAdapter.setItems(items);
     }
     private void buildSubscriptionList(List<ContentItem> items) {
-        // 显示本机IP和端口（模拟）
         items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "二维码功能：IP " + localIp + " 端口 9978", Toast.LENGTH_LONG).show()));
         items.add(new ContentItem("列表订阅", "http://" + localIp + ":9978/", v -> {}));
-        // 显示已保存的订阅列表
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
         String selected = prefs.getString(KEY_SELECTED_SUB, "");
         if (subSet != null && !subSet.isEmpty()) {
@@ -737,7 +738,6 @@ public class SettingsActivity extends AppCompatActivity {
                 String name = parts.length > 0 ? parts[0] : entry;
                 String url = parts.length > 1 ? parts[1] : "";
                 boolean isSelected = entry.equals(selected);
-                // 蓝色高亮选中的订阅
                 items.add(new ContentItem(name, url, isSelected, v -> {
                     prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
                     prefs.edit().putString("selected_sub_url", url).apply();
@@ -748,21 +748,17 @@ public class SettingsActivity extends AppCompatActivity {
                 }));
             }
         }
-        // 添加按钮
         items.add(new ContentItem("+ 添加订阅", "", v -> showAddSubscriptionDialog()));
     }
     private void buildEpgSubscriptionList(List<ContentItem> items) {
         items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "EPG二维码功能", Toast.LENGTH_SHORT).show()));
         items.add(new ContentItem("EPG订阅", "http://" + localIp + ":9978/", v -> {}));
-        // 显示已保存的EPG订阅
         String epgUrl = prefs.getString("epg_url", "");
         if (!epgUrl.isEmpty()) {
             items.add(new ContentItem("当前EPG", epgUrl, true, v -> {}));
         }
-        // 其他设置选项：缓存、XML格式等
         items.add(new ContentItem("缓存", "每天8点", v -> Toast.makeText(this, "缓存设置", Toast.LENGTH_SHORT).show()));
         items.add(new ContentItem("[XML]epw", "", v -> {}));
-        // 添加EPG地址按钮
         items.add(new ContentItem("+ 添加EPG", "", v -> showEpgDialog()));
     }
     private void showAddSubscriptionDialog() {
