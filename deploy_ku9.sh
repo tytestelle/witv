@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格播放器（含完整配置）..."
+echo "🔥 开始部署酷9风格播放器（完整配置 + 修复）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -14,6 +14,7 @@ LAYOUT_NAME="activity_main"
 LAYOUT_FILE="app/src/main/res/layout/$LAYOUT_NAME.xml"
 SETTINGS_LAYOUT="app/src/main/res/layout/activity_settings.xml"
 ITEM_CONFIG_LAYOUT="app/src/main/res/layout/item_config.xml"
+ITEM_CHANNEL_LAYOUT="app/src/main/res/layout/item_channel.xml"
 MANIFEST="app/src/main/AndroidManifest.xml"
 ASSETS_DIR="app/src/main/assets"
 
@@ -186,7 +187,192 @@ cat > "$ASSETS_DIR/configuration.json" <<'EOF'
 EOF
 echo "✅ configuration.json 已创建"
 
-# ========== 5. 创建 ConfigurationManager ==========
+# ========== 5. 创建功能类（明确写入） ==========
+mkdir -p "app/src/main/java/$PKG_PATH/source"
+mkdir -p "app/src/main/java/$PKG_PATH/player"
+mkdir -p "app/src/main/java/$PKG_PATH/favorite"
+mkdir -p "app/src/main/java/$PKG_PATH/epg"
+
+# 5.1 SourceManager
+cat > "app/src/main/java/$PKG_PATH/source/SourceManager.java" <<'EOF'
+package com.whyun.witv.source;
+
+import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
+public class SourceManager {
+    private Context context;
+    private List<Channel> channels = new ArrayList<>();
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    public SourceManager(Context context) { this.context = context; }
+
+    public interface OnSourceLoadListener {
+        void onLoaded(List<Channel> channels);
+        void onError(String error);
+    }
+
+    public void loadFromUrl(String url, OnSourceLoadListener listener) {
+        new Thread(() -> {
+            try {
+                OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .build();
+                Request request = new Request.Builder().url(url).build();
+                Response response = client.newCall(request).execute();
+                if (!response.isSuccessful()) throw new Exception("网络错误: " + response.code());
+                String content = response.body().string();
+                if (url.endsWith(".m3u") || url.endsWith(".m3u8") || content.contains("#EXTM3U")) {
+                    parseM3U(content);
+                } else {
+                    parseTXT(content);
+                }
+                mainHandler.post(() -> listener.onLoaded(channels));
+            } catch (Exception e) {
+                mainHandler.post(() -> listener.onError(e.getMessage()));
+            }
+        }).start();
+    }
+
+    public void loadFromFile(File file, OnSourceLoadListener listener) {
+        new Thread(() -> {
+            try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line).append("\n");
+                String content = sb.toString();
+                if (file.getName().endsWith(".m3u") || file.getName().endsWith(".m3u8")) {
+                    parseM3U(content);
+                } else {
+                    parseTXT(content);
+                }
+                mainHandler.post(() -> listener.onLoaded(channels));
+            } catch (Exception e) {
+                mainHandler.post(() -> listener.onError(e.getMessage()));
+            }
+        }).start();
+    }
+
+    private void parseM3U(String content) {
+        String[] lines = content.split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.startsWith("#EXTINF:")) {
+                String name = line.substring(line.indexOf(",") + 1);
+                if (i + 1 < lines.length) {
+                    String url = lines[i + 1].trim();
+                    if (!url.isEmpty() && !url.startsWith("#")) {
+                        channels.add(new Channel(name, url, ""));
+                    }
+                }
+            }
+        }
+    }
+
+    private void parseTXT(String content) {
+        for (String line : content.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+            String[] parts = line.split(",");
+            if (parts.length >= 2) {
+                channels.add(new Channel(parts[0].trim(), parts[1].trim(), ""));
+            }
+        }
+    }
+
+    public static class Channel {
+        public String name, url, group;
+        public Channel(String n, String u, String g) { name = n; url = u; group = g; }
+    }
+}
+EOF
+
+# 5.2 PlayerConfigManager
+cat > "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" <<'EOF'
+package com.whyun.witv.player;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+
+public class PlayerConfigManager {
+    public static final int DECODER_HARDWARE = 0, DECODER_SOFTWARE = 1;
+    private static SharedPreferences prefs;
+
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static int getDecoder() { return prefs.getInt("decoder", DECODER_HARDWARE); }
+    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }
+    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "16:9"); }
+    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }
+    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }
+    public static void setFavorite(String channelId, boolean fav) { prefs.edit().putBoolean("fav_" + channelId, fav).apply(); }
+    public static String getCustomHeaders() { return prefs.getString("custom_headers", ""); }
+    public static void setCustomHeaders(String headers) { prefs.edit().putString("custom_headers", headers).apply(); }
+    public static String getEpgUrl() { return prefs.getString("epg_url", ""); }
+    public static void setEpgUrl(String url) { prefs.edit().putString("epg_url", url).apply(); }
+}
+EOF
+
+# 5.3 FavoriteManager
+cat > "app/src/main/java/$PKG_PATH/favorite/FavoriteManager.java" <<'EOF'
+package com.whyun.witv.favorite;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+import java.util.HashSet;
+import java.util.Set;
+
+public class FavoriteManager {
+    private static SharedPreferences prefs;
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }
+    public static void toggleFavorite(String channelId) {
+        boolean cur = isFavorite(channelId);
+        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();
+        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+        if (!cur) { favSet.add(channelId); } else { favSet.remove(channelId); }
+        prefs.edit().putStringSet("fav_list", favSet).apply();
+    }
+    public static Set<String> getAllFavorites() {
+        return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+    }
+}
+EOF
+
+# 5.4 EPGParserFactory
+cat > "app/src/main/java/$PKG_PATH/epg/EPGParserFactory.java" <<'EOF'
+package com.whyun.witv.epg;
+
+import java.util.List;
+import java.util.Map;
+
+public class EPGParserFactory {
+    public static EPGParser getParser(String format) {
+        return null;
+    }
+    public interface EPGParser {
+        Map<String, List<EPGProgram>> parse(String data);
+    }
+    public static class EPGProgram {
+        public String title, startTime, endTime, desc;
+    }
+}
+EOF
+
+echo "✅ 功能类已创建（SourceManager, PlayerConfigManager, FavoriteManager, EPGParserFactory）"
+
+# ========== 6. 创建 ConfigurationManager ==========
 cat > "$CONFIG_MGR_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -228,7 +414,6 @@ public class ConfigurationManager {
         }
     }
 
-    // 通用获取方法，支持默认值
     public String getString(String key, String def) {
         if (prefs.contains(key)) {
             return prefs.getString(key, def);
@@ -329,7 +514,7 @@ public class ConfigurationManager {
 EOF
 echo "✅ ConfigurationManager 已创建"
 
-# ========== 6. 创建 SettingsActivity ==========
+# ========== 7. 创建 SettingsActivity ==========
 cat > "$SETTINGS_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -337,12 +522,8 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
-import android.widget.CheckBox;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -351,7 +532,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class SettingsActivity extends AppCompatActivity {
@@ -556,7 +736,7 @@ public class SettingsActivity extends AppCompatActivity {
 
         String title, key;
         int type;
-        Object value; // boolean, int (selected index), or int (edit value)
+        Object value;
         String[] spinnerOptions;
 
         ConfigItem(String title, String key, int type, boolean val) {
@@ -653,7 +833,7 @@ public class SettingsActivity extends AppCompatActivity {
 EOF
 echo "✅ SettingsActivity 已创建"
 
-# ========== 7. 生成布局文件 ==========
+# ========== 8. 生成布局文件 ==========
 cat > "$LAYOUT_FILE" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -791,7 +971,7 @@ cat > "$ITEM_CONFIG_LAYOUT" <<'EOF'
 </LinearLayout>
 EOF
 
-cat > app/src/main/res/layout/item_channel.xml <<'EOF'
+cat > "$ITEM_CHANNEL_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -820,8 +1000,9 @@ cat > app/src/main/res/layout/item_channel.xml <<'EOF'
         android:visibility="gone" />
 </LinearLayout>
 EOF
+echo "✅ 布局文件已生成"
 
-# ========== 8. 添加图标资源（同前） ==========
+# ========== 9. 添加图标资源 ==========
 mkdir -p app/src/main/res/drawable
 cat > app/src/main/res/drawable/ic_favorite_border.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -847,11 +1028,9 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
     <path android:fillColor="#FFFFFF" android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zm1,15h-2v-6h2v6zm0,-8h-2V7h2v2z"/>
 </vector>
 EOF
+echo "✅ 图标资源已添加"
 
-# ========== 9. 修改 MainActivity 应用配置 ==========
-# 注意：我们保留之前 MainActivity 的完整内容，但增加配置应用和 Settings 入口。
-# 由于 MainActivity 代码较长，我们将在脚本中直接覆盖，包含配置逻辑。
-
+# ========== 10. 生成最终的 MainActivity（含配置集成） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -917,22 +1096,16 @@ public class MainActivity extends AppCompatActivity {
         playerView.setOnClickListener(v -> toggleBottomControls());
         btnFavorite.setOnClickListener(v -> toggleFavorite());
         btnSettings.setOnClickListener(v -> {
-            // 跳转到完整的设置页面
             startActivity(new Intent(this, SettingsActivity.class));
         });
         btnEpg.setOnClickListener(v -> showEpgDialog());
 
-        // 应用配置：解码、比例等
         applyConfig();
     }
 
     private void applyConfig() {
-        // 解码方式（通过 PlayerConfigManager 保存，重启播放器时生效）
         PlayerConfigManager.setDecoder(config.getPlayType());
-        // 画面比例（通过 PlayerConfigManager 保存）
         PlayerConfigManager.setAspectRatio(getScaleString(config.getPlayScale()));
-        // 显示控制
-        // 目前 UI 固定，可后续根据配置动态调整
     }
 
     private String getScaleString(int scale) {
@@ -987,9 +1160,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadDefaultSource() {
-        // 从配置中读取默认源
         String defaultUrl = config.getString("LIVE_URLS", "https://example.com/channels.m3u");
-        // 如果包含$，则取地址部分
         if (defaultUrl.contains("$")) {
             defaultUrl = defaultUrl.substring(0, defaultUrl.indexOf("$"));
         }
@@ -1118,11 +1289,6 @@ public class MainActivity extends AppCompatActivity {
         return favs;
     }
 
-    // 设置菜单（简化为打开 SettingsActivity）
-    private void showSettingsDialog() {
-        startActivity(new Intent(this, SettingsActivity.class));
-    }
-
     private void showEpgDialog() {
         String epgUrl = config.getString("EPG_URLS", "");
         if (epgUrl.isEmpty()) {
@@ -1136,7 +1302,7 @@ public class MainActivity extends AppCompatActivity {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         switch (keyCode) {
             case KeyEvent.KEYCODE_BACK:
-                showSettingsDialog();
+                startActivity(new Intent(this, SettingsActivity.class));
                 return true;
             case KeyEvent.KEYCODE_MENU:
                 toggleChannelList();
@@ -1250,25 +1416,25 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ MainActivity 已更新（集成配置）"
+echo "✅ MainActivity 已生成（集成配置）"
 
-# ========== 10. 完成 ==========
+# ========== 11. 验证文件生成 ==========
+echo "📁 验证生成的 Java 文件："
+ls -la "app/src/main/java/$PKG_PATH/source/SourceManager.java" || echo "❌ SourceManager 未生成"
+ls -la "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" || echo "❌ PlayerConfigManager 未生成"
+ls -la "app/src/main/java/$PKG_PATH/favorite/FavoriteManager.java" || echo "❌ FavoriteManager 未生成"
+ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ ConfigurationManager 未生成"
+ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
+
+# ========== 12. 完成 ==========
 echo ""
 echo "🎉 部署完成！"
 echo ""
 echo "📌 酷9配置系统已集成："
-echo "   ✅ assets/configuration.json – 完整配置（支持所有功能开关）"
-echo "   ✅ ConfigurationManager – 单例配置管理"
-echo "   ✅ SettingsActivity – 完整的设置界面（包含所有配置项）"
+echo "   ✅ assets/configuration.json – 完整配置"
+echo "   ✅ ConfigurationManager – 配置管理"
+echo "   ✅ SettingsActivity – 完整设置界面"
 echo "   ✅ MainActivity – 应用解码、比例等核心配置"
-echo ""
-echo "📌 操作方式："
-echo "   • 点击屏幕左侧 → 频道列表"
-echo "   • 点击屏幕右侧 → 设置界面"
-echo "   • 点击屏幕中间 → 底部控制栏（5秒隐藏）"
-echo "   • 返回键 / 设置按钮 → 设置界面"
-echo "   • 左右键 → 切换频道"
-echo "   • 长按频道 → 收藏/取消收藏"
 echo ""
 echo "📌 请修改 assets/configuration.json 中的 LIVE_URLS 为你的真实直播源地址"
 echo "📌 然后运行 ./gradlew assembleDebug 编译 APK"
