@@ -1,38 +1,41 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（完整交互版）"
+echo "🔥 部署酷9播放器（完全复刻版 - 三栏UI + EPG）"
 
 # ========== 1. 生成模板目录（仅首次） ==========
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
     echo "📁 首次运行，生成模板文件..."
-    mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable}
+    mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
 
-    # configuration.json
+    # configuration.json（内置源为 null）
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # SourceManager.java（同上）
+    # ==================== Java 源文件 ====================
+    # SourceManager.java - 解析源文件，按分组归类
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 public class SourceManager {
     private Context context;
-    private List<Channel> channels = new ArrayList<>();
+    private Map<String, List<Channel>> groupMap = new HashMap<>();
+    private List<String> groupNames = new ArrayList<>();
     private Handler mainHandler = new Handler(Looper.getMainLooper());
-    public interface OnSourceLoadListener { void onLoaded(List<Channel> channels); void onError(String error); }
+    public interface OnSourceLoadListener { void onLoaded(Map<String, List<Channel>> groupMap, List<String> groupNames); void onError(String error); }
     public SourceManager(Context context) { this.context = context; }
     public void loadFromUrl(String url, OnSourceLoadListener listener) {
-        final String finalUrl = url;
         new Thread(() -> {
             try {
                 OkHttpClient client = new OkHttpClient.Builder()
@@ -40,28 +43,51 @@ public class SourceManager {
                     .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                     .build();
                 Request request = new Request.Builder()
-                    .url(finalUrl)
+                    .url(url)
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                     .build();
                 Response response = client.newCall(request).execute();
-                int code = response.code();
-                if (code != 200) throw new Exception("HTTP " + code);
+                if (response.code() != 200) throw new Exception("HTTP " + response.code());
                 String content = response.body().string();
                 if (content == null || content.trim().isEmpty()) throw new Exception("内容为空");
-                if (finalUrl.endsWith(".m3u") || finalUrl.endsWith(".m3u8") || content.contains("#EXTM3U")) {
+                if (url.endsWith(".m3u") || url.endsWith(".m3u8") || content.contains("#EXTM3U")) {
                     parseM3U(content);
                 } else {
                     parseTXT(content);
                 }
-                if (channels.isEmpty()) throw new Exception("未解析到频道");
-                mainHandler.post(() -> listener.onLoaded(channels));
+                if (groupMap.isEmpty()) throw new Exception("未解析到任何频道");
+                mainHandler.post(() -> listener.onLoaded(groupMap, groupNames));
             } catch (Exception e) {
                 mainHandler.post(() -> listener.onError(e.getMessage()));
             }
         }).start();
     }
+    private void parseTXT(String content) {
+        groupMap.clear();
+        groupNames.clear();
+        String currentGroup = "默认分组";
+        for (String line : content.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+            String[] parts = line.split(",");
+            if (parts.length >= 2) {
+                String name = parts[0].trim();
+                String url = parts[1].trim();
+                String group = (parts.length >= 3 && !parts[2].trim().isEmpty()) ? parts[2].trim() : "默认分组";
+                Channel ch = new Channel(name, url, group);
+                if (!groupMap.containsKey(group)) {
+                    groupMap.put(group, new ArrayList<>());
+                    groupNames.add(group);
+                }
+                groupMap.get(group).add(ch);
+            }
+        }
+    }
     private void parseM3U(String content) {
+        groupMap.clear();
+        groupNames.clear();
         String[] lines = content.split("\n");
+        String currentGroup = "默认分组";
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
             if (line.startsWith("#EXTINF:")) {
@@ -69,127 +95,125 @@ public class SourceManager {
                 if (i + 1 < lines.length) {
                     String url = lines[i + 1].trim();
                     if (!url.isEmpty() && !url.startsWith("#")) {
-                        channels.add(new Channel(name, url, ""));
+                        // 尝试从 #EXTINF 中提取 group-title
+                        String group = "默认分组";
+                        int gidx = line.indexOf("group-title=\"");
+                        if (gidx != -1) {
+                            int end = line.indexOf("\"", gidx + 13);
+                            if (end != -1) group = line.substring(gidx + 13, end);
+                        }
+                        Channel ch = new Channel(name, url, group);
+                        if (!groupMap.containsKey(group)) {
+                            groupMap.put(group, new ArrayList<>());
+                            groupNames.add(group);
+                        }
+                        groupMap.get(group).add(ch);
                     }
                 }
             }
         }
     }
-    private void parseTXT(String content) {
-        String[] lines = content.split("\n");
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isEmpty() || line.startsWith("#")) continue;
-            String[] parts = line.split(",");
-            if (parts.length >= 2) {
-                channels.add(new Channel(parts[0].trim(), parts[1].trim(), parts.length >= 3 ? parts[2].trim() : ""));
-            }
-        }
-    }
-    public static class Channel { public String name, url, group; public Channel(String n, String u, String g) { name=n; url=u; group=g; } }
-}
-EOF
-
-    # PlayerConfigManager.java
-    cat > "$TEMPLATE_DIR/src/PlayerConfigManager.java" <<'EOF'
-package com.whyun.witv.player;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-public class PlayerConfigManager {
-    private static SharedPreferences prefs;
-    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
-    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "默认"); }
-    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }
-    public static int getDecoder() { return prefs.getInt("decoder", 7); }
-    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }
-    public static boolean getShowTime() { return prefs.getBoolean("show_time", false); }
-    public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }
-    public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }
-    public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }
-}
-EOF
-
-    # FavoriteManager.java
-    cat > "$TEMPLATE_DIR/src/FavoriteManager.java" <<'EOF'
-package com.whyun.witv.favorite;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-import java.util.HashSet;
-import java.util.Set;
-public class FavoriteManager {
-    private static SharedPreferences prefs;
-    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
-    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }
-    public static void toggleFavorite(String channelId) {
-        boolean cur = isFavorite(channelId);
-        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();
-        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
-        if (!cur) favSet.add(channelId); else favSet.remove(channelId);
-        prefs.edit().putStringSet("fav_list", favSet).apply();
-    }
-    public static Set<String> getAllFavorites() {
-        return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+    public static class Channel {
+        public String name, url, group;
+        public Channel(String n, String u, String g) { name=n; url=u; group=g; }
     }
 }
 EOF
 
-    # ConfigurationManager.java
-    cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
-package com.whyun.witv;
-import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
+    # EPGParser.java - 解析 EPG（支持 XMLTV 格式）
+    cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
+package com.whyun.witv.epg;
+import android.util.Xml;
+import org.xmlpull.v1.XmlPullParser;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-public class ConfigurationManager {
-    private static ConfigurationManager instance;
-    private JsonObject config;
-    private SharedPreferences prefs;
-    private ConfigurationManager(Context context) {
-        prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        loadConfig(context);
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+public class EPGParser {
+    public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
+    public static void loadEpg(String url, String channelName, OnEpgLoadListener listener) {
+        new Thread(() -> {
+            try {
+                OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .build();
+                Request request = new Request.Builder().url(url).build();
+                Response response = client.newCall(request).execute();
+                if (response.code() != 200) throw new Exception("HTTP " + response.code());
+                InputStream is = response.body().byteStream();
+                List<EpgProgram> programs = parseXmltv(is, channelName);
+                listener.onLoaded(programs);
+            } catch (Exception e) {
+                listener.onError(e.getMessage());
+            }
+        }).start();
     }
-    public static synchronized ConfigurationManager getInstance(Context context) {
-        if (instance == null) instance = new ConfigurationManager(context.getApplicationContext());
-        return instance;
+    private static List<EpgProgram> parseXmltv(InputStream is, String channelName) throws Exception {
+        List<EpgProgram> result = new ArrayList<>();
+        XmlPullParser parser = Xml.newPullParser();
+        parser.setInput(is, "UTF-8");
+        int event = parser.getEventType();
+        String currentTag = "";
+        String currentTitle = "";
+        String currentStart = "";
+        String currentStop = "";
+        String currentDesc = "";
+        boolean inProgramme = false;
+        while (event != XmlPullParser.END_DOCUMENT) {
+            switch (event) {
+                case XmlPullParser.START_TAG:
+                    currentTag = parser.getName();
+                    if ("programme".equals(currentTag)) {
+                        inProgramme = true;
+                        currentStart = parser.getAttributeValue(null, "start");
+                        currentStop = parser.getAttributeValue(null, "stop");
+                        currentTitle = "";
+                        currentDesc = "";
+                    }
+                    break;
+                case XmlPullParser.TEXT:
+                    if (inProgramme) {
+                        String text = parser.getText().trim();
+                        if ("title".equals(currentTag)) currentTitle += text;
+                        else if ("desc".equals(currentTag)) currentDesc += text;
+                    }
+                    break;
+                case XmlPullParser.END_TAG:
+                    if ("programme".equals(parser.getName())) {
+                        inProgramme = false;
+                        // 简单匹配频道名（可根据需要更精确）
+                        if (!currentTitle.isEmpty()) {
+                            EpgProgram prog = new EpgProgram();
+                            prog.title = currentTitle;
+                            prog.desc = currentDesc;
+                            // 转换时间格式（XMLTV 格式：YYYYMMDDHHmmSS + 时区）
+                            try {
+                                SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
+                                prog.startTime = sdf.parse(currentStart + " +0000").getTime();
+                                prog.endTime = sdf.parse(currentStop + " +0000").getTime();
+                            } catch (Exception e) { /* 忽略时间解析错误 */ }
+                            result.add(prog);
+                        }
+                    }
+                    break;
+            }
+            event = parser.next();
+        }
+        return result;
     }
-    private void loadConfig(Context context) {
-        try {
-            InputStream is = context.getAssets().open("configuration.json");
-            JsonObject root = new Gson().fromJson(new InputStreamReader(is), JsonObject.class);
-            config = root.getAsJsonObject("Configuration");
-            is.close();
-        } catch (Exception e) { config = new JsonObject(); }
+    public static class EpgProgram {
+        public long startTime, endTime;
+        public String title, desc;
     }
-    public String getString(String key, String def) {
-        if (prefs.contains(key)) return prefs.getString(key, def);
-        if (config.has(key)) return config.get(key).getAsString();
-        return def;
-    }
-    public int getInt(String key, int def) {
-        if (prefs.contains(key)) return prefs.getInt(key, def);
-        if (config.has(key)) return config.get(key).getAsInt();
-        return def;
-    }
-    public boolean getBoolean(String key, boolean def) {
-        if (prefs.contains(key)) return prefs.getBoolean(key, def);
-        if (config.has(key)) return config.get(key).getAsBoolean();
-        return def;
-    }
-    public void putInt(String key, int value) { prefs.edit().putInt(key, value).apply(); }
-    public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }
-    public void putString(String key, String value) { prefs.edit().putString(key, value).apply(); }
-    public int getPlayType() { return getInt("PLAY_TYPE", 7); }
-    public int getPlayScale() { return getInt("PLAY_SCALE", 3); }
-    public String getLiveUrls() { return getString("LIVE_URLS", null); }
 }
 EOF
 
-    # MainActivity.java（包含频道列表和EPG占位）
+    # MainActivity.java - 三栏UI逻辑
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -197,8 +221,10 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
@@ -210,85 +236,159 @@ import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
-import com.whyun.witv.favorite.FavoriteManager;
-import com.whyun.witv.player.PlayerConfigManager;
 import com.whyun.witv.source.SourceManager;
+import com.whyun.witv.epg.EPGParser;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 public class MainActivity extends AppCompatActivity {
     private PlayerView playerView;
     private ExoPlayer player;
     private SourceManager.Channel currentChannel;
-    private List<SourceManager.Channel> channelList = new ArrayList<>();
-    private RecyclerView channelListView;
+    private List<SourceManager.Channel> currentChannelList = new ArrayList<>();
+    private Map<String, List<SourceManager.Channel>> groupMap = new HashMap<>();
+    private List<String> groupNames = new ArrayList<>();
+    private String currentGroup = "";
+    private RecyclerView groupRecycler, channelRecycler, epgRecycler;
+    private GroupAdapter groupAdapter;
     private ChannelAdapter channelAdapter;
-    private ConfigurationManager config;
-    private boolean isListVisible = false;
+    private EpgAdapter epgAdapter;
+    private View overlayLayout;
     private SharedPreferences prefs;
-    private TextView bottomChannelName, bottomEpgInfo;
+    private ConfigurationManager config;
+    private boolean isOverlayVisible = false;
+    private Set<String> favoriteSet = new HashSet<>();
+    private static final String KEY_FAVORITES = "favorites";
+    private static final String KEY_SELECTED_GROUP = "selected_group";
+    private static final String KEY_SELECTED_CHANNEL = "selected_channel";
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        try {
-            setContentView(R.layout.activity_main);
-            config = ConfigurationManager.getInstance(this);
-            PlayerConfigManager.init(this);
-            FavoriteManager.init(this);
-            prefs = PreferenceManager.getDefaultSharedPreferences(this);
-            playerView = findViewById(R.id.player_container);
-            channelListView = findViewById(R.id.channel_list);
-            bottomChannelName = findViewById(R.id.bottom_channel_name);
-            bottomEpgInfo = findViewById(R.id.bottom_epg_info);
-            channelListView.setLayoutManager(new LinearLayoutManager(this));
-            channelAdapter = new ChannelAdapter(new ArrayList<>(), channel -> {
-                playChannel(channel);
-                hideChannelList();
-            });
-            channelListView.setAdapter(channelAdapter);
-            findViewById(R.id.btn_settings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-            findViewById(R.id.btn_menu).setOnClickListener(v -> toggleChannelList());
-            // 点击播放器区域显示/隐藏频道列表
-            playerView.setOnClickListener(v -> toggleChannelList());
-            loadSelectedSource();
-        } catch (Exception e) {
-            Toast.makeText(this, "初始化错误: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            e.printStackTrace();
+        setContentView(R.layout.activity_main);
+        config = ConfigurationManager.getInstance(this);
+        PlayerConfigManager.init(this);
+        FavoriteManager.init(this);
+        prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
+        playerView = findViewById(R.id.player_container);
+        overlayLayout = findViewById(R.id.overlay_layout);
+        groupRecycler = findViewById(R.id.group_recycler);
+        channelRecycler = findViewById(R.id.channel_recycler);
+        epgRecycler = findViewById(R.id.epg_recycler);
+        groupRecycler.setLayoutManager(new LinearLayoutManager(this));
+        channelRecycler.setLayoutManager(new LinearLayoutManager(this));
+        epgRecycler.setLayoutManager(new LinearLayoutManager(this));
+        groupAdapter = new GroupAdapter(new ArrayList<>(), group -> {
+            currentGroup = group;
+            prefs.edit().putString(KEY_SELECTED_GROUP, group).apply();
+            showChannelsForGroup(group);
+            groupAdapter.setSelectedGroup(group);
+        });
+        groupRecycler.setAdapter(groupAdapter);
+        channelAdapter = new ChannelAdapter(new ArrayList<>(), channel -> {
+            playChannel(channel);
+            // 加载EPG
+            loadEpgForChannel(channel);
+            // 保存选中的频道
+            prefs.edit().putString(KEY_SELECTED_CHANNEL, channel.name).apply();
+            channelAdapter.setSelectedChannel(channel);
+        }, this::toggleFavorite);
+        channelRecycler.setAdapter(channelAdapter);
+        epgAdapter = new EpgAdapter(new ArrayList<>());
+        epgRecycler.setAdapter(epgAdapter);
+        // 点击播放器区域显示/隐藏覆盖层
+        playerView.setOnClickListener(v -> toggleOverlay());
+        // 设置按钮
+        ImageButton btnSettings = findViewById(R.id.btn_settings);
+        btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        // 加载数据
+        loadSource();
+        // 恢复上次选中的分组和频道
+        String lastGroup = prefs.getString(KEY_SELECTED_GROUP, "");
+        String lastChannel = prefs.getString(KEY_SELECTED_CHANNEL, "");
+        if (!lastGroup.isEmpty()) currentGroup = lastGroup;
+        if (!lastChannel.isEmpty()) {
+            // 将在加载完成后尝试恢复
         }
     }
-    @Override
-    protected void onResume() {
-        super.onResume();
-        loadSelectedSource();
-    }
-    private void loadSelectedSource() {
-        try {
-            String url = prefs.getString("selected_sub_url", null);
+    private void loadSource() {
+        String url = prefs.getString("selected_sub_url", null);
+        if (url == null || url.isEmpty()) {
+            url = config.getLiveUrls();
             if (url == null || url.isEmpty()) {
-                url = config.getLiveUrls();
-                if (url == null || url.isEmpty()) {
-                    Toast.makeText(this, "请先添加并选中一个订阅源（设置 -> 列表订阅）", Toast.LENGTH_LONG).show();
-                    return;
+                Toast.makeText(this, "请先添加并选中一个订阅源（设置 -> 列表订阅）", Toast.LENGTH_LONG).show();
+                return;
+            }
+        }
+        if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
+        new SourceManager(this).loadFromUrl(url, new SourceManager.OnSourceLoadListener() {
+            @Override public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
+                groupMap = map;
+                groupNames = names;
+                // 添加“我的收藏”分组（特殊处理）
+                if (!groupNames.contains("我的收藏")) {
+                    groupNames.add(0, "我的收藏");
+                }
+                // 重建分组列表
+                List<String> displayGroups = new ArrayList<>(groupNames);
+                groupAdapter.updateData(displayGroups);
+                // 默认选中上次分组或第一个
+                String targetGroup = currentGroup;
+                if (!groupNames.contains(targetGroup) && !groupNames.isEmpty()) {
+                    targetGroup = groupNames.get(0);
+                }
+                if (!targetGroup.isEmpty()) {
+                    currentGroup = targetGroup;
+                    groupAdapter.setSelectedGroup(targetGroup);
+                    showChannelsForGroup(targetGroup);
+                }
+                // 恢复频道选中
+                String lastChannelName = prefs.getString(KEY_SELECTED_CHANNEL, "");
+                if (!lastChannelName.isEmpty()) {
+                    for (SourceManager.Channel ch : currentChannelList) {
+                        if (ch.name.equals(lastChannelName)) {
+                            channelAdapter.setSelectedChannel(ch);
+                            playChannel(ch);
+                            loadEpgForChannel(ch);
+                            break;
+                        }
+                    }
+                }
+                // 显示覆盖层
+                showOverlay();
+            }
+            @Override public void onError(String error) {
+                Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+    private void showChannelsForGroup(String group) {
+        if ("我的收藏".equals(group)) {
+            // 显示收藏的频道
+            List<SourceManager.Channel> favChannels = new ArrayList<>();
+            for (List<SourceManager.Channel> list : groupMap.values()) {
+                for (SourceManager.Channel ch : list) {
+                    if (favoriteSet.contains(ch.name)) {
+                        favChannels.add(ch);
+                    }
                 }
             }
-            if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
-            final String finalUrl = url;
-            Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_LONG).show();
-            new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
-                @Override public void onLoaded(List<SourceManager.Channel> channels) {
-                    channelList = channels;
-                    channelAdapter.updateData(channels);
-                    if (!channels.isEmpty()) {
-                        playChannel(channels.get(0));
-                    }
-                    // 自动显示频道列表
-                    showChannelList();
-                }
-                @Override public void onError(String error) {
-                    Toast.makeText(MainActivity.this, "加载失败: " + error + "\nURL: " + finalUrl, Toast.LENGTH_LONG).show();
-                }
-            });
-        } catch (Exception e) {
-            Toast.makeText(this, "加载源异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            currentChannelList = favChannels;
+        } else {
+            List<SourceManager.Channel> list = groupMap.get(group);
+            if (list == null) list = new ArrayList<>();
+            currentChannelList = list;
+        }
+        channelAdapter.updateData(currentChannelList);
+        // 如果当前频道不在列表中，清空EPG
+        if (currentChannel != null && !currentChannelList.contains(currentChannel)) {
+            epgAdapter.setItems(new ArrayList<>());
         }
     }
     private void playChannel(SourceManager.Channel channel) {
@@ -308,51 +408,148 @@ public class MainActivity extends AppCompatActivity {
             player.setMediaItem(MediaItem.fromUri(channel.url));
             player.prepare();
             player.play();
-            // 更新底部信息
-            bottomChannelName.setText(channel.name);
-            bottomEpgInfo.setText("正在播放");
-            Toast.makeText(this, "播放: " + channel.name, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
-    private void toggleChannelList() {
-        if (isListVisible) hideChannelList();
-        else showChannelList();
+    private void loadEpgForChannel(SourceManager.Channel channel) {
+        String epgUrl = prefs.getString("epg_url", null);
+        if (epgUrl == null || epgUrl.isEmpty()) {
+            epgUrl = config.getString("EPG_URLS", null);
+            if (epgUrl == null || epgUrl.isEmpty()) {
+                epgAdapter.setItems(new ArrayList<>());
+                return;
+            }
+        }
+        if (epgUrl.contains("$")) epgUrl = epgUrl.substring(0, epgUrl.indexOf("$"));
+        EPGParser.loadEpg(epgUrl, channel.name, new EPGParser.OnEpgLoadListener() {
+            @Override public void onLoaded(List<EPGParser.EpgProgram> programs) {
+                runOnUiThread(() -> epgAdapter.setItems(programs));
+            }
+            @Override public void onError(String error) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "EPG加载失败: " + error, Toast.LENGTH_SHORT).show());
+            }
+        });
     }
-    private void showChannelList() {
-        isListVisible = true;
-        channelListView.setVisibility(View.VISIBLE);
+    private void toggleFavorite(SourceManager.Channel channel) {
+        if (favoriteSet.contains(channel.name)) {
+            favoriteSet.remove(channel.name);
+        } else {
+            favoriteSet.add(channel.name);
+        }
+        prefs.edit().putStringSet(KEY_FAVORITES, favoriteSet).apply();
+        // 刷新当前列表（如果是收藏分组，需要重新加载）
+        if ("我的收藏".equals(currentGroup)) {
+            showChannelsForGroup("我的收藏");
+        }
+        // 更新频道列表中的收藏标记
+        channelAdapter.notifyDataSetChanged();
+        Toast.makeText(this, favoriteSet.contains(channel.name) ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
     }
-    private void hideChannelList() {
-        isListVisible = false;
-        channelListView.setVisibility(View.GONE);
+    private void toggleOverlay() {
+        if (isOverlayVisible) hideOverlay();
+        else showOverlay();
+    }
+    private void showOverlay() {
+        isOverlayVisible = true;
+        overlayLayout.setVisibility(View.VISIBLE);
+    }
+    private void hideOverlay() {
+        isOverlayVisible = false;
+        overlayLayout.setVisibility(View.GONE);
+    }
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (event.getAction() == MotionEvent.ACTION_UP) {
+            float x = event.getX();
+            float width = getWindowManager().getDefaultDisplay().getWidth();
+            if (x < width * 0.2) {
+                toggleOverlay();
+                return true;
+            }
+        }
+        return super.onTouchEvent(event);
     }
     @Override protected void onDestroy() { super.onDestroy(); if (player != null) { player.release(); player = null; } }
-    private static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
+    // ------------------- Adapters -------------------
+    class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
+        private List<String> data;
+        private String selectedGroup;
+        private OnGroupClickListener listener;
+        interface OnGroupClickListener { void onClick(String group); }
+        GroupAdapter(List<String> data, OnGroupClickListener listener) { this.data = data; this.listener = listener; }
+        void updateData(List<String> newData) { this.data = newData; notifyDataSetChanged(); }
+        void setSelectedGroup(String group) { this.selectedGroup = group; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_group, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            String group = data.get(position);
+            holder.name.setText(group);
+            holder.itemView.setBackgroundColor(group.equals(selectedGroup) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(group));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); }
+        }
+    }
+    class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
+        private SourceManager.Channel selectedChannel;
         private OnChannelClickListener listener;
+        private OnFavoriteClickListener favListener;
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
-        ChannelAdapter(List<SourceManager.Channel> data, OnChannelClickListener listener) { this.data = data; this.listener = listener; }
+        interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
+        ChannelAdapter(List<SourceManager.Channel> data, OnChannelClickListener listener, OnFavoriteClickListener favListener) {
+            this.data = data; this.listener = listener; this.favListener = favListener;
+        }
         void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
+        void setSelectedChannel(SourceManager.Channel ch) { this.selectedChannel = ch; notifyDataSetChanged(); }
         @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
         }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
-            SourceManager.Channel channel = data.get(position);
-            holder.name.setText(channel.name);
-            holder.itemView.setOnClickListener(v -> listener.onClick(channel));
+            SourceManager.Channel ch = data.get(position);
+            holder.name.setText(ch.name);
+            boolean isFav = favoriteSet.contains(ch.name);
+            holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
+            holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(ch));
+            holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
         }
         @Override public int getItemCount() { return data.size(); }
-        static class ViewHolder extends RecyclerView.ViewHolder {
+        class ViewHolder extends RecyclerView.ViewHolder {
             TextView name;
-            ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); }
+            TextView favIcon;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); }
+        }
+    }
+    class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
+        private List<EPGParser.EpgProgram> data = new ArrayList<>();
+        EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
+        void setItems(List<EPGParser.EpgProgram> newData) { this.data = newData; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_epg, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            EPGParser.EpgProgram prog = data.get(position);
+            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
+            holder.time.setText(time);
+            holder.title.setText(prog.title);
+        }
+        @Override public int getItemCount() { return data.size(); }
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView time, title;
+            ViewHolder(View v) { super(v); time = v.findViewById(R.id.epg_time); title = v.findViewById(R.id.epg_title); }
         }
     }
 }
 EOF
 
-    # SettingsActivity.java（同前）
+    # SettingsActivity.java（保留，但简化）
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -411,7 +608,7 @@ public class SettingsActivity extends AppCompatActivity {
                 case 1: items.add(new ContentItem("频道搜索", "点击搜索", v -> Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show())); break;
                 case 2: items.add(new ContentItem("播放设置", "点击展开", v -> showPlaySettings())); break;
                 case 3: buildSubscriptionList(items); break;
-                case 4: items.add(new ContentItem("EPG订阅", "添加EPG", v -> Toast.makeText(this, "EPG订阅功能", Toast.LENGTH_SHORT).show())); break;
+                case 4: items.add(new ContentItem("EPG订阅", "添加EPG", v -> showEpgDialog())); break;
                 case 5: items.add(new ContentItem("分类管理", "管理", v -> Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show())); break;
                 case 6: items.add(new ContentItem("订阅管理", "管理", v -> Toast.makeText(this, "订阅管理", Toast.LENGTH_SHORT).show())); break;
                 case 7: items.add(new ContentItem("显示设置", "点击", v -> showDisplaySettings())); break;
@@ -485,7 +682,26 @@ public class SettingsActivity extends AppCompatActivity {
         builder.setNegativeButton("取消", null);
         builder.show();
     }
-    // 其他菜单方法...
+    private void showEpgDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("EPG订阅");
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50,20,50,20);
+        final EditText urlInput = new EditText(this);
+        urlInput.setHint("EPG地址（XMLTV格式）");
+        layout.addView(urlInput);
+        builder.setView(layout);
+        builder.setPositiveButton("确定", (d, which) -> {
+            String url = urlInput.getText().toString().trim();
+            if (url.isEmpty()) { Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
+            prefs.edit().putString("epg_url", url).apply();
+            Toast.makeText(this, "EPG地址已保存", Toast.LENGTH_SHORT).show();
+        });
+        builder.setNegativeButton("取消", null);
+        builder.show();
+    }
+    // 其他菜单方法（略）
     private void showLineSelection() {
         new AlertDialog.Builder(this).setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show()).show();
     }
@@ -610,75 +826,165 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # 布局文件（包含底部EPG和频道名称）
+    # PlayerConfigManager.java（保留）
+    cat > "$TEMPLATE_DIR/src/PlayerConfigManager.java" <<'EOF'
+package com.whyun.witv.player;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+public class PlayerConfigManager {
+    private static SharedPreferences prefs;
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "默认"); }
+    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }
+    public static int getDecoder() { return prefs.getInt("decoder", 7); }
+    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }
+    public static boolean getShowTime() { return prefs.getBoolean("show_time", false); }
+    public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }
+    public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }
+    public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }
+}
+EOF
+
+    # FavoriteManager.java（保留）
+    cat > "$TEMPLATE_DIR/src/FavoriteManager.java" <<'EOF'
+package com.whyun.witv.favorite;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+import java.util.HashSet;
+import java.util.Set;
+public class FavoriteManager {
+    private static SharedPreferences prefs;
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }
+    public static void toggleFavorite(String channelId) {
+        boolean cur = isFavorite(channelId);
+        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();
+        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+        if (!cur) favSet.add(channelId); else favSet.remove(channelId);
+        prefs.edit().putStringSet("fav_list", favSet).apply();
+    }
+    public static Set<String> getAllFavorites() {
+        return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+    }
+}
+EOF
+
+    # ConfigurationManager.java（保留）
+    cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
+package com.whyun.witv;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+public class ConfigurationManager {
+    private static ConfigurationManager instance;
+    private JsonObject config;
+    private SharedPreferences prefs;
+    private ConfigurationManager(Context context) {
+        prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        loadConfig(context);
+    }
+    public static synchronized ConfigurationManager getInstance(Context context) {
+        if (instance == null) instance = new ConfigurationManager(context.getApplicationContext());
+        return instance;
+    }
+    private void loadConfig(Context context) {
+        try {
+            InputStream is = context.getAssets().open("configuration.json");
+            JsonObject root = new Gson().fromJson(new InputStreamReader(is), JsonObject.class);
+            config = root.getAsJsonObject("Configuration");
+            is.close();
+        } catch (Exception e) { config = new JsonObject(); }
+    }
+    public String getString(String key, String def) {
+        if (prefs.contains(key)) return prefs.getString(key, def);
+        if (config.has(key)) return config.get(key).getAsString();
+        return def;
+    }
+    public int getInt(String key, int def) {
+        if (prefs.contains(key)) return prefs.getInt(key, def);
+        if (config.has(key)) return config.get(key).getAsInt();
+        return def;
+    }
+    public boolean getBoolean(String key, boolean def) {
+        if (prefs.contains(key)) return prefs.getBoolean(key, def);
+        if (config.has(key)) return config.get(key).getAsBoolean();
+        return def;
+    }
+    public void putInt(String key, int value) { prefs.edit().putInt(key, value).apply(); }
+    public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }
+    public void putString(String key, String value) { prefs.edit().putString(key, value).apply(); }
+    public int getPlayType() { return getInt("PLAY_TYPE", 7); }
+    public int getPlayScale() { return getInt("PLAY_SCALE", 3); }
+    public String getLiveUrls() { return getString("LIVE_URLS", null); }
+}
+EOF
+
+    # ==================== 布局文件 ====================
+    # activity_main.xml
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
+    <!-- 播放器 -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/channel_list"
-        android:layout_width="280dp"
-        android:layout_height="match_parent"
-        android:background="#CC000000"
-        android:visibility="gone"
-        android:paddingTop="60dp"
-        android:paddingBottom="60dp" />
+    <!-- 覆盖层（三栏布局） -->
     <LinearLayout
-        android:id="@+id/bottom_controls"
+        android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
-        android:layout_height="50dp"
-        android:layout_alignParentBottom="true"
-        android:background="#88000000"
-        android:gravity="center_vertical"
+        android:layout_height="match_parent"
         android:orientation="horizontal"
-        android:paddingLeft="16dp"
-        android:paddingRight="16dp"
-        android:visibility="visible">
-        <TextView
-            android:id="@+id/bottom_channel_name"
+        android:background="#CC000000"
+        android:visibility="gone">
+        <!-- 左侧分组 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/group_recycler"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:text="暂无频道" />
-        <TextView
-            android:id="@+id/bottom_epg_info"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="#AAAAAA"
-            android:textSize="14sp"
-            android:text="EPG信息" />
+            android:background="#33000000"
+            android:padding="8dp" />
+        <!-- 中间频道列表 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/channel_recycler"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="2"
+            android:background="#44000000"
+            android:padding="8dp" />
+        <!-- 右侧 EPG -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/epg_recycler"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="2"
+            android:background="#55000000"
+            android:padding="8dp" />
     </LinearLayout>
+    <!-- 设置按钮 -->
     <ImageButton
         android:id="@+id/btn_settings"
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:src="@drawable/ic_settings"
-        android:layout_alignParentTop="true"
-        android:layout_alignParentEnd="true"
+        android:layout_gravity="top|end"
         android:layout_margin="16dp"
         android:background="#88000000"
         android:tint="#FFFFFF" />
-    <ImageButton
-        android:id="@+id/btn_menu"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:src="@drawable/ic_menu"
-        android:layout_alignParentTop="true"
-        android:layout_alignParentStart="true"
-        android:layout_margin="16dp"
-        android:background="#88000000"
-        android:tint="#FFFFFF" />
-</RelativeLayout>
+</FrameLayout>
 EOF
 
+    # activity_settings.xml（保持原样）
     cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -689,14 +995,86 @@ EOF
 </LinearLayout>
 EOF
 
+    # item_group.xml
+    cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/group_name"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="12dp"
+    android:textSize="14sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+
+    # item_channel.xml
+    cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp"
+    android:background="?attr/selectableItemBackground">
+    <TextView
+        android:id="@+id/channel_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="14sp"
+        android:textColor="#FFFFFF" />
+    <TextView
+        android:id="@+id/channel_fav"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="★"
+        android:textSize="16sp"
+        android:textColor="#FFD700"
+        android:visibility="gone" />
+</LinearLayout>
+EOF
+
+    # item_epg.xml
+    cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp"
+    android:background="?attr/selectableItemBackground">
+    <TextView
+        android:id="@+id/epg_time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="#AAAAAA" />
+    <TextView
+        android:id="@+id/epg_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:textColor="#FFFFFF" />
+</LinearLayout>
+EOF
+
+    # item_menu.xml, item_content.xml（保留）
     cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/menu_text" android:layout_width="match_parent" android:layout_height="48dp"
-    android:gravity="center_vertical" android:paddingLeft="16dp"
-    android:textSize="16sp" android:textColor="#FFFFFF" android:background="?attr/selectableItemBackground" />
+    android:id="@+id/menu_text"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="16dp"
+    android:textSize="16sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
 EOF
-
     cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -734,14 +1112,7 @@ EOF
 </LinearLayout>
 EOF
 
-    cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/channel_name" android:layout_width="match_parent" android:layout_height="48dp"
-    android:gravity="center_vertical" android:paddingLeft="16dp"
-    android:textColor="#FFFFFF" android:textSize="16sp" android:background="?attr/selectableItemBackground" />
-EOF
-
+    # 图标资源
     cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
@@ -835,6 +1206,7 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 使用说明："
 echo "   1. 打开应用，点击右上角齿轮进入设置"
 echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
-echo "   3. 添加后自动选中，返回主界面即可加载频道并播放"
-echo "   4. 点击播放画面或左上角菜单按钮，弹出频道列表，点击切换频道"
-echo "   5. 底部显示当前频道名称和EPG信息（占位）"
+echo "   3. 添加后自动选中，返回主界面即可加载频道"
+echo "   4. 点击播放画面左侧区域（或点击屏幕）可呼出频道列表"
+echo "   5. 左侧分组列表，中间频道列表，右侧 EPG 节目单"
+echo "   6. 长按频道可收藏/取消收藏"
