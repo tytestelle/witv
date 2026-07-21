@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格播放器（最终修复版）..."
+echo "🔥 开始部署酷9风格播放器（最终优化版）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -18,7 +18,7 @@ ITEM_CHANNEL_LAYOUT="app/src/main/res/layout/item_channel.xml"
 MANIFEST="app/src/main/AndroidManifest.xml"
 ASSETS_DIR="app/src/main/assets"
 
-# ========== 清理旧的 ui 目录（避免冲突） ==========
+# ========== 清理旧的 ui 目录 ==========
 rm -rf "app/src/main/java/com/whyun/witv/ui"
 echo "✅ 已清理旧的 ui 目录"
 
@@ -518,11 +518,12 @@ public class ConfigurationManager {
 EOF
 echo "✅ ConfigurationManager 已创建"
 
-# ========== 7. 创建 SettingsActivity（使用 RecyclerView） ==========
+# ========== 7. 创建 SettingsActivity（分组 + 图标优化） ==========
 cat > "$SETTINGS_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
 import android.os.Bundle;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
@@ -532,6 +533,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.switchmaterial.SwitchMaterial;
@@ -543,12 +545,18 @@ public class SettingsActivity extends AppCompatActivity {
     private ConfigurationManager config;
     private RecyclerView recyclerView;
     private ConfigAdapter adapter;
-    private List<ConfigItem> items = new ArrayList<>();
+    private List<Object> items = new ArrayList<>(); // 可以是 ConfigItem 或 String (分组标题)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
+
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+        getSupportActionBar().setTitle("设置选项");
+        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        toolbar.setNavigationOnClickListener(v -> finish());
 
         config = ConfigurationManager.getInstance(this);
         recyclerView = findViewById(R.id.settings_recycler);
@@ -560,176 +568,138 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void buildConfigItems() {
-        items.add(new ConfigItem("解码方式", "PLAY_TYPE", ConfigItem.TYPE_SPINNER,
+        // 分组定义
+        addGroup("播放设置");
+        addItem("解码方式", "PLAY_TYPE", ConfigItem.TYPE_SPINNER,
                 new String[]{"系统解码", "IJK硬解", "IJK软解", "EXO硬解", "EXO软解", "MPV硬解", "MPV软解"},
-                config.getInt("PLAY_TYPE", 1)));
-
-        items.add(new ConfigItem("画面比例", "PLAY_SCALE", ConfigItem.TYPE_SPINNER,
+                config.getInt("PLAY_TYPE", 1));
+        addItem("画面比例", "PLAY_SCALE", ConfigItem.TYPE_SPINNER,
                 new String[]{"默认", "16:9", "4:3", "填充", "原始", "裁剪", "电影"},
-                config.getInt("PLAY_SCALE", 3)));
-
-        items.add(new ConfigItem("超时换源", "LIVE_CONNECT_TIMEOUT", ConfigItem.TYPE_SPINNER,
+                config.getInt("PLAY_SCALE", 3));
+        addItem("超时换源", "LIVE_CONNECT_TIMEOUT", ConfigItem.TYPE_SPINNER,
                 new String[]{"5s", "10s", "15s", "20s", "25s", "30s"},
-                config.getInt("LIVE_CONNECT_TIMEOUT", 1)));
-
-        items.add(new ConfigItem("显示时间", "LIVE_SHOW_TIME", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_SHOW_TIME", false)));
-
-        items.add(new ConfigItem("显示网速", "LIVE_SHOW_NET_SPEED", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_SHOW_NET_SPEED", false)));
-
-        items.add(new ConfigItem("隐藏频道图标", "HIDE_Channel_LOGO", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_Channel_LOGO", true)));
-
-        items.add(new ConfigItem("隐藏底部图标", "HIDE_Bottom_LOGO", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_Bottom_LOGO", true)));
-
-        items.add(new ConfigItem("关闭EPG", "CLOSE_EPG", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("CLOSE_EPG", false)));
-
-        items.add(new ConfigItem("隐藏收藏", "HIDE_FAVOR", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_FAVOR", false)));
-
-        items.add(new ConfigItem("隐藏序号", "HIDE_NUMBER", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("HIDE_NUMBER", false)));
-
-        items.add(new ConfigItem("记忆解码", "PL_MEMORYS_ET_SELECT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PL_MEMORYS_ET_SELECT", false)));
-
-        items.add(new ConfigItem("换台反转", "LIVE_CHANNEL_REVERSE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_CHANNEL_REVERSE", false)));
-
-        items.add(new ConfigItem("跨选分组", "LIVE_CROSS_GROUP", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_CROSS_GROUP", false)));
-
-        items.add(new ConfigItem("关闭密码", "LIVE_SKIP_PASSWORD", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("LIVE_SKIP_PASSWORD", false)));
-
-        items.add(new ConfigItem("画中画", "PIC_IN_PIC", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PIC_IN_PIC", false)));
-
-        items.add(new ConfigItem("开机启动", "BOOT_START", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("BOOT_START", false)));
-
-        items.add(new ConfigItem("快速退出", "QUICK_EXIT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("QUICK_EXIT", false)));
-
-        items.add(new ConfigItem("画面锁定", "EYE_PROTECTION", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("EYE_PROTECTION", false)));
-
-        items.add(new ConfigItem("回放标识", "PLAYBACK_ID", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PLAYBACK_ID", false)));
-
-        items.add(new ConfigItem("开启时移", "TIME_SHIFT_ON", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("TIME_SHIFT_ON", true)));
-
-        items.add(new ConfigItem("渲染类型", "PLAY_RENDER", ConfigItem.TYPE_SPINNER,
-                new String[]{"Texture", "Surface"},
-                config.getInt("PLAY_RENDER", 1)));
-
-        items.add(new ConfigItem("安全DNS", "DOH_URL", ConfigItem.TYPE_SPINNER,
-                new String[]{"关闭", "腾讯", "阿里", "360", "Google", "AdGuard", "Quad9"},
-                config.getInt("DOH_URL", 0)));
-
-        items.add(new ConfigItem("主题类型", "THEME_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
-                config.getInt("THEME_SELECT", 2)));
-
-        items.add(new ConfigItem("回放方式", "PLAY_BACK_TYPE", ConfigItem.TYPE_SPINNER,
-                new String[]{"重新加载url", "播放器seekTo"},
-                config.getInt("PLAY_BACK_TYPE", 0)));
-
-        items.add(new ConfigItem("断线重连", "RECONNECT_INDEX", ConfigItem.TYPE_SPINNER,
+                config.getInt("LIVE_CONNECT_TIMEOUT", 1));
+        addItem("断线重连", "RECONNECT_INDEX", ConfigItem.TYPE_SPINNER,
                 new String[]{"关闭", "1s", "3s", "5s", "10s", "20s"},
-                config.getInt("RECONNECT_INDEX", 0)));
-
-        items.add(new ConfigItem("EXO隧道模式", "EXO_TUNNELING_SELECT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("EXO_TUNNELING_SELECT", false)));
-
-        items.add(new ConfigItem("RTSP通道", "RTSP_TCP_SELECT", ConfigItem.TYPE_SPINNER,
+                config.getInt("RECONNECT_INDEX", 0));
+        addItem("渲染类型", "PLAY_RENDER", ConfigItem.TYPE_SPINNER,
+                new String[]{"Texture", "Surface"},
+                config.getInt("PLAY_RENDER", 1));
+        addItem("RTSP通道", "RTSP_TCP_SELECT", ConfigItem.TYPE_SPINNER,
                 new String[]{"TCP", "UDP"},
-                config.getInt("RTSP_TCP_SELECT", 0)));
+                config.getInt("RTSP_TCP_SELECT", 0));
+        addItem("回放方式", "PLAY_BACK_TYPE", ConfigItem.TYPE_SPINNER,
+                new String[]{"重新加载url", "播放器seekTo"},
+                config.getInt("PLAY_BACK_TYPE", 0));
+        addItem("时移结束播放", "TIME_SHIFT_MODE", ConfigItem.TYPE_SPINNER,
+                new String[]{"自动刷新继续播放", "回到直播"},
+                config.getInt("TIME_SHIFT_MODE", 0));
 
-        items.add(new ConfigItem("导航栏模式", "NAVIGATION_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"滑动显示", "一直显示", "触摸显示"},
-                config.getInt("NAVIGATION_SELECT", 0)));
+        addGroup("显示设置");
+        addItem("显示时间", "LIVE_SHOW_TIME", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("LIVE_SHOW_TIME", false));
+        addItem("显示网速", "LIVE_SHOW_NET_SPEED", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("LIVE_SHOW_NET_SPEED", false));
+        addItem("隐藏频道图标", "HIDE_Channel_LOGO", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("HIDE_Channel_LOGO", true));
+        addItem("隐藏底部图标", "HIDE_Bottom_LOGO", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("HIDE_Bottom_LOGO", true));
+        addItem("关闭EPG", "CLOSE_EPG", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("CLOSE_EPG", false));
+        addItem("隐藏收藏", "HIDE_FAVOR", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("HIDE_FAVOR", false));
+        addItem("隐藏序号", "HIDE_NUMBER", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("HIDE_NUMBER", false));
+        addItem("显示本地视频", "ENABLE_LOCAL_VIDEO", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("ENABLE_LOCAL_VIDEO", false));
+        addItem("EPG详情显示", "EPG_DESC_SET", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("EPG_DESC_SET", false));
+        addItem("底部EPG详情", "BOTTOM_DESC_SET", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("BOTTOM_DESC_SET", true));
+        addItem("图标默认样式", "ICON_INITIAL_SET", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("ICON_INITIAL_SET", true));
 
-        items.add(new ConfigItem("EPG展示", "EPG_SHOW_TYPE_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"折叠展示", "一直展示"},
-                config.getInt("EPG_SHOW_TYPE_SELECT", 0)));
-
-        items.add(new ConfigItem("全局字体大小", "TEXT_SIZE", ConfigItem.TYPE_EDIT,
-                config.getInt("TEXT_SIZE", 0)));
-
-        items.add(new ConfigItem("列表宽度", "LIST_WIDTH", ConfigItem.TYPE_EDIT,
-                config.getInt("LIST_WIDTH", 0)));
-
-        items.add(new ConfigItem("底部信息栏宽度", "BOTTOM_WIDTH", ConfigItem.TYPE_EDIT,
-                config.getInt("BOTTOM_WIDTH", 0)));
-
-        items.add(new ConfigItem("EPG缓存", "EPGCACHE_SELECT", ConfigItem.TYPE_SPINNER,
-                new String[]{"关闭", "2点", "4点", "6点", "8点", "10点", "12点", "14点", "16点", "18点", "20点", "22点"},
-                config.getInt("EPGCACHE_SELECT", 4)));
-
-        items.add(new ConfigItem("图标缓存", "IMAGECACHE_SELECT", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("IMAGECACHE_SELECT", false)));
-
-        items.add(new ConfigItem("脚本缓存", "SCRIPT_CACHE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("SCRIPT_CACHE", true)));
-
-        items.add(new ConfigItem("记忆多源", "MEMORYS_SOURCE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("MEMORYS_SOURCE", true)));
-
-        items.add(new ConfigItem("记忆进度", "MEMORYS_POSITION", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("MEMORYS_POSITION", true)));
-
-        items.add(new ConfigItem("背景色系", "BACKGROUND_THEME_SELECT", ConfigItem.TYPE_SPINNER,
+        addGroup("偏好设置");
+        addItem("记忆解码", "PL_MEMORYS_ET_SELECT", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("PL_MEMORYS_ET_SELECT", false));
+        addItem("换台反转", "LIVE_CHANNEL_REVERSE", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("LIVE_CHANNEL_REVERSE", false));
+        addItem("跨选分组", "LIVE_CROSS_GROUP", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("LIVE_CROSS_GROUP", false));
+        addItem("关闭密码", "LIVE_SKIP_PASSWORD", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("LIVE_SKIP_PASSWORD", false));
+        addItem("画中画", "PIC_IN_PIC", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("PIC_IN_PIC", false));
+        addItem("开机启动", "BOOT_START", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("BOOT_START", false));
+        addItem("快速退出", "QUICK_EXIT", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("QUICK_EXIT", false));
+        addItem("画面锁定", "EYE_PROTECTION", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("EYE_PROTECTION", false));
+        addItem("回放标识", "PLAYBACK_ID", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("PLAYBACK_ID", false));
+        addItem("开启时移", "TIME_SHIFT_ON", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("TIME_SHIFT_ON", true));
+        addItem("安全DNS", "DOH_URL", ConfigItem.TYPE_SPINNER,
+                new String[]{"关闭", "腾讯", "阿里", "360", "Google", "AdGuard", "Quad9"},
+                config.getInt("DOH_URL", 0));
+        addItem("主题类型", "THEME_SELECT", ConfigItem.TYPE_SPINNER,
                 new String[]{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
-                config.getInt("BACKGROUND_THEME_SELECT", 6)));
-
-        items.add(new ConfigItem("列表分组模式", "GROUP_PARS_SET_SELECT", ConfigItem.TYPE_SPINNER,
+                config.getInt("THEME_SELECT", 2));
+        addItem("背景色系", "BACKGROUND_THEME_SELECT", ConfigItem.TYPE_SPINNER,
+                new String[]{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
+                config.getInt("BACKGROUND_THEME_SELECT", 6));
+        addItem("列表分组模式", "GROUP_PARS_SET_SELECT", ConfigItem.TYPE_SPINNER,
                 new String[]{"传统分组", "列表分组", "二级分组模式1", "二级分组模式2"},
-                config.getInt("GROUP_PARS_SET_SELECT", 3)));
-
-        items.add(new ConfigItem("遍历多源循环", "PLAY_ALL_SOURCE", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("PLAY_ALL_SOURCE", true)));
-
-        items.add(new ConfigItem("分辨率显示样式", "RESOLUTION_MODE_SELECT", ConfigItem.TYPE_SPINNER,
+                config.getInt("GROUP_PARS_SET_SELECT", 3));
+        addItem("遍历多源循环", "PLAY_ALL_SOURCE", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("PLAY_ALL_SOURCE", true));
+        addItem("分辨率显示样式", "RESOLUTION_MODE_SELECT", ConfigItem.TYPE_SPINNER,
                 new String[]{"缩写", "数字x数字"},
-                config.getInt("RESOLUTION_MODE_SELECT", 0)));
-
-        items.add(new ConfigItem("XML时间偏移", "TIME_ZONE_SELECT", ConfigItem.TYPE_SPINNER,
+                config.getInt("RESOLUTION_MODE_SELECT", 0));
+        addItem("XML时间偏移", "TIME_ZONE_SELECT", ConfigItem.TYPE_SPINNER,
                 new String[]{"默认", "-12", "-11", "-10", "-9", "-8", "-7", "-6", "-5", "-4", "-3", "-2", "-1",
                         "0", "+1", "+2", "+3", "+4", "+5", "+6", "+7", "+8", "+9", "+10", "+11", "+12"},
-                config.getInt("TIME_ZONE_SELECT", 0)));
+                config.getInt("TIME_ZONE_SELECT", 0));
+        addItem("图标缓存", "IMAGECACHE_SELECT", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("IMAGECACHE_SELECT", false));
+        addItem("脚本缓存", "SCRIPT_CACHE", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("SCRIPT_CACHE", true));
+        addItem("记忆多源", "MEMORYS_SOURCE", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("MEMORYS_SOURCE", true));
+        addItem("记忆进度", "MEMORYS_POSITION", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("MEMORYS_POSITION", true));
+        addItem("开机自启检测", "BOOTRECEIVER_SET_SELECT", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("BOOTRECEIVER_SET_SELECT", true));
+        addItem("快捷菜单", "SHORTCUTS_MENU", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("SHORTCUTS_MENU", false));
+        addItem("EPG缓存路径", "EPG_CACHE_PATH_SET", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("EPG_CACHE_PATH_SET", false));
+        addItem("音频壁纸", "AUDIO_WAKKPAPER", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("AUDIO_WAKKPAPER", false));
+        addItem("反交错", "DE_INTERLACING", ConfigItem.TYPE_SWITCH,
+                config.getBoolean("DE_INTERLACING", false));
 
-        items.add(new ConfigItem("时移结束播放", "TIME_SHIFT_MODE", ConfigItem.TYPE_SPINNER,
-                new String[]{"自动刷新继续播放", "回到直播"},
-                config.getInt("TIME_SHIFT_MODE", 0)));
+        addGroup("列表设置");
+        addItem("全局字体大小", "TEXT_SIZE", ConfigItem.TYPE_EDIT,
+                config.getInt("TEXT_SIZE", 0));
+        addItem("列表宽度", "LIST_WIDTH", ConfigItem.TYPE_EDIT,
+                config.getInt("LIST_WIDTH", 0));
+        addItem("底部信息栏宽度", "BOTTOM_WIDTH", ConfigItem.TYPE_EDIT,
+                config.getInt("BOTTOM_WIDTH", 0));
 
-        items.add(new ConfigItem("显示本地视频", "ENABLE_LOCAL_VIDEO", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("ENABLE_LOCAL_VIDEO", false)));
+        addGroup("其他设置");
+        addItem("EPG缓存", "EPGCACHE_SELECT", ConfigItem.TYPE_SPINNER,
+                new String[]{"关闭", "2点", "4点", "6点", "8点", "10点", "12点", "14点", "16点", "18点", "20点", "22点"},
+                config.getInt("EPGCACHE_SELECT", 4));
+    }
 
-        items.add(new ConfigItem("图标优先级", "M3U_LOGO_PRIORITY", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("M3U_LOGO_PRIORITY", false)));
+    private void addGroup(String title) {
+        items.add(title);
+    }
 
-        items.add(new ConfigItem("EPG详情显示", "EPG_DESC_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("EPG_DESC_SET", false)));
-
-        items.add(new ConfigItem("底部EPG详情", "BOTTOM_DESC_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("BOTTOM_DESC_SET", true)));
-
-        items.add(new ConfigItem("图标默认样式", "ICON_INITIAL_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("ICON_INITIAL_SET", true)));
-
-        items.add(new ConfigItem("EPG缓存路径", "EPG_CACHE_PATH_SET", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("EPG_CACHE_PATH_SET", false)));
-
-        items.add(new ConfigItem("音频壁纸", "AUDIO_WAKKPAPER", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("AUDIO_WAKKPAPER", false)));
-
-        items.add(new ConfigItem("反交错", "DE_INTERLACING", ConfigItem.TYPE_SWITCH,
-                config.getBoolean("DE_INTERLACING", false)));
+    private void addItem(String title, String key, int type, Object... params) {
+        items.add(new ConfigItem(title, key, type, params));
     }
 
     // ---------- ConfigItem 数据类 ----------
@@ -740,104 +710,140 @@ public class SettingsActivity extends AppCompatActivity {
 
         String title, key;
         int type;
-        Object value;
+        Object value; // Boolean / Integer
         String[] spinnerOptions;
 
-        ConfigItem(String title, String key, int type, boolean val) {
-            this.title = title; this.key = key; this.type = type;
-            this.value = val;
-        }
-        ConfigItem(String title, String key, int type, String[] options, int selected) {
-            this.title = title; this.key = key; this.type = type;
-            this.spinnerOptions = options;
-            this.value = selected;
-        }
-        ConfigItem(String title, String key, int type, int val) {
-            this.title = title; this.key = key; this.type = type;
-            this.value = val;
+        ConfigItem(String title, String key, int type, Object... params) {
+            this.title = title;
+            this.key = key;
+            this.type = type;
+            if (type == TYPE_SWITCH) {
+                this.value = (Boolean) params[0];
+            } else if (type == TYPE_SPINNER) {
+                this.spinnerOptions = (String[]) params[0];
+                this.value = (Integer) params[1];
+            } else if (type == TYPE_EDIT) {
+                this.value = (Integer) params[0];
+            }
         }
     }
 
     // ---------- Adapter ----------
-    class ConfigAdapter extends RecyclerView.Adapter<ConfigAdapter.ViewHolder> {
-        private List<ConfigItem> data;
+    class ConfigAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        private static final int TYPE_HEADER = 0;
+        private static final int TYPE_ITEM = 1;
 
-        ConfigAdapter(List<ConfigItem> data) { this.data = data; }
+        private List<Object> data;
+
+        ConfigAdapter(List<Object> data) { this.data = data; }
 
         @Override
-        public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            View view = getLayoutInflater().inflate(R.layout.item_config, parent, false);
-            return new ViewHolder(view);
+        public int getItemViewType(int position) {
+            return data.get(position) instanceof String ? TYPE_HEADER : TYPE_ITEM;
         }
 
         @Override
-        public void onBindViewHolder(ViewHolder holder, int position) {
-            ConfigItem item = data.get(position);
-            holder.title.setText(item.title);
-            holder.container.removeAllViews();
+        public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+            if (viewType == TYPE_HEADER) {
+                View v = inflater.inflate(R.layout.item_config_header, parent, false);
+                return new HeaderViewHolder(v);
+            } else {
+                View v = inflater.inflate(R.layout.item_config, parent, false);
+                return new ItemViewHolder(v);
+            }
+        }
 
-            if (item.type == ConfigItem.TYPE_SWITCH) {
-                SwitchMaterial sw = new SwitchMaterial(SettingsActivity.this);
-                sw.setChecked((Boolean) item.value);
-                sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                    config.putBoolean(item.key, isChecked);
-                    item.value = isChecked;
-                    Toast.makeText(SettingsActivity.this, "已保存", Toast.LENGTH_SHORT).show();
-                });
-                holder.container.addView(sw);
-            } else if (item.type == ConfigItem.TYPE_SPINNER) {
-                Spinner spinner = new Spinner(SettingsActivity.this);
-                ArrayAdapter<String> adapter = new ArrayAdapter<>(SettingsActivity.this,
-                        android.R.layout.simple_spinner_dropdown_item, item.spinnerOptions);
-                spinner.setAdapter(adapter);
-                spinner.setSelection((Integer) item.value);
-                spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                    @Override
-                    public void onItemSelected(android.widget.AdapterView<?> parent, View view, int pos, long id) {
-                        config.putInt(item.key, pos);
-                        item.value = pos;
-                    }
-                    @Override
-                    public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-                });
-                holder.container.addView(spinner);
-            } else if (item.type == ConfigItem.TYPE_EDIT) {
-                EditText edit = new EditText(SettingsActivity.this);
-                edit.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-                edit.setText(String.valueOf(item.value));
-                edit.setHint("数值");
-                edit.setOnFocusChangeListener((v, hasFocus) -> {
-                    if (!hasFocus) {
-                        try {
-                            int val = Integer.parseInt(edit.getText().toString());
-                            config.putInt(item.key, val);
-                            item.value = val;
-                            Toast.makeText(SettingsActivity.this, "已保存", Toast.LENGTH_SHORT).show();
-                        } catch (NumberFormatException ignored) {}
-                    }
-                });
-                holder.container.addView(edit);
+        @Override
+        public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
+            if (holder instanceof HeaderViewHolder) {
+                String title = (String) data.get(position);
+                ((HeaderViewHolder) holder).title.setText(title);
+            } else if (holder instanceof ItemViewHolder) {
+                ConfigItem item = (ConfigItem) data.get(position);
+                ItemViewHolder vh = (ItemViewHolder) holder;
+                vh.icon.setText(String.valueOf(item.title.charAt(0)));
+                vh.title.setText(item.title);
+                vh.container.removeAllViews();
+
+                if (item.type == ConfigItem.TYPE_SWITCH) {
+                    SwitchMaterial sw = new SwitchMaterial(SettingsActivity.this);
+                    sw.setChecked((Boolean) item.value);
+                    sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                        config.putBoolean(item.key, isChecked);
+                        item.value = isChecked;
+                        Toast.makeText(SettingsActivity.this, "已保存", Toast.LENGTH_SHORT).show();
+                    });
+                    vh.container.addView(sw);
+                } else if (item.type == ConfigItem.TYPE_SPINNER) {
+                    Spinner spinner = new Spinner(SettingsActivity.this);
+                    ArrayAdapter<String> adapter = new ArrayAdapter<>(SettingsActivity.this,
+                            android.R.layout.simple_spinner_dropdown_item, item.spinnerOptions);
+                    spinner.setAdapter(adapter);
+                    spinner.setSelection((Integer) item.value);
+                    spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                        @Override
+                        public void onItemSelected(android.widget.AdapterView<?> parent, View view, int pos, long id) {
+                            config.putInt(item.key, pos);
+                            item.value = pos;
+                        }
+                        @Override
+                        public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+                    });
+                    vh.container.addView(spinner);
+                } else if (item.type == ConfigItem.TYPE_EDIT) {
+                    EditText edit = new EditText(SettingsActivity.this);
+                    edit.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+                    edit.setText(String.valueOf(item.value));
+                    edit.setHint("数值");
+                    edit.setOnFocusChangeListener((v, hasFocus) -> {
+                        if (!hasFocus) {
+                            try {
+                                int val = Integer.parseInt(edit.getText().toString());
+                                config.putInt(item.key, val);
+                                item.value = val;
+                                Toast.makeText(SettingsActivity.this, "已保存", Toast.LENGTH_SHORT).show();
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    });
+                    vh.container.addView(edit);
+                }
+                // 设置箭头颜色（统一风格）
+                vh.arrow.setText("›");
             }
         }
 
         @Override
         public int getItemCount() { return data.size(); }
 
-        class ViewHolder extends RecyclerView.ViewHolder {
+        // Header ViewHolder
+        class HeaderViewHolder extends RecyclerView.ViewHolder {
             TextView title;
-            LinearLayout container;
-            ViewHolder(View itemView) {
+            HeaderViewHolder(View itemView) {
                 super(itemView);
-                title = itemView.findViewById(R.id.config_title);
-                container = itemView.findViewById(R.id.config_container);
+                title = itemView.findViewById(R.id.header_title);
+            }
+        }
+
+        // Item ViewHolder
+        class ItemViewHolder extends RecyclerView.ViewHolder {
+            TextView icon, title, arrow;
+            LinearLayout container;
+            ItemViewHolder(View itemView) {
+                super(itemView);
+                icon = itemView.findViewById(R.id.item_icon);
+                title = itemView.findViewById(R.id.item_title);
+                arrow = itemView.findViewById(R.id.item_arrow);
+                container = itemView.findViewById(R.id.item_container);
             }
         }
     }
 }
 EOF
-echo "✅ SettingsActivity 已创建"
+echo "✅ SettingsActivity 已创建（分组优化）"
 
 # ========== 8. 生成布局文件 ==========
+# activity_main.xml 不变，沿用之前的
 cat > "$LAYOUT_FILE" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -922,9 +928,11 @@ cat > "$LAYOUT_FILE" <<'EOF'
 </RelativeLayout>
 EOF
 
+# activity_settings.xml 添加 Toolbar
 cat > "$SETTINGS_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -935,17 +943,33 @@ cat > "$SETTINGS_LAYOUT" <<'EOF'
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="?attr/colorPrimary"
-        android:title="设置"
-        android:titleTextColor="#FFFFFF" />
+        app:titleTextColor="#FFFFFF"
+        app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/settings_recycler"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="8dp" />
+        android:padding="8dp"
+        android:clipToPadding="false" />
 </LinearLayout>
 EOF
 
+# 添加分组标题布局 item_config_header.xml
+cat > "app/src/main/res/layout/item_config_header.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="16dp"
+    android:textSize="16sp"
+    android:textColor="#888888"
+    android:background="#EEEEEE"
+    android:textStyle="bold"
+    android:id="@+id/header_title" />
+EOF
+
+# 修改 item_config.xml 增加图标和箭头
 cat > "$ITEM_CONFIG_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -954,10 +978,21 @@ cat > "$ITEM_CONFIG_LAYOUT" <<'EOF'
     android:orientation="horizontal"
     android:padding="12dp"
     android:background="#FFFFFF"
-    android:layout_marginBottom="4dp">
+    android:layout_marginBottom="1dp"
+    android:gravity="center_vertical">
 
     <TextView
-        android:id="@+id/config_title"
+        android:id="@+id/item_icon"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:gravity="center"
+        android:textSize="16sp"
+        android:textColor="#FFFFFF"
+        android:background="@drawable/circle_icon_bg"
+        android:layout_marginEnd="12dp" />
+
+    <TextView
+        android:id="@+id/item_title"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
@@ -967,14 +1002,24 @@ cat > "$ITEM_CONFIG_LAYOUT" <<'EOF'
         android:layout_gravity="center_vertical" />
 
     <LinearLayout
-        android:id="@+id/config_container"
+        android:id="@+id/item_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical" />
+        android:gravity="center_vertical"
+        android:layout_marginEnd="8dp" />
+
+    <TextView
+        android:id="@+id/item_arrow"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="›"
+        android:textSize="20sp"
+        android:textColor="#CCCCCC" />
 </LinearLayout>
 EOF
 
+# item_channel_layout 不变
 cat > "$ITEM_CHANNEL_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1004,10 +1049,18 @@ cat > "$ITEM_CHANNEL_LAYOUT" <<'EOF'
         android:visibility="gone" />
 </LinearLayout>
 EOF
-echo "✅ 布局文件已生成"
 
-# ========== 9. 添加图标资源 ==========
+# 添加圆形背景 drawable
 mkdir -p app/src/main/res/drawable
+cat > app/src/main/res/drawable/circle_icon_bg.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#FF6200EE" />
+</shape>
+EOF
+
+# 图标资源沿用之前的
 cat > app/src/main/res/drawable/ic_favorite_border.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
@@ -1032,9 +1085,9 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
     <path android:fillColor="#FFFFFF" android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zm1,15h-2v-6h2v6zm0,-8h-2V7h2v2z"/>
 </vector>
 EOF
-echo "✅ 图标资源已添加"
+echo "✅ 布局和图标资源已生成（含分组优化）"
 
-# ========== 10. 生成最终的 MainActivity（修复 parent 问题） ==========
+# ========== 9. 生成最终的 MainActivity（已修复） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1420,9 +1473,9 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ MainActivity 已生成（修复 Context 获取）"
+echo "✅ MainActivity 已生成（修复完毕）"
 
-# ========== 11. 验证文件生成 ==========
+# ========== 10. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
 ls -la "app/src/main/java/$PKG_PATH/source/SourceManager.java" || echo "❌ SourceManager 未生成"
 ls -la "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" || echo "❌ PlayerConfigManager 未生成"
@@ -1431,7 +1484,7 @@ ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ Conf
 ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
 ls -la "app/src/main/java/$PKG_PATH/MainActivity.java" || echo "❌ MainActivity 未生成"
 
-# ========== 12. 清理并构建 APK ==========
+# ========== 11. 清理并构建 APK ==========
 echo "🧹 清理构建缓存..."
 ./gradlew clean
 
@@ -1439,15 +1492,14 @@ echo "🚀 开始构建 APK..."
 chmod +x gradlew
 ./gradlew assembleDebug
 
-# ========== 13. 完成 ==========
+# ========== 12. 完成 ==========
 echo ""
 echo "🎉 部署并构建完成！"
 echo "📌 APK 位于: app/build/outputs/apk/debug/"
 echo ""
-echo "📌 酷9配置系统已集成："
-echo "   ✅ assets/configuration.json – 完整配置"
-echo "   ✅ ConfigurationManager – 配置管理"
-echo "   ✅ SettingsActivity – 完整设置界面"
-echo "   ✅ MainActivity – 应用解码、比例等核心配置"
+echo "📌 已优化设置界面："
+echo "   ✅ 分组显示（播放设置 / 显示设置 / 偏好设置 / 列表设置 / 其他设置）"
+echo "   ✅ 每项带首字母图标和右箭头"
+echo "   ✅ 返回键直接进入设置界面"
 echo ""
 echo "📌 如需修改直播源，请编辑 assets/configuration.json 中的 LIVE_URLS"
