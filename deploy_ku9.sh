@@ -1,14 +1,11 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9播放器（模板外置版）..."
+echo "🔥 开始部署酷9播放器（模板外置版 + 闪退修复）..."
 
 # 定义路径
 TEMPLATE_DIR="./template"
-PROJECT_DIR="."
 SRC_JAVA="app/src/main/java/com/whyun/witv"
-RES_LAYOUT="app/src/main/res/layout"
-RES_DRAWABLE="app/src/main/res/drawable"
 ASSETS="app/src/main/assets"
 MANIFEST="app/src/main/AndroidManifest.xml"
 APP_GRADLE="app/build.gradle"
@@ -82,7 +79,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 }
 EOF
 
-    # 2. Java 源文件（分类放置到 template/src/ 下）
+    # 2. Java 源文件
     mkdir -p "$TEMPLATE_DIR/src/source" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
     
     # SourceManager.java
@@ -113,7 +110,20 @@ public class SourceManager {
                 if (!response.isSuccessful()) throw new Exception("网络错误: " + response.code());
                 String content = response.body().string();
                 if (url.endsWith(".m3u") || url.endsWith(".m3u8") || content.contains("#EXTM3U")) {
-                    // M3U解析（暂略）
+                    // 简单M3U解析（仅提取频道名和URL）
+                    String[] lines = content.split("\n");
+                    for (int i = 0; i < lines.length; i++) {
+                        String line = lines[i].trim();
+                        if (line.startsWith("#EXTINF:")) {
+                            String name = line.substring(line.indexOf(",") + 1);
+                            if (i + 1 < lines.length) {
+                                String urlLine = lines[i + 1].trim();
+                                if (!urlLine.isEmpty() && !urlLine.startsWith("#")) {
+                                    channels.add(new Channel(name, urlLine, ""));
+                                }
+                            }
+                        }
+                    }
                 } else {
                     parseTXT(content);
                 }
@@ -215,7 +225,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # MainActivity.java
+    # MainActivity.java (带异常捕获)
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -251,21 +261,26 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        config = ConfigurationManager.getInstance(this);
-        PlayerConfigManager.init(this);
-        FavoriteManager.init(this);
-        playerView = findViewById(R.id.player_container);
-        channelListView = findViewById(R.id.channel_list);
-        channelListView.setLayoutManager(new LinearLayoutManager(this));
-        channelAdapter = new ChannelAdapter(new ArrayList<>(), channel -> {
-            playChannel(channel);
-            hideChannelList();
-        });
-        channelListView.setAdapter(channelAdapter);
-        findViewById(R.id.btn_settings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        findViewById(R.id.btn_menu).setOnClickListener(v -> toggleChannelList());
-        loadDefaultSource();
+        try {
+            setContentView(R.layout.activity_main);
+            config = ConfigurationManager.getInstance(this);
+            PlayerConfigManager.init(this);
+            FavoriteManager.init(this);
+            playerView = findViewById(R.id.player_container);
+            channelListView = findViewById(R.id.channel_list);
+            channelListView.setLayoutManager(new LinearLayoutManager(this));
+            channelAdapter = new ChannelAdapter(new ArrayList<>(), channel -> {
+                playChannel(channel);
+                hideChannelList();
+            });
+            channelListView.setAdapter(channelAdapter);
+            findViewById(R.id.btn_settings).setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+            findViewById(R.id.btn_menu).setOnClickListener(v -> toggleChannelList());
+            loadDefaultSource();
+        } catch (Exception e) {
+            Toast.makeText(this, "初始化错误: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            e.printStackTrace();
+        }
     }
     private void loadDefaultSource() {
         String url = config.getString("LIVE_URLS", "http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8");
@@ -285,20 +300,24 @@ public class MainActivity extends AppCompatActivity {
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
-        if (player == null) {
-            DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-            player = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
-            playerView.setPlayer(player);
-            player.addListener(new Player.Listener() {
-                @Override public void onPlayerError(PlaybackException error) {
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show());
-                }
-            });
+        try {
+            if (player == null) {
+                DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+                player = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
+                playerView.setPlayer(player);
+                player.addListener(new Player.Listener() {
+                    @Override public void onPlayerError(PlaybackException error) {
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show());
+                    }
+                });
+            }
+            player.setMediaItem(MediaItem.fromUri(channel.url));
+            player.prepare();
+            player.play();
+            Toast.makeText(this, "播放: " + channel.name, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
-        player.setMediaItem(MediaItem.fromUri(channel.url));
-        player.prepare();
-        player.play();
-        Toast.makeText(this, "播放: " + channel.name, Toast.LENGTH_SHORT).show();
     }
     private void toggleChannelList() {
         if (isListVisible) hideChannelList();
@@ -353,21 +372,25 @@ public class SettingsActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_settings);
-        menuRecycler = findViewById(R.id.menu_recycler);
-        contentRecycler = findViewById(R.id.content_recycler);
-        menuRecycler.setLayoutManager(new LinearLayoutManager(this));
-        menuAdapter = new MenuAdapter(menuTitles, pos -> {
-            currentPos = pos;
-            menuAdapter.setSelected(pos);
-            showContent(pos);
-        });
-        menuRecycler.setAdapter(menuAdapter);
-        contentRecycler.setLayoutManager(new LinearLayoutManager(this));
-        contentAdapter = new ContentAdapter();
-        contentRecycler.setAdapter(contentAdapter);
-        menuAdapter.setSelected(0);
-        showContent(0);
+        try {
+            setContentView(R.layout.activity_settings);
+            menuRecycler = findViewById(R.id.menu_recycler);
+            contentRecycler = findViewById(R.id.content_recycler);
+            menuRecycler.setLayoutManager(new LinearLayoutManager(this));
+            menuAdapter = new MenuAdapter(menuTitles, pos -> {
+                currentPos = pos;
+                menuAdapter.setSelected(pos);
+                showContent(pos);
+            });
+            menuRecycler.setAdapter(menuAdapter);
+            contentRecycler.setLayoutManager(new LinearLayoutManager(this));
+            contentAdapter = new ContentAdapter();
+            contentRecycler.setAdapter(contentAdapter);
+            menuAdapter.setSelected(0);
+            showContent(0);
+        } catch (Exception e) {
+            Toast.makeText(this, "设置界面错误: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
     private void showContent(int pos) {
         List<ContentItem> items = new ArrayList<>();
@@ -568,10 +591,11 @@ else
     echo "📂 模板目录已存在，直接使用"
 fi
 
-# === 关键：清理旧文件，防止残留的 ui/SettingsActivity 干扰 ===
-echo "🧹 清理旧的 ui 目录和残留 SettingsActivity..."
+# === 彻底清理旧文件 ===
+echo "🧹 彻底清理旧的 ui 目录、残留 SettingsActivity 和 build 缓存..."
 rm -rf "$SRC_JAVA/ui"
-rm -f "$SRC_JAVA/SettingsActivity.java"  # 删除旧的根包下的 SettingsActivity（若存在）
+rm -f "$SRC_JAVA/SettingsActivity.java"
+rm -rf app/build
 
 # 复制模板到项目
 echo "📂 从模板复制文件到项目..."
@@ -586,7 +610,7 @@ mkdir -p "$ASSETS/localData" "$ASSETS/backup" "$ASSETS/download" "$ASSETS/videoF
 
 echo "✅ 文件复制完成"
 
-# 添加依赖和权限（保持不变）
+# 添加依赖和权限
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
 sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
@@ -595,9 +619,54 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
+# 权限
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 echo "✅ 权限已添加"
+
+# 确保 AndroidManifest 注册 Activity（用 Python 脚本确保正确）
+python3 <<PYTHON_SCRIPT
+import sys, xml.etree.ElementTree as ET
+from xml.dom import minidom
+ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
+manifest_file = "$MANIFEST"
+pkg = "com.whyun.witv"
+try:
+    tree = ET.parse(manifest_file)
+    root = tree.getroot()
+except Exception as e:
+    print(f"解析失败: {e}", file=sys.stderr)
+    sys.exit(1)
+app = root.find('application')
+if app is None:
+    print("未找到 application", file=sys.stderr)
+    sys.exit(1)
+# 清除旧的 activity，重新添加
+for act in app.findall('activity'):
+    app.remove(act)
+# 主 Activity
+main_act = ET.Element('activity')
+main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
+main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+intent_filter = ET.SubElement(main_act, 'intent-filter')
+action = ET.SubElement(intent_filter, 'action')
+action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
+cat = ET.SubElement(intent_filter, 'category')
+cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
+app.append(main_act)
+# Settings Activity
+settings_act = ET.Element('activity')
+settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
+settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+app.append(settings_act)
+xml_str = ET.tostring(root, encoding='unicode')
+dom = minidom.parseString(xml_str)
+pretty = dom.toprettyxml(indent="    ")
+pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
+with open(manifest_file, 'w') as f:
+    f.write(pretty)
+print("✅ AndroidManifest.xml 已正确注册 Activity")
+PYTHON_SCRIPT
 
 # 清理并构建
 echo "🧹 清理构建缓存..."
@@ -610,3 +679,6 @@ chmod +x gradlew
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 如需修改源地址，请编辑 assets/configuration.json 中的 LIVE_URLS"
+echo ""
+echo "📌 如果仍然闪退，请通过 adb logcat 查看详细错误日志："
+echo "   adb logcat | grep -E 'AndroidRuntime|MainActivity|SettingsActivity'"
