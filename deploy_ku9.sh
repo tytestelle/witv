@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（完全复刻版 - 三栏UI + EPG）"
+echo "🔥 部署酷9播放器（完全复刻版 - 三栏UI + EPG + 订阅管理）"
 
 # ========== 1. 生成模板目录（仅首次） ==========
 TEMPLATE_DIR="./template"
@@ -18,7 +18,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 EOF
 
     # ==================== Java 源文件 ====================
-    # SourceManager.java
+    # SourceManager.java（同上）
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -120,7 +120,7 @@ public class SourceManager {
 }
 EOF
 
-    # EPGParser.java
+    # EPGParser.java（同上）
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -310,7 +310,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # MainActivity.java（三栏UI）
+    # MainActivity.java（修正内部类为静态）
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -553,8 +553,8 @@ public class MainActivity extends AppCompatActivity {
         return super.onTouchEvent(event);
     }
     @Override protected void onDestroy() { super.onDestroy(); if (player != null) { player.release(); player = null; } }
-    // ------------------- Adapters -------------------
-    class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
+    // ------------------- Adapters (静态内部类) -------------------
+    static class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
         private List<String> data;
         private String selectedGroup;
         private OnGroupClickListener listener;
@@ -572,12 +572,12 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setOnClickListener(v -> listener.onClick(group));
         }
         @Override public int getItemCount() { return data.size(); }
-        class ViewHolder extends RecyclerView.ViewHolder {
+        static class ViewHolder extends RecyclerView.ViewHolder {
             TextView name;
             ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); }
         }
     }
-    class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
+    static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
         private SourceManager.Channel selectedChannel;
         private OnChannelClickListener listener;
@@ -595,20 +595,20 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SourceManager.Channel ch = data.get(position);
             holder.name.setText(ch.name);
-            boolean isFav = favoriteSet.contains(ch.name);
+            boolean isFav = MainActivity.favoriteSet.contains(ch.name);
             holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
         }
         @Override public int getItemCount() { return data.size(); }
-        class ViewHolder extends RecyclerView.ViewHolder {
+        static class ViewHolder extends RecyclerView.ViewHolder {
             TextView name;
             TextView favIcon;
             ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); }
         }
     }
-    class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
+    static class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
         private List<EPGParser.EpgProgram> data = new ArrayList<>();
         EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
         void setItems(List<EPGParser.EpgProgram> newData) { this.data = newData; notifyDataSetChanged(); }
@@ -623,7 +623,7 @@ public class MainActivity extends AppCompatActivity {
             holder.title.setText(prog.title);
         }
         @Override public int getItemCount() { return data.size(); }
-        class ViewHolder extends RecyclerView.ViewHolder {
+        static class ViewHolder extends RecyclerView.ViewHolder {
             TextView time, title;
             ViewHolder(View v) { super(v); time = v.findViewById(R.id.epg_time); title = v.findViewById(R.id.epg_title); }
         }
@@ -631,7 +631,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java（保留，但已包含完整功能）
+    # SettingsActivity.java（完整订阅管理，含IP和端口显示、二维码占位）
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -648,7 +648,10 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -662,11 +665,13 @@ public class SettingsActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private static final String KEY_SUB_LIST = "sub_list";
     private static final String KEY_SELECTED_SUB = "selected_sub";
+    private String localIp = "";
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
         prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        localIp = getLocalIpAddress();
         menuRecycler = findViewById(R.id.menu_recycler);
         contentRecycler = findViewById(R.id.content_recycler);
         menuRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -682,6 +687,20 @@ public class SettingsActivity extends AppCompatActivity {
         menuAdapter.setSelected(0);
         showContent(0);
     }
+    private String getLocalIpAddress() {
+        try {
+            for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements();) {
+                NetworkInterface intf = en.nextElement();
+                for (Enumeration<InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements();) {
+                    InetAddress inetAddress = enumIpAddr.nextElement();
+                    if (!inetAddress.isLoopbackAddress() && inetAddress.getHostAddress().indexOf(':') == -1) {
+                        return inetAddress.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception e) { }
+        return "127.0.0.1";
+    }
     private void showContent(int pos) {
         List<ContentItem> items = new ArrayList<>();
         try {
@@ -690,7 +709,7 @@ public class SettingsActivity extends AppCompatActivity {
                 case 1: items.add(new ContentItem("频道搜索", "点击搜索", v -> Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show())); break;
                 case 2: items.add(new ContentItem("播放设置", "点击展开", v -> showPlaySettings())); break;
                 case 3: buildSubscriptionList(items); break;
-                case 4: items.add(new ContentItem("EPG订阅", "添加EPG", v -> showEpgDialog())); break;
+                case 4: buildEpgSubscriptionList(items); break;
                 case 5: items.add(new ContentItem("分类管理", "管理", v -> Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show())); break;
                 case 6: items.add(new ContentItem("订阅管理", "管理", v -> Toast.makeText(this, "订阅管理", Toast.LENGTH_SHORT).show())); break;
                 case 7: items.add(new ContentItem("显示设置", "点击", v -> showDisplaySettings())); break;
@@ -706,16 +725,19 @@ public class SettingsActivity extends AppCompatActivity {
         contentAdapter.setItems(items);
     }
     private void buildSubscriptionList(List<ContentItem> items) {
+        // 显示本机IP和端口（模拟）
+        items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "二维码功能：IP " + localIp + " 端口 9978", Toast.LENGTH_LONG).show()));
+        items.add(new ContentItem("列表订阅", "http://" + localIp + ":9978/", v -> {}));
+        // 显示已保存的订阅列表
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
         String selected = prefs.getString(KEY_SELECTED_SUB, "");
-        if (subSet == null || subSet.isEmpty()) {
-            items.add(new ContentItem("暂无订阅", "点击下方添加", v -> {}));
-        } else {
+        if (subSet != null && !subSet.isEmpty()) {
             for (String entry : subSet) {
                 String[] parts = entry.split("\\|\\|");
                 String name = parts.length > 0 ? parts[0] : entry;
                 String url = parts.length > 1 ? parts[1] : "";
                 boolean isSelected = entry.equals(selected);
+                // 蓝色高亮选中的订阅
                 items.add(new ContentItem(name, url, isSelected, v -> {
                     prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
                     prefs.edit().putString("selected_sub_url", url).apply();
@@ -726,7 +748,22 @@ public class SettingsActivity extends AppCompatActivity {
                 }));
             }
         }
+        // 添加按钮
         items.add(new ContentItem("+ 添加订阅", "", v -> showAddSubscriptionDialog()));
+    }
+    private void buildEpgSubscriptionList(List<ContentItem> items) {
+        items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "EPG二维码功能", Toast.LENGTH_SHORT).show()));
+        items.add(new ContentItem("EPG订阅", "http://" + localIp + ":9978/", v -> {}));
+        // 显示已保存的EPG订阅
+        String epgUrl = prefs.getString("epg_url", "");
+        if (!epgUrl.isEmpty()) {
+            items.add(new ContentItem("当前EPG", epgUrl, true, v -> {}));
+        }
+        // 其他设置选项：缓存、XML格式等
+        items.add(new ContentItem("缓存", "每天8点", v -> Toast.makeText(this, "缓存设置", Toast.LENGTH_SHORT).show()));
+        items.add(new ContentItem("[XML]epw", "", v -> {}));
+        // 添加EPG地址按钮
+        items.add(new ContentItem("+ 添加EPG", "", v -> showEpgDialog()));
     }
     private void showAddSubscriptionDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -779,10 +816,12 @@ public class SettingsActivity extends AppCompatActivity {
             if (url.isEmpty()) { Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
             prefs.edit().putString("epg_url", url).apply();
             Toast.makeText(this, "EPG地址已保存", Toast.LENGTH_SHORT).show();
+            showContent(4);
         });
         builder.setNegativeButton("取消", null);
         builder.show();
     }
+    // 其他菜单方法（略）
     private void showLineSelection() {
         new AlertDialog.Builder(this).setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show()).show();
     }
@@ -862,11 +901,13 @@ public class SettingsActivity extends AppCompatActivity {
     private void showMoreInfo() {
         new AlertDialog.Builder(this).setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null).show();
     }
+    // ---------- 数据类 ----------
     static class ContentItem {
         String title, subtitle; boolean isSelected; View.OnClickListener listener;
         ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; }
         ContentItem(String t, String s, boolean sel, View.OnClickListener l) { title=t; subtitle=s; isSelected=sel; listener=l; }
     }
+    // ---------- 适配器 ----------
     static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private String[] titles; private OnMenuClickListener listener; private int selected=-1;
         interface OnMenuClickListener { void onClick(int pos); }
@@ -1180,3 +1221,4 @@ echo "   3. 添加后自动选中，返回主界面即可加载频道"
 echo "   4. 点击播放画面左侧区域（或点击屏幕）可呼出频道列表"
 echo "   5. 左侧分组列表，中间频道列表，右侧 EPG 节目单"
 echo "   6. 长按频道可收藏/取消收藏"
+echo "   7. EPG 订阅在设置中配置 XMLTV 地址"
