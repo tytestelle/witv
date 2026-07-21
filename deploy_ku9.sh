@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（闪退修复版）"
+echo "🔥 部署酷9播放器（网络请求增强版）"
 
 # ========== 1. 生成模板目录（仅首次） ==========
 TEMPLATE_DIR="./template"
@@ -9,17 +9,18 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
     echo "📁 首次运行，生成模板文件..."
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable}
 
-    # configuration.json（内置源为 null）
+    # configuration.json
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # SourceManager.java
+    # SourceManager.java（增加 User-Agent 和 URL 显示）
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 import okhttp3.OkHttpClient;
@@ -32,22 +33,38 @@ public class SourceManager {
     public interface OnSourceLoadListener { void onLoaded(List<Channel> channels); void onError(String error); }
     public SourceManager(Context context) { this.context = context; }
     public void loadFromUrl(String url, OnSourceLoadListener listener) {
+        final String finalUrl = url;
         new Thread(() -> {
             try {
                 OkHttpClient client = new OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                     .build();
-                Response response = client.newCall(new Request.Builder().url(url).build()).execute();
-                if (!response.isSuccessful()) throw new Exception("网络错误: " + response.code());
+                Request request = new Request.Builder()
+                    .url(finalUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .build();
+                Response response = client.newCall(request).execute();
+                int code = response.code();
+                if (code != 200) {
+                    throw new Exception("HTTP " + code + " - 请检查地址是否正确");
+                }
                 String content = response.body().string();
-                if (url.endsWith(".m3u") || url.endsWith(".m3u8") || content.contains("#EXTM3U")) {
+                if (content == null || content.trim().isEmpty()) {
+                    throw new Exception("内容为空，请检查源文件");
+                }
+                if (finalUrl.endsWith(".m3u") || finalUrl.endsWith(".m3u8") || content.contains("#EXTM3U")) {
                     parseM3U(content);
                 } else {
                     parseTXT(content);
                 }
+                if (channels.isEmpty()) {
+                    throw new Exception("未解析到任何频道，请检查格式");
+                }
                 mainHandler.post(() -> listener.onLoaded(channels));
-            } catch (Exception e) { mainHandler.post(() -> listener.onError(e.getMessage())); }
+            } catch (Exception e) {
+                mainHandler.post(() -> listener.onError(e.getMessage()));
+            }
         }).start();
     }
     private void parseM3U(String content) {
@@ -66,7 +83,8 @@ public class SourceManager {
         }
     }
     private void parseTXT(String content) {
-        for (String line : content.split("\n")) {
+        String[] lines = content.split("\n");
+        for (String line : lines) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
             String[] parts = line.split(",");
@@ -178,7 +196,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # MainActivity.java
+    # MainActivity.java（显示加载的 URL）
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -255,7 +273,9 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
-            new SourceManager(this).loadFromUrl(url, new SourceManager.OnSourceLoadListener() {
+            final String finalUrl = url;
+            Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_LONG).show();
+            new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
                 @Override public void onLoaded(List<SourceManager.Channel> channels) {
                     channelList = channels;
                     channelAdapter.updateData(channels);
@@ -265,7 +285,7 @@ public class MainActivity extends AppCompatActivity {
                     showChannelList();
                 }
                 @Override public void onError(String error) {
-                    Toast.makeText(MainActivity.this, "加载源失败: " + error, Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, "加载失败: " + error + "\nURL: " + finalUrl, Toast.LENGTH_LONG).show();
                 }
             });
         } catch (Exception e) {
@@ -323,7 +343,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java（修复空指针）
+    # SettingsActivity.java（修正空指针）
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -536,13 +556,11 @@ public class SettingsActivity extends AppCompatActivity {
     private void showMoreInfo() {
         new AlertDialog.Builder(this).setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null).show();
     }
-    // 数据类
     static class ContentItem {
         String title, subtitle; boolean isSelected; View.OnClickListener listener;
         ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; }
         ContentItem(String t, String s, boolean sel, View.OnClickListener l) { title=t; subtitle=s; isSelected=sel; listener=l; }
     }
-    // MenuAdapter
     static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private String[] titles; private OnMenuClickListener listener; private int selected=-1;
         interface OnMenuClickListener { void onClick(int pos); }
@@ -560,7 +578,6 @@ public class SettingsActivity extends AppCompatActivity {
         @Override public int getItemCount() { return titles.length; }
         static class ViewHolder extends RecyclerView.ViewHolder { TextView text; ViewHolder(View v) { super(v); text=v.findViewById(R.id.menu_text); } }
     }
-    // ContentAdapter
     static class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.ViewHolder> {
         private List<ContentItem> items = new ArrayList<>();
         void setItems(List<ContentItem> list) { items=list; notifyDataSetChanged(); }
@@ -584,7 +601,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # 布局文件（确保 content_check 存在）
+    # 布局文件
     cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -755,4 +772,4 @@ echo "📌 使用说明："
 echo "   1. 打开应用，点击右上角齿轮进入设置"
 echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
 echo "   3. 添加后自动选中，返回主界面即可加载频道并播放"
-echo "   4. 点击播放画面左侧按钮可显示频道列表，点击切换"
+echo "   4. 如果加载失败，应用会 Toast 显示实际请求的 URL，请核对"
