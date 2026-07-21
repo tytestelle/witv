@@ -1,24 +1,19 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（闪退修复版 - 三栏UI + EPG + 订阅管理）"
+echo "🔥 部署酷9播放器（最终修正版 - 自动加载 + 点击呼出）"
 
-# ========== 1. 生成模板目录（仅首次） ==========
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
     echo "📁 首次运行，生成模板文件..."
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
-    mkdir -p "$TEMPLATE_DIR/src/epg"
-    mkdir -p "$TEMPLATE_DIR/src/player"
-    mkdir -p "$TEMPLATE_DIR/src/favorite"
+    mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
 
-    # configuration.json（内置源为 null）
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== Java 源文件 ====================
-    # SourceManager.java（保持不变）
+    # ===== SourceManager.java =====
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -66,8 +61,7 @@ public class SourceManager {
         }).start();
     }
     private void parseTXT(String content) {
-        groupMap.clear();
-        groupNames.clear();
+        groupMap.clear(); groupNames.clear();
         for (String line : content.split("\n")) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
@@ -86,8 +80,7 @@ public class SourceManager {
         }
     }
     private void parseM3U(String content) {
-        groupMap.clear();
-        groupNames.clear();
+        groupMap.clear(); groupNames.clear();
         String[] lines = content.split("\n");
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
@@ -120,7 +113,7 @@ public class SourceManager {
 }
 EOF
 
-    # EPGParser.java（增加异常捕获）
+    # ===== EPGParser.java =====
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -158,11 +151,7 @@ public class EPGParser {
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
         int event = parser.getEventType();
-        String currentTag = "";
-        String currentTitle = "";
-        String currentStart = "";
-        String currentStop = "";
-        String currentDesc = "";
+        String currentTag = "", currentTitle = "", currentStart = "", currentStop = "", currentDesc = "";
         boolean inProgramme = false;
         while (event != XmlPullParser.END_DOCUMENT) {
             switch (event) {
@@ -172,8 +161,7 @@ public class EPGParser {
                         inProgramme = true;
                         currentStart = parser.getAttributeValue(null, "start");
                         currentStop = parser.getAttributeValue(null, "stop");
-                        currentTitle = "";
-                        currentDesc = "";
+                        currentTitle = ""; currentDesc = "";
                     }
                     break;
                 case XmlPullParser.TEXT:
@@ -188,13 +176,12 @@ public class EPGParser {
                         inProgramme = false;
                         if (!currentTitle.isEmpty()) {
                             EpgProgram prog = new EpgProgram();
-                            prog.title = currentTitle;
-                            prog.desc = currentDesc;
+                            prog.title = currentTitle; prog.desc = currentDesc;
                             try {
                                 SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
                                 prog.startTime = sdf.parse(currentStart + " +0000").getTime();
                                 prog.endTime = sdf.parse(currentStop + " +0000").getTime();
-                            } catch (Exception e) { /* 忽略 */ }
+                            } catch (Exception e) {}
                             result.add(prog);
                         }
                     }
@@ -211,7 +198,7 @@ public class EPGParser {
 }
 EOF
 
-    # PlayerConfigManager.java
+    # ===== PlayerConfigManager.java =====
     cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -231,7 +218,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-    # FavoriteManager.java
+    # ===== FavoriteManager.java =====
     cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -256,7 +243,7 @@ public class FavoriteManager {
 }
 EOF
 
-    # ConfigurationManager.java
+    # ===== ConfigurationManager.java =====
     cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -310,7 +297,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # MainActivity.java（带异常捕获和Toast提示）
+    # ===== MainActivity.java（修正：增加 onResume，优化加载逻辑） =====
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -366,6 +353,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_FAVORITES = "favorites";
     private static final String KEY_SELECTED_GROUP = "selected_group";
     private static final String KEY_SELECTED_CHANNEL = "selected_channel";
+    private boolean isDataLoaded = false; // 防止重复加载
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -404,15 +393,30 @@ public class MainActivity extends AppCompatActivity {
             playerView.setOnClickListener(v -> toggleOverlay());
             ImageButton btnSettings = findViewById(R.id.btn_settings);
             btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+            // 首次加载
+            isDataLoaded = false;
             loadSource();
-            String lastGroup = prefs.getString(KEY_SELECTED_GROUP, "");
-            String lastChannel = prefs.getString(KEY_SELECTED_CHANNEL, "");
-            if (!lastGroup.isEmpty()) currentGroup = lastGroup;
         } catch (Exception e) {
             Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
             e.printStackTrace();
         }
     }
+
+    // 关键：从设置返回时重新加载
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 如果已经加载过数据，但用户可能更改了订阅，重新加载
+        if (isDataLoaded) {
+            // 清除旧数据，重新加载
+            groupMap.clear();
+            groupNames.clear();
+            currentChannelList.clear();
+            isDataLoaded = false;
+            loadSource();
+        }
+    }
+
     private void loadSource() {
         try {
             String url = prefs.getString("selected_sub_url", null);
@@ -435,7 +439,7 @@ public class MainActivity extends AppCompatActivity {
                         }
                         List<String> displayGroups = new ArrayList<>(groupNames);
                         groupAdapter.updateData(displayGroups);
-                        String targetGroup = currentGroup;
+                        String targetGroup = prefs.getString(KEY_SELECTED_GROUP, "");
                         if (!groupNames.contains(targetGroup) && !groupNames.isEmpty()) {
                             targetGroup = groupNames.get(0);
                         }
@@ -455,6 +459,8 @@ public class MainActivity extends AppCompatActivity {
                                 }
                             }
                         }
+                        isDataLoaded = true;
+                        // 加载完成后显示 overlay
                         showOverlay();
                     } catch (Exception e) {
                         Toast.makeText(MainActivity.this, "加载数据异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -468,6 +474,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "加载源异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void showChannelsForGroup(String group) {
         try {
             if ("我的收藏".equals(group)) {
@@ -493,6 +500,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "显示分组异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
@@ -514,6 +522,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void loadEpgForChannel(SourceManager.Channel channel) {
         try {
             String epgUrl = prefs.getString("epg_url", null);
@@ -538,6 +547,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "EPG加载异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void toggleFavorite(SourceManager.Channel channel) {
         try {
             if (favoriteSet.contains(channel.name)) {
@@ -555,36 +565,41 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "收藏操作异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void toggleOverlay() {
         if (isOverlayVisible) hideOverlay();
         else showOverlay();
     }
+
     private void showOverlay() {
         isOverlayVisible = true;
         overlayLayout.setVisibility(View.VISIBLE);
     }
+
     private void hideOverlay() {
         isOverlayVisible = false;
         overlayLayout.setVisibility(View.GONE);
     }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        // 点击屏幕左侧区域（左半部分）切换 overlay
         if (event.getAction() == MotionEvent.ACTION_UP) {
             float x = event.getX();
             float width = getWindowManager().getDefaultDisplay().getWidth();
-            if (x < width * 0.2) {
+            if (x < width * 0.5) { // 改为左半部分触发
                 toggleOverlay();
                 return true;
             }
         }
         return super.onTouchEvent(event);
     }
+
     @Override protected void onDestroy() { super.onDestroy(); if (player != null) { player.release(); player = null; } }
-    // ------------------- Adapters (静态内部类) -------------------
+
+    // ===== Adapters (静态内部类) =====
     static class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
-        private List<String> data;
-        private String selectedGroup;
-        private OnGroupClickListener listener;
+        private List<String> data; private String selectedGroup; private OnGroupClickListener listener;
         interface OnGroupClickListener { void onClick(String group); }
         GroupAdapter(List<String> data, OnGroupClickListener listener) { this.data = data; this.listener = listener; }
         void updateData(List<String> newData) { this.data = newData; notifyDataSetChanged(); }
@@ -604,6 +619,7 @@ public class MainActivity extends AppCompatActivity {
             ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); }
         }
     }
+
     static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
         private SourceManager.Channel selectedChannel;
@@ -632,11 +648,11 @@ public class MainActivity extends AppCompatActivity {
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView name;
-            TextView favIcon;
+            TextView name, favIcon;
             ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); }
         }
     }
+
     static class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
         private List<EPGParser.EpgProgram> data = new ArrayList<>();
         EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
@@ -660,7 +676,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # SettingsActivity.java（增强异常处理）
+    # ===== SettingsActivity.java（保持原有功能，只微调选中逻辑） =====
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -705,7 +721,7 @@ public class SettingsActivity extends AppCompatActivity {
             menuRecycler = findViewById(R.id.menu_recycler);
             contentRecycler = findViewById(R.id.content_recycler);
             if (menuRecycler == null || contentRecycler == null) {
-                Toast.makeText(this, "布局加载失败，请检查资源", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "布局加载失败", Toast.LENGTH_LONG).show();
                 return;
             }
             menuRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -735,7 +751,7 @@ public class SettingsActivity extends AppCompatActivity {
                     }
                 }
             }
-        } catch (Exception e) { }
+        } catch (Exception e) {}
         return "127.0.0.1";
     }
     private void showContent(int pos) {
@@ -763,7 +779,7 @@ public class SettingsActivity extends AppCompatActivity {
     }
     private void buildSubscriptionList(List<ContentItem> items) {
         try {
-            items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "二维码功能：IP " + localIp + " 端口 9978", Toast.LENGTH_LONG).show()));
+            items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "IP: " + localIp + " 端口 9978", Toast.LENGTH_LONG).show()));
             items.add(new ContentItem("列表订阅", "http://" + localIp + ":9978/", v -> {}));
             Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
@@ -778,6 +794,7 @@ public class SettingsActivity extends AppCompatActivity {
                         prefs.edit().putString("selected_sub_url", url).apply();
                         prefs.edit().putString("selected_sub_name", name).apply();
                         Toast.makeText(this, "已选中: " + name, Toast.LENGTH_SHORT).show();
+                        // 刷新列表并返回主界面
                         showContent(3);
                         finish();
                     }));
@@ -867,111 +884,17 @@ public class SettingsActivity extends AppCompatActivity {
             Toast.makeText(this, "打开EPG对话框失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
-    // 其他菜单方法（略，但同样增加try-catch）
-    private void showLineSelection() {
-        try {
-            new AlertDialog.Builder(this).setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show()).show();
-        } catch (Exception e) { Toast.makeText(this, "线路选择失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showPlaySettings() {
-        try {
-            String[] items = {"解码方式", "画面比例", "超时换源", "断线重连"};
-            new AlertDialog.Builder(this).setTitle("播放设置").setItems(items, (d, which) -> {
-                switch (which) {
-                    case 0: showDecoderDialog(); break;
-                    case 1: showAspectDialog(); break;
-                    case 2: Toast.makeText(this, "超时换源", Toast.LENGTH_SHORT).show(); break;
-                    case 3: Toast.makeText(this, "断线重连", Toast.LENGTH_SHORT).show(); break;
-                }
-            }).show();
-        } catch (Exception e) { Toast.makeText(this, "播放设置失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showDecoderDialog() {
-        try {
-            final String[] decoders = {"系统解码", "IJK硬解", "IJK软解", "EXO硬解", "EXO软解", "MPV硬解", "MPV软解", "自动"};
-            int current = PlayerConfigManager.getDecoder();
-            new AlertDialog.Builder(this).setTitle("解码方式")
-                    .setSingleChoiceItems(decoders, current, (d, which) -> {
-                        PlayerConfigManager.setDecoder(which);
-                        Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
-                        d.dismiss();
-                    }).setNegativeButton("取消", null).show();
-        } catch (Exception e) { Toast.makeText(this, "解码设置失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showAspectDialog() {
-        try {
-            final String[] aspects = {"默认", "16:9", "4:3", "填充", "原始", "裁剪", "电影"};
-            int current = 0;
-            new AlertDialog.Builder(this).setTitle("画面比例")
-                    .setSingleChoiceItems(aspects, current, (d, which) -> {
-                        PlayerConfigManager.setAspectRatio(aspects[which]);
-                        Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
-                        d.dismiss();
-                    }).setNegativeButton("取消", null).show();
-        } catch (Exception e) { Toast.makeText(this, "比例设置失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showDisplaySettings() {
-        try {
-            final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标"};
-            new AlertDialog.Builder(this).setTitle("显示设置").setItems(items, (d, which) -> {
-                String key = "";
-                boolean def = false;
-                switch (which) {
-                    case 0: key="show_time"; break;
-                    case 1: key="show_net_speed"; break;
-                    case 2: key="hide_channel_logo"; def=true; break;
-                    case 3: key="hide_bottom_logo"; def=true; break;
-                }
-                final String finalKey = key;
-                boolean current = prefs.getBoolean(finalKey, def);
-                new AlertDialog.Builder(this)
-                        .setTitle(items[which])
-                        .setMessage("当前状态：" + (current ? "开启" : "关闭"))
-                        .setPositiveButton("切换", (d2, w) -> {
-                            prefs.edit().putBoolean(finalKey, !current).apply();
-                            Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show();
-                        })
-                        .setNegativeButton("取消", null)
-                        .show();
-            }).show();
-        } catch (Exception e) { Toast.makeText(this, "显示设置失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showPreferenceSettings() {
-        try {
-            final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码"};
-            new AlertDialog.Builder(this).setTitle("偏好设置").setItems(items, (d, which) -> {
-                Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
-            }).show();
-        } catch (Exception e) { Toast.makeText(this, "偏好设置失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showListSettings() {
-        try {
-            final String[] items = {"全局字体大小", "列表宽度", "底部信息栏宽度"};
-            new AlertDialog.Builder(this).setTitle("列表设置").setItems(items, (d, which) -> {
-                Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
-            }).show();
-        } catch (Exception e) { Toast.makeText(this, "列表设置失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showOtherSettings() {
-        try {
-            final String[] items = {"EPG缓存"};
-            new AlertDialog.Builder(this).setTitle("其他设置").setItems(items, (d, which) -> {
-                Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show();
-            }).show();
-        } catch (Exception e) { Toast.makeText(this, "其他设置失败", Toast.LENGTH_SHORT).show(); }
-    }
-    private void showMoreInfo() {
-        try {
-            new AlertDialog.Builder(this).setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null).show();
-        } catch (Exception e) { Toast.makeText(this, "更多管理失败", Toast.LENGTH_SHORT).show(); }
-    }
-    // ---------- 数据类 ----------
-    static class ContentItem {
-        String title, subtitle; boolean isSelected; View.OnClickListener listener;
-        ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; }
-        ContentItem(String t, String s, boolean sel, View.OnClickListener l) { title=t; subtitle=s; isSelected=sel; listener=l; }
-    }
-    // ---------- 适配器 ----------
+    private void showLineSelection() { try { new AlertDialog.Builder(this).setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show()).show(); } catch (Exception e) { Toast.makeText(this, "线路选择失败", Toast.LENGTH_SHORT).show(); } }
+    private void showPlaySettings() { try { String[] items = {"解码方式", "画面比例", "超时换源", "断线重连"}; new AlertDialog.Builder(this).setTitle("播放设置").setItems(items, (d, which) -> { switch (which) { case 0: showDecoderDialog(); break; case 1: showAspectDialog(); break; case 2: Toast.makeText(this, "超时换源", Toast.LENGTH_SHORT).show(); break; case 3: Toast.makeText(this, "断线重连", Toast.LENGTH_SHORT).show(); break; } }).show(); } catch (Exception e) { Toast.makeText(this, "播放设置失败", Toast.LENGTH_SHORT).show(); } }
+    private void showDecoderDialog() { try { final String[] decoders = {"系统解码", "IJK硬解", "IJK软解", "EXO硬解", "EXO软解", "MPV硬解", "MPV软解", "自动"}; int current = PlayerConfigManager.getDecoder(); new AlertDialog.Builder(this).setTitle("解码方式").setSingleChoiceItems(decoders, current, (d, which) -> { PlayerConfigManager.setDecoder(which); Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show(); d.dismiss(); }).setNegativeButton("取消", null).show(); } catch (Exception e) { Toast.makeText(this, "解码设置失败", Toast.LENGTH_SHORT).show(); } }
+    private void showAspectDialog() { try { final String[] aspects = {"默认", "16:9", "4:3", "填充", "原始", "裁剪", "电影"}; int current = 0; new AlertDialog.Builder(this).setTitle("画面比例").setSingleChoiceItems(aspects, current, (d, which) -> { PlayerConfigManager.setAspectRatio(aspects[which]); Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show(); d.dismiss(); }).setNegativeButton("取消", null).show(); } catch (Exception e) { Toast.makeText(this, "比例设置失败", Toast.LENGTH_SHORT).show(); } }
+    private void showDisplaySettings() { try { final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标"}; new AlertDialog.Builder(this).setTitle("显示设置").setItems(items, (d, which) -> { String key = ""; boolean def = false; switch (which) { case 0: key="show_time"; break; case 1: key="show_net_speed"; break; case 2: key="hide_channel_logo"; def=true; break; case 3: key="hide_bottom_logo"; def=true; break; } final String finalKey = key; boolean current = prefs.getBoolean(finalKey, def); new AlertDialog.Builder(this).setTitle(items[which]).setMessage("当前状态：" + (current ? "开启" : "关闭")).setPositiveButton("切换", (d2, w) -> { prefs.edit().putBoolean(finalKey, !current).apply(); Toast.makeText(this, "已切换", Toast.LENGTH_SHORT).show(); }).setNegativeButton("取消", null).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "显示设置失败", Toast.LENGTH_SHORT).show(); } }
+    private void showPreferenceSettings() { try { final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码"}; new AlertDialog.Builder(this).setTitle("偏好设置").setItems(items, (d, which) -> { Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "偏好设置失败", Toast.LENGTH_SHORT).show(); } }
+    private void showListSettings() { try { final String[] items = {"全局字体大小", "列表宽度", "底部信息栏宽度"}; new AlertDialog.Builder(this).setTitle("列表设置").setItems(items, (d, which) -> { Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "列表设置失败", Toast.LENGTH_SHORT).show(); } }
+    private void showOtherSettings() { try { final String[] items = {"EPG缓存"}; new AlertDialog.Builder(this).setTitle("其他设置").setItems(items, (d, which) -> { Toast.makeText(this, items[which] + " (功能待完善)", Toast.LENGTH_SHORT).show(); }).show(); } catch (Exception e) { Toast.makeText(this, "其他设置失败", Toast.LENGTH_SHORT).show(); } }
+    private void showMoreInfo() { try { new AlertDialog.Builder(this).setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null).show(); } catch (Exception e) { Toast.makeText(this, "更多管理失败", Toast.LENGTH_SHORT).show(); } }
+
+    static class ContentItem { String title, subtitle; boolean isSelected; View.OnClickListener listener; ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; } ContentItem(String t, String s, boolean sel, View.OnClickListener l) { title=t; subtitle=s; isSelected=sel; listener=l; } }
     static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private String[] titles; private OnMenuClickListener listener; private int selected=-1;
         interface OnMenuClickListener { void onClick(int pos); }
@@ -1012,7 +935,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件 ====================
+    # ===== 布局文件 =====
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1210,14 +1133,11 @@ rm -rf app/build
 cp -r "$TEMPLATE_DIR/src/." app/src/main/java/com/whyun/witv/
 cp -r "$TEMPLATE_DIR/res/." app/src/main/res/
 cp "$TEMPLATE_DIR/configuration.json" app/src/main/assets/
-
 mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/assets/download \
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
-
 echo "✅ 文件复制完成"
 
-# 修复 SettingsActivity 缺少 import
 sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
 # ========== 3. 添加依赖和权限 ==========
@@ -1279,12 +1199,7 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 使用说明："
-echo "   1. 打开应用，点击右上角齿轮进入设置"
-echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
-echo "   3. 添加后自动选中，返回主界面即可加载频道"
-echo "   4. 点击播放画面左侧区域（或点击屏幕）可呼出频道列表"
-echo "   5. 左侧分组列表，中间频道列表，右侧 EPG 节目单"
-echo "   6. 长按频道可收藏/取消收藏"
-echo "   7. EPG 订阅在设置中配置 XMLTV 地址"
-echo ""
-echo "⚠️ 如果仍然闪退，请通过 adb logcat 查看日志，或观察 Toast 错误提示"
+echo "   1. 添加订阅后自动选中，返回主界面自动加载"
+echo "   2. 点击屏幕左侧（左半部分）呼出/隐藏频道列表"
+echo "   3. 长按频道收藏/取消收藏"
+echo "   4. 右侧显示 EPG 节目单（需配置 EPG 地址）"
