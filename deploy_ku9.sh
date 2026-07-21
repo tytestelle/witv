@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 开始部署酷9风格播放器（最终完全版）..."
+echo "🔥 开始部署酷9风格播放器（最终修正版）..."
 
 PKG="com.whyun.witv"
 PKG_PATH="com/whyun/witv"
@@ -15,6 +15,7 @@ LAYOUT_FILE="app/src/main/res/layout/$LAYOUT_NAME.xml"
 SETTINGS_LAYOUT="app/src/main/res/layout/activity_settings.xml"
 ITEM_MENU_LAYOUT="app/src/main/res/layout/item_menu.xml"
 ITEM_SUBSCRIPTION_LAYOUT="app/src/main/res/layout/item_subscription.xml"
+ITEM_CHANNEL_LAYOUT="app/src/main/res/layout/item_channel.xml"
 CONTENT_SUBSCRIPTION_LAYOUT="app/src/main/res/layout/content_subscription.xml"
 CONTENT_EPG_LAYOUT="app/src/main/res/layout/content_epg.xml"
 CONTENT_PLAY_SETTINGS_LAYOUT="app/src/main/res/layout/content_play_settings.xml"
@@ -194,7 +195,20 @@ cat > "$ASSETS_DIR/configuration.json" <<'EOF'
 EOF
 echo "✅ configuration.json 已创建"
 
-# ========== 5. 创建功能类（SourceManager, PlayerConfigManager, FavoriteManager, EPGParserFactory） ==========
+# ========== 5. 创建酷9文件夹结构（assets 中模拟） ==========
+mkdir -p "$ASSETS_DIR/localData" \
+         "$ASSETS_DIR/backup" \
+         "$ASSETS_DIR/download" \
+         "$ASSETS_DIR/videoFile" \
+         "$ASSETS_DIR/configuration" \
+         "$ASSETS_DIR/logo" \
+         "$ASSETS_DIR/js" \
+         "$ASSETS_DIR/py" \
+         "$ASSETS_DIR/webviewJscode" \
+         "$ASSETS_DIR/epgCache"
+echo "✅ 酷9文件夹结构已创建"
+
+# ========== 6. 创建功能类 ==========
 mkdir -p "app/src/main/java/$PKG_PATH/source"
 mkdir -p "app/src/main/java/$PKG_PATH/player"
 mkdir -p "app/src/main/java/$PKG_PATH/favorite"
@@ -374,7 +388,7 @@ public class EPGParserFactory {
 EOF
 echo "✅ 功能类已创建"
 
-# ========== 6. 创建 ConfigurationManager ==========
+# ========== 7. 创建 ConfigurationManager ==========
 cat > "$CONFIG_MGR_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -516,7 +530,7 @@ public class ConfigurationManager {
 EOF
 echo "✅ ConfigurationManager 已创建"
 
-# ========== 7. 创建酷9风格的 SettingsActivity（带 ContentAdapter） ==========
+# ========== 8. 创建酷9风格的 SettingsActivity（修正 static 接口） ==========
 cat > "$SETTINGS_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -568,12 +582,6 @@ public class SettingsActivity extends AppCompatActivity {
     private static final String KEY_SELECTED_SUB = "selected_subscription";
     private static final String KEY_SELECTED_EPG = "selected_epg_subscription";
 
-    // 内容类型常量
-    private static final int CONTENT_SUBSCRIPTION = 0;
-    private static final int CONTENT_EPG = 1;
-    private static final int CONTENT_PLAY_SETTINGS = 2;
-    private static final int CONTENT_OTHER = 3;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -604,7 +612,6 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void showContent(int position) {
-        // 根据菜单位置生成对应的内容项列表
         List<ContentItem> items = new ArrayList<>();
         switch (position) {
             case 0: // 线路选择
@@ -617,7 +624,6 @@ public class SettingsActivity extends AppCompatActivity {
                 items.add(new ContentItem("播放设置", "点击展开", v -> showPlaySettings()));
                 break;
             case 3: // 列表订阅
-                // 动态生成订阅列表
                 buildSubscriptionContent(items, KEY_SUBSCRIPTIONS, KEY_SELECTED_SUB, "列表订阅");
                 break;
             case 4: // EPG订阅
@@ -651,7 +657,6 @@ public class SettingsActivity extends AppCompatActivity {
         contentAdapter.setItems(items);
     }
 
-    // ------------------- 构建订阅内容（列表 + 添加按钮） -------------------
     private void buildSubscriptionContent(List<ContentItem> items, String prefKey, String selectedKey, String title) {
         Set<String> subSet = prefs.getStringSet(prefKey, new HashSet<>());
         List<Subscription> list = new ArrayList<>();
@@ -663,27 +668,19 @@ public class SettingsActivity extends AppCompatActivity {
         }
         String selected = prefs.getString(selectedKey, "");
 
-        // 先显示标题
         items.add(new ContentItem(title, "", v -> {}));
-
-        // 每个订阅项显示名称和选中状态
         for (Subscription sub : list) {
             String full = sub.name + "||" + sub.url;
             boolean isSelected = full.equals(selected);
             items.add(new ContentItem(sub.name, sub.url, isSelected, v -> {
-                // 点击选中
                 prefs.edit().putString(selectedKey, full).apply();
-                // 刷新当前内容
                 showContent(currentMenuPosition);
                 Toast.makeText(this, "已选中: " + sub.name, Toast.LENGTH_SHORT).show();
             }));
         }
-
-        // 添加按钮
         items.add(new ContentItem("+ 添加订阅", "", v -> showAddSubscriptionDialog(prefKey, selectedKey, title)));
     }
 
-    // ------------------- 添加订阅对话框 -------------------
     private void showAddSubscriptionDialog(String prefKey, String selectedKey, String title) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("添加订阅");
@@ -712,21 +709,18 @@ public class SettingsActivity extends AppCompatActivity {
             if (TextUtils.isEmpty(name)) {
                 name = url;
             }
-            // 保存
             Set<String> subSet = new HashSet<>(prefs.getStringSet(prefKey, new HashSet<>()));
             subSet.add(name + "||" + url);
             prefs.edit().putStringSet(prefKey, subSet).apply();
-            // 自动选中新添加的
             prefs.edit().putString(selectedKey, name + "||" + url).apply();
             Toast.makeText(this, "订阅已添加", Toast.LENGTH_SHORT).show();
-            // 刷新
             showContent(currentMenuPosition);
         });
         builder.setNegativeButton("取消", null);
         builder.show();
     }
 
-    // ------------------- 各设置项点击处理（弹出对话框） -------------------
+    // 各种设置对话框（省略重复，与之前相同）
     private void showLineSelection() {
         new AlertDialog.Builder(this)
                 .setTitle("线路选择")
@@ -865,7 +859,6 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    // 显示设置（简化版）
     private void showDisplaySettings() {
         final String[] items = {"显示时间", "显示网速", "隐藏频道图标", "隐藏底部图标", "关闭EPG", "隐藏收藏", "隐藏序号", "显示本地视频", "EPG详情显示", "底部EPG详情", "图标默认样式"};
         new AlertDialog.Builder(this)
@@ -900,7 +893,6 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    // 偏好设置（简化）
     private void showPreferenceSettings() {
         final String[] items = {"记忆解码", "换台反转", "跨选分组", "关闭密码", "画中画", "开机启动", "快速退出", "画面锁定", "回放标识", "开启时移"};
         new AlertDialog.Builder(this)
@@ -934,7 +926,6 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    // 列表设置
     private void showListSettings() {
         final String[] items = {"全局字体大小", "列表宽度", "底部信息栏宽度"};
         new AlertDialog.Builder(this)
@@ -1005,71 +996,47 @@ public class SettingsActivity extends AppCompatActivity {
         Subscription(String n, String u) { name = n; url = u; }
     }
 
-    // ---------- 内容项 ----------
     static class ContentItem {
         String title, subtitle;
         boolean isSelected;
         View.OnClickListener clickListener;
-
         ContentItem(String title, String subtitle, View.OnClickListener listener) {
-            this.title = title;
-            this.subtitle = subtitle;
-            this.isSelected = false;
-            this.clickListener = listener;
+            this.title = title; this.subtitle = subtitle; this.isSelected = false; this.clickListener = listener;
         }
         ContentItem(String title, String subtitle, boolean selected, View.OnClickListener listener) {
-            this.title = title;
-            this.subtitle = subtitle;
-            this.isSelected = selected;
-            this.clickListener = listener;
+            this.title = title; this.subtitle = subtitle; this.isSelected = selected; this.clickListener = listener;
         }
     }
 
     // ---------- 内容适配器 ----------
-    class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.ViewHolder> {
+    static class ContentAdapter extends RecyclerView.Adapter<ContentAdapter.ViewHolder> {
         private List<ContentItem> items = new ArrayList<>();
-
-        public void setItems(List<ContentItem> items) {
-            this.items = items;
-            notifyDataSetChanged();
-        }
-
-        @NonNull
-        @Override
-        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        public void setItems(List<ContentItem> items) { this.items = items; notifyDataSetChanged(); }
+        @NonNull @Override public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_subscription, parent, false);
             return new ViewHolder(v);
         }
-
-        @Override
-        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+        @Override public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             ContentItem item = items.get(position);
             holder.name.setText(item.title);
             holder.url.setText(item.subtitle);
             holder.check.setVisibility(item.isSelected ? View.VISIBLE : View.GONE);
             holder.itemView.setOnClickListener(item.clickListener);
         }
-
-        @Override
-        public int getItemCount() { return items.size(); }
-
-        class ViewHolder extends RecyclerView.ViewHolder {
+        @Override public int getItemCount() { return items.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
             TextView name, url, check;
-            ViewHolder(View v) {
-                super(v);
-                name = v.findViewById(R.id.sub_name);
-                url = v.findViewById(R.id.sub_url);
-                check = v.findViewById(R.id.sub_check);
-            }
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.sub_name); url = v.findViewById(R.id.sub_url); check = v.findViewById(R.id.sub_check); }
         }
     }
 
-    // ---------- 菜单适配器 ----------
-    class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.MenuViewHolder> {
+    // ---------- 菜单适配器（修正：去掉接口 static） ----------
+    static class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.MenuViewHolder> {
         private String[] titles;
         private OnMenuClickListener listener;
         private int selectedPosition = -1;
 
+        // 去掉 static 修饰，因为 MenuAdapter 本身是 static 内部类，内部接口默认是 static 的，但显式写 static 会报错，所以省略
         interface OnMenuClickListener {
             void onClick(int position);
         }
@@ -1079,13 +1046,9 @@ public class SettingsActivity extends AppCompatActivity {
             this.listener = listener;
         }
 
-        void setSelectedPosition(int pos) {
-            selectedPosition = pos;
-            notifyDataSetChanged();
-        }
+        void setSelectedPosition(int pos) { selectedPosition = pos; notifyDataSetChanged(); }
 
-        @NonNull
-        @Override
+        @NonNull @Override
         public MenuViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_menu, parent, false);
             return new MenuViewHolder(v);
@@ -1098,23 +1061,18 @@ public class SettingsActivity extends AppCompatActivity {
             holder.itemView.setOnClickListener(v -> listener.onClick(position));
         }
 
-        @Override
-        public int getItemCount() { return titles.length; }
+        @Override public int getItemCount() { return titles.length; }
 
-        class MenuViewHolder extends RecyclerView.ViewHolder {
+        static class MenuViewHolder extends RecyclerView.ViewHolder {
             TextView text;
-            MenuViewHolder(View v) {
-                super(v);
-                text = v.findViewById(R.id.menu_text);
-            }
+            MenuViewHolder(View v) { super(v); text = v.findViewById(R.id.menu_text); }
         }
     }
 }
 EOF
-echo "✅ SettingsActivity 已生成（带 ContentAdapter）"
+echo "✅ SettingsActivity 已生成（修正 static 接口）"
 
-# ========== 8. 生成布局文件 ==========
-# activity_main.xml
+# ========== 9. 生成布局文件（包含 item_channel.xml） ==========
 cat > "$LAYOUT_FILE" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1199,7 +1157,6 @@ cat > "$LAYOUT_FILE" <<'EOF'
 </RelativeLayout>
 EOF
 
-# activity_settings.xml
 cat > "$SETTINGS_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1227,7 +1184,6 @@ cat > "$SETTINGS_LAYOUT" <<'EOF'
 </LinearLayout>
 EOF
 
-# item_menu.xml
 cat > "$ITEM_MENU_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1241,7 +1197,6 @@ cat > "$ITEM_MENU_LAYOUT" <<'EOF'
     android:background="?attr/selectableItemBackground" />
 EOF
 
-# item_subscription.xml（用于内容项）
 cat > "$ITEM_SUBSCRIPTION_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1255,7 +1210,6 @@ cat > "$ITEM_SUBSCRIPTION_LAYOUT" <<'EOF'
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
-
         <TextView
             android:id="@+id/sub_name"
             android:layout_width="0dp"
@@ -1264,7 +1218,6 @@ cat > "$ITEM_SUBSCRIPTION_LAYOUT" <<'EOF'
             android:text="名称"
             android:textSize="16sp"
             android:textColor="#333" />
-
         <TextView
             android:id="@+id/sub_check"
             android:layout_width="wrap_content"
@@ -1274,7 +1227,6 @@ cat > "$ITEM_SUBSCRIPTION_LAYOUT" <<'EOF'
             android:textColor="#4CAF50"
             android:visibility="gone" />
     </LinearLayout>
-
     <TextView
         android:id="@+id/sub_url"
         android:layout_width="match_parent"
@@ -1285,7 +1237,38 @@ cat > "$ITEM_SUBSCRIPTION_LAYOUT" <<'EOF'
 </LinearLayout>
 EOF
 
-# content_subscription.xml（不再使用，但保留）
+# 关键：生成 item_channel.xml
+cat > "$ITEM_CHANNEL_LAYOUT" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp"
+    android:background="?attr/selectableItemBackground">
+
+    <TextView
+        android:id="@+id/channel_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="频道名"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:singleLine="true" />
+
+    <ImageView
+        android:id="@+id/fav_icon"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:src="@drawable/ic_favorite_filled"
+        android:visibility="gone" />
+</LinearLayout>
+EOF
+
+# 其他占位布局
 cat > "$CONTENT_SUBSCRIPTION_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1293,39 +1276,25 @@ cat > "$CONTENT_SUBSCRIPTION_LAYOUT" <<'EOF'
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="16dp">
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="订阅列表"
-        android:textSize="18sp"
-        android:gravity="center" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="订阅列表" android:textSize="18sp" android:gravity="center" />
 </LinearLayout>
 EOF
-
-# 其他占位布局
 cat > "$CONTENT_EPG_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:gravity="center"
-    android:text="EPG订阅内容"
-    android:textSize="18sp" />
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:gravity="center" android:text="EPG订阅内容" android:textSize="18sp" />
 EOF
-
 cat > "$CONTENT_PLAY_SETTINGS_LAYOUT" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:gravity="center"
-    android:text="播放设置内容"
-    android:textSize="18sp" />
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:gravity="center" android:text="播放设置内容" android:textSize="18sp" />
 EOF
 
-echo "✅ 布局文件已生成"
+echo "✅ 所有布局文件已生成（含 item_channel.xml）"
 
-# ========== 9. 图标资源 ==========
+# ========== 10. 图标资源 ==========
 mkdir -p app/src/main/res/drawable
 cat > app/src/main/res/drawable/ic_favorite_border.xml <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1353,7 +1322,7 @@ cat > app/src/main/res/drawable/ic_info.xml <<'EOF'
 EOF
 echo "✅ 图标资源已添加"
 
-# ========== 10. 生成 MainActivity ==========
+# ========== 11. 生成 MainActivity（使用 item_channel） ==========
 cat > "$MAIN_ACT_FILE" <<'EOF'
 package com.whyun.witv;
 
@@ -1727,7 +1696,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public int getItemCount() { return data.size(); }
 
-        class ViewHolder extends RecyclerView.ViewHolder {
+        static class ViewHolder extends RecyclerView.ViewHolder {
             TextView name;
             ImageView favIcon;
             ViewHolder(View itemView) {
@@ -1739,9 +1708,9 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
-echo "✅ MainActivity 已生成"
+echo "✅ MainActivity 已生成（使用 item_channel 布局）"
 
-# ========== 11. 验证文件生成 ==========
+# ========== 12. 验证文件生成 ==========
 echo "📁 验证生成的 Java 文件："
 ls -la "app/src/main/java/$PKG_PATH/source/SourceManager.java" || echo "❌ SourceManager 未生成"
 ls -la "app/src/main/java/$PKG_PATH/player/PlayerConfigManager.java" || echo "❌ PlayerConfigManager 未生成"
@@ -1750,7 +1719,7 @@ ls -la "app/src/main/java/$PKG_PATH/ConfigurationManager.java" || echo "❌ Conf
 ls -la "app/src/main/java/$PKG_PATH/SettingsActivity.java" || echo "❌ SettingsActivity 未生成"
 ls -la "app/src/main/java/$PKG_PATH/MainActivity.java" || echo "❌ MainActivity 未生成"
 
-# ========== 12. 清理并构建 APK ==========
+# ========== 13. 清理并构建 APK ==========
 echo "🧹 清理构建缓存..."
 ./gradlew clean
 
@@ -1758,7 +1727,7 @@ echo "🚀 开始构建 APK..."
 chmod +x gradlew
 ./gradlew assembleDebug
 
-# ========== 13. 完成 ==========
+# ========== 14. 完成 ==========
 echo ""
 echo "🎉 部署并构建完成！"
 echo "📌 APK 位于: app/build/outputs/apk/debug/"
@@ -1768,5 +1737,6 @@ echo "   ✅ 左侧菜单列表（13项）"
 echo "   ✅ 右侧动态内容（列表订阅、EPG订阅等）"
 echo "   ✅ 订阅添加、选中、取消"
 echo "   ✅ 所有设置项通过对话框调节"
+echo "   ✅ 酷9文件夹结构已创建在 assets 中"
 echo ""
 echo "📌 如需修改直播源，请编辑 assets/configuration.json 中的 LIVE_URLS"
