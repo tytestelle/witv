@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终修正版 - 自动加载 + 点击呼出）"
+echo "🔥 部署酷9播放器（完整修正版）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -9,11 +9,12 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
     mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
 
+    # ==================== configuration.json ====================
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ===== SourceManager.java =====
+    # ==================== 1. SourceManager.java ====================
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -113,7 +114,7 @@ public class SourceManager {
 }
 EOF
 
-    # ===== EPGParser.java =====
+    # ==================== 2. EPGParser.java ====================
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -198,7 +199,7 @@ public class EPGParser {
 }
 EOF
 
-    # ===== PlayerConfigManager.java =====
+    # ==================== 3. PlayerConfigManager.java ====================
     cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -218,7 +219,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-    # ===== FavoriteManager.java =====
+    # ==================== 4. FavoriteManager.java ====================
     cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -243,7 +244,7 @@ public class FavoriteManager {
 }
 EOF
 
-    # ===== ConfigurationManager.java =====
+    # ==================== 5. ConfigurationManager.java ====================
     cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -297,7 +298,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ===== MainActivity.java（修正：增加 onResume，优化加载逻辑） =====
+    # ==================== 6. MainActivity.java（核心修正） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -353,7 +354,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_FAVORITES = "favorites";
     private static final String KEY_SELECTED_GROUP = "selected_group";
     private static final String KEY_SELECTED_CHANNEL = "selected_channel";
-    private boolean isDataLoaded = false; // 防止重复加载
+    private boolean isDataLoaded = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -393,8 +394,7 @@ public class MainActivity extends AppCompatActivity {
             playerView.setOnClickListener(v -> toggleOverlay());
             ImageButton btnSettings = findViewById(R.id.btn_settings);
             btnSettings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-            // 首次加载
-            isDataLoaded = false;
+            // 加载数据
             loadSource();
         } catch (Exception e) {
             Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -402,19 +402,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 关键：从设置返回时重新加载
     @Override
     protected void onResume() {
         super.onResume();
-        // 如果已经加载过数据，但用户可能更改了订阅，重新加载
-        if (isDataLoaded) {
-            // 清除旧数据，重新加载
-            groupMap.clear();
-            groupNames.clear();
-            currentChannelList.clear();
-            isDataLoaded = false;
-            loadSource();
-        }
+        // 每次返回时都重新加载（若已有数据则刷新）
+        loadSource();
     }
 
     private void loadSource() {
@@ -429,6 +421,8 @@ public class MainActivity extends AppCompatActivity {
             }
             if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
             final String finalUrl = url;
+            // 显示加载状态
+            Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
             new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
                 @Override public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
                     try {
@@ -460,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
                             }
                         }
                         isDataLoaded = true;
-                        // 加载完成后显示 overlay
+                        // 加载完成后自动显示频道列表
                         showOverlay();
                     } catch (Exception e) {
                         Toast.makeText(MainActivity.this, "加载数据异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -583,11 +577,10 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        // 点击屏幕左侧区域（左半部分）切换 overlay
         if (event.getAction() == MotionEvent.ACTION_UP) {
             float x = event.getX();
             float width = getWindowManager().getDefaultDisplay().getWidth();
-            if (x < width * 0.5) { // 改为左半部分触发
+            if (x < width * 0.5) {
                 toggleOverlay();
                 return true;
             }
@@ -676,7 +669,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ===== SettingsActivity.java（保持原有功能，只微调选中逻辑） =====
+    # ==================== 7. SettingsActivity.java（完整） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -793,8 +786,8 @@ public class SettingsActivity extends AppCompatActivity {
                         prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
                         prefs.edit().putString("selected_sub_url", url).apply();
                         prefs.edit().putString("selected_sub_name", name).apply();
-                        Toast.makeText(this, "已选中: " + name, Toast.LENGTH_SHORT).show();
-                        // 刷新列表并返回主界面
+                        Toast.makeText(SettingsActivity.this, "已选中: " + name, Toast.LENGTH_SHORT).show();
+                        // 刷新当前页面并关闭
                         showContent(3);
                         finish();
                     }));
@@ -838,7 +831,7 @@ public class SettingsActivity extends AppCompatActivity {
                 try {
                     String name = nameInput.getText().toString().trim();
                     String url = urlInput.getText().toString().trim();
-                    if (url.isEmpty()) { Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
+                    if (url.isEmpty()) { Toast.makeText(SettingsActivity.this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
                     if (name.isEmpty()) name = url;
                     String entry = name + "||" + url;
                     Set<String> subSet = new HashSet<>(prefs.getStringSet(KEY_SUB_LIST, new HashSet<>()));
@@ -847,11 +840,11 @@ public class SettingsActivity extends AppCompatActivity {
                     prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
                     prefs.edit().putString("selected_sub_url", url).apply();
                     prefs.edit().putString("selected_sub_name", name).apply();
-                    Toast.makeText(this, "订阅已添加并选中", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(SettingsActivity.this, "订阅已添加并选中", Toast.LENGTH_SHORT).show();
                     showContent(3);
                     finish();
                 } catch (Exception e) {
-                    Toast.makeText(this, "添加失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(SettingsActivity.this, "添加失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             });
             builder.setNegativeButton("取消", null);
@@ -873,9 +866,9 @@ public class SettingsActivity extends AppCompatActivity {
             builder.setView(layout);
             builder.setPositiveButton("确定", (d, which) -> {
                 String url = urlInput.getText().toString().trim();
-                if (url.isEmpty()) { Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
+                if (url.isEmpty()) { Toast.makeText(SettingsActivity.this, "地址不能为空", Toast.LENGTH_SHORT).show(); return; }
                 prefs.edit().putString("epg_url", url).apply();
-                Toast.makeText(this, "EPG地址已保存", Toast.LENGTH_SHORT).show();
+                Toast.makeText(SettingsActivity.this, "EPG地址已保存", Toast.LENGTH_SHORT).show();
                 showContent(4);
             });
             builder.setNegativeButton("取消", null);
@@ -935,7 +928,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ===== 布局文件 =====
+    # ==================== 8. 布局文件（深色透明背景） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1071,7 +1064,7 @@ EOF
     android:paddingLeft="16dp"
     android:textSize="16sp"
     android:textColor="#FFFFFF"
-    android:background="?attr/selectableItemBackground" />
+    android:background="#33000000" />
 EOF
 
     cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
@@ -1125,7 +1118,7 @@ EOF
     echo "✅ 模板生成完毕"
 fi
 
-# ========== 2. 复制模板到项目 ==========
+# ========== 复制模板到项目 ==========
 echo "📂 复制模板文件..."
 rm -rf app/src/main/java/com/whyun/witv/ui
 rm -f app/src/main/java/com/whyun/witv/SettingsActivity.java
@@ -1140,7 +1133,7 @@ echo "✅ 文件复制完成"
 
 sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
-# ========== 3. 添加依赖和权限 ==========
+# ========== 添加依赖和权限 ==========
 APP_GRADLE="app/build.gradle"
 MANIFEST="app/src/main/AndroidManifest.xml"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
@@ -1191,7 +1184,7 @@ with open(manifest_file, 'w') as f: f.write(pretty)
 print("✅ AndroidManifest 注册完成")
 PYTHON_SCRIPT
 
-# ========== 4. 构建 ==========
+# ========== 构建 ==========
 echo "🧹 清理并构建..."
 ./gradlew clean
 ./gradlew assembleDebug
@@ -1199,7 +1192,10 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 使用说明："
-echo "   1. 添加订阅后自动选中，返回主界面自动加载"
-echo "   2. 点击屏幕左侧（左半部分）呼出/隐藏频道列表"
-echo "   3. 长按频道收藏/取消收藏"
-echo "   4. 右侧显示 EPG 节目单（需配置 EPG 地址）"
+echo "   1. 打开应用，点击右上角齿轮进入设置"
+echo "   2. 选择「列表订阅」，点击「+ 添加订阅」输入名称和地址"
+echo "   3. 添加后自动选中，返回主界面即可加载频道"
+echo "   4. 点击屏幕左侧（左半部分）呼出/隐藏频道列表"
+echo "   5. 左侧分组列表，中间频道列表，右侧 EPG 节目单"
+echo "   6. 长按频道可收藏/取消收藏"
+echo "   7. 菜单背景已改为黑色透明"
