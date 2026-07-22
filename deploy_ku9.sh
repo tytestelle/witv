@@ -4,8 +4,9 @@ set -e
 echo "🔥 部署酷9播放器（完整模板生成版 - 生成所有文件到 config/）"
 
 TEMPLATE_DIR="./config"
-if [ ! -d "$TEMPLATE_DIR" ]; then
-    echo "📁 首次运行，生成模板文件到 $TEMPLATE_DIR ..."
+# 关键：如果 configuration.json 不存在，则生成模板（即使目录存在但内容缺失也会重新生成）
+if [ ! -f "$TEMPLATE_DIR/configuration.json" ]; then
+    echo "📁 首次运行或配置缺失，生成模板文件到 $TEMPLATE_DIR ..."
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
     mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
 
@@ -1881,7 +1882,7 @@ EOF
 
     echo "✅ 模板生成完毕"
 else
-    echo "📂 模板目录已存在，跳过生成"
+    echo "📂 模板已存在（configuration.json 存在），跳过生成"
 fi
 
 # ========== 复制模板到项目 ==========
