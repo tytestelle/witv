@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG完整一周合并版）"
+echo "🔥 部署 witv 播放器（EPG完整节目单版 - 右侧显示全部节目）"
 
 TEMPLATE_DIR="./config"
 
@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（合并所有匹配频道，取全部节目） ====================
+# ==================== EPGParser.java（精确匹配，不去重） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -300,11 +300,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -534,74 +532,62 @@ public class EPGParser {
         LogUtils.writeLog("共找到 " + channelMap.size() + " 个频道, " + programMap.size() + " 个有节目");
 
         String normalizedChannelName = normalizeChannelName(channelName);
-        Set<String> targetChannelIds = new HashSet<>();
+        String targetChannelId = null;
+        String targetDisplayName = null;
 
-        // 1. 通过别名映射得到 epgid，然后找出所有 displayName 匹配该 epgid 的频道
+        // 1. 别名映射匹配（取第一个匹配的）
         String mappedEpgid = aliasMap.get(normalizedChannelName);
         if (mappedEpgid != null) {
             String normMapped = normalizeChannelName(mappedEpgid);
             for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
                 String normDisp = normalizeChannelName(entry.getValue().displayName);
                 if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
-                    targetChannelIds.add(entry.getKey());
-                    LogUtils.writeLog("别名匹配添加频道: " + entry.getValue().displayName + " (" + entry.getKey() + ")");
+                    targetChannelId = entry.getKey();
+                    targetDisplayName = entry.getValue().displayName;
+                    LogUtils.writeLog("别名映射匹配成功: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
+                    break;
                 }
             }
         }
 
-        // 2. 包含匹配：所有 displayName 包含频道名的频道
-        for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
-            String normDisp = normalizeChannelName(entry.getValue().displayName);
-            if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
-                targetChannelIds.add(entry.getKey());
-                LogUtils.writeLog("包含匹配添加频道: " + entry.getValue().displayName + " (" + entry.getKey() + ")");
+        // 2. 若未命中，则取第一个 displayName 包含频道名的
+        if (targetChannelId == null) {
+            for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
+                String normDisp = normalizeChannelName(entry.getValue().displayName);
+                if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
+                    targetChannelId = entry.getKey();
+                    targetDisplayName = entry.getValue().displayName;
+                    LogUtils.writeLog("包含匹配成功: " + channelName + " -> " + targetDisplayName);
+                    break;
+                }
             }
         }
 
-        if (targetChannelIds.isEmpty()) {
-            LogUtils.writeLog("未找到任何匹配的频道，节目数为0");
+        if (targetChannelId == null) {
+            LogUtils.writeLog("未找到匹配的频道，节目数为0");
             return new ArrayList<>();
         }
 
-        // 下载图标（取第一个匹配的频道的图标）
-        for (String id : targetChannelIds) {
-            ChannelInfo info = channelMap.get(id);
-            if (info != null && info.iconUrl != null && !info.iconUrl.isEmpty()) {
-                downloadIcon(info.iconUrl, channelName, logoDir);
-                break;
-            }
+        // 下载图标
+        ChannelInfo targetInfo = channelMap.get(targetChannelId);
+        if (targetInfo != null && targetInfo.iconUrl != null && !targetInfo.iconUrl.isEmpty()) {
+            downloadIcon(targetInfo.iconUrl, channelName, logoDir);
         }
 
-        // 合并所有匹配频道的节目
-        List<EpgProgram> merged = new ArrayList<>();
-        for (String id : targetChannelIds) {
-            List<EpgProgram> list = programMap.get(id);
-            if (list != null) {
-                merged.addAll(list);
-                LogUtils.writeLog("合并频道 " + id + " 的节目 " + list.size() + " 条");
-            }
-        }
+        // 取该频道的所有节目（不去重）
+        List<EpgProgram> result = programMap.get(targetChannelId);
+        if (result == null) result = new ArrayList<>();
 
-        // 按开始时间排序并去重（相同时间只保留一个）
-        Collections.sort(merged, new Comparator<EpgProgram>() {
+        // 按开始时间排序
+        Collections.sort(result, new Comparator<EpgProgram>() {
             @Override
             public int compare(EpgProgram o1, EpgProgram o2) {
                 return Long.compare(o1.startTime, o2.startTime);
             }
         });
 
-        // 去重：如果开始时间相同，保留第一个
-        List<EpgProgram> unique = new ArrayList<>();
-        long lastStart = -1;
-        for (EpgProgram p : merged) {
-            if (p.startTime != lastStart) {
-                unique.add(p);
-                lastStart = p.startTime;
-            }
-        }
-
-        LogUtils.writeLog("最终返回节目数: " + unique.size());
-        return unique;
+        LogUtils.writeLog("最终返回节目数: " + result.size());
+        return result;
     }
 
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
@@ -776,7 +762,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（与之前一致，显示描述） ====================
+# ==================== MainActivity.java（右侧显示 EPG 节目单） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -962,7 +948,7 @@ public class MainActivity extends AppCompatActivity {
                 playChannel(channel);
                 loadEpgForChannel(channel);
                 channelAdapter.setSelectedChannel(channel);
-                hideOverlay();
+                // 不隐藏overlay，让EPG继续显示
             }, this::toggleFavorite);
             channelRecycler.setAdapter(channelAdapter);
 
@@ -1407,7 +1393,7 @@ public class MainActivity extends AppCompatActivity {
         isOverlayVisible = true;
         overlayLayout.setVisibility(View.VISIBLE);
         resetAutoHideTimer();
-        epgContainer.setVisibility(View.GONE);
+        // EPG容器默认隐藏，加载到数据后显示
     }
 
     private void hideOverlay() {
@@ -1619,20 +1605,14 @@ public class MainActivity extends AppCompatActivity {
             String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
             holder.time.setText(time);
             holder.title.setText(prog.title);
-            if (prog.desc != null && !prog.desc.isEmpty()) {
-                holder.desc.setText(prog.desc);
-                holder.desc.setVisibility(View.VISIBLE);
-            } else {
-                holder.desc.setVisibility(View.GONE);
-            }
+            // 不显示描述，只显示标题和时间
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView time, title, desc;
+            TextView time, title;
             ViewHolder(View v) { super(v); 
                 time = v.findViewById(R.id.epg_time);
                 title = v.findViewById(R.id.epg_title);
-                desc = v.findViewById(R.id.epg_desc);
             }
         }
     }
@@ -2033,6 +2013,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:orientation="horizontal"
         android:background="#CC000000"
         android:visibility="gone">
+        <!-- 左侧：订阅源、分组、频道列表 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -2096,35 +2077,30 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
                     android:layout_weight="1" />
-                <LinearLayout
-                    android:id="@+id/epg_container"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="0.3"
-                    android:orientation="vertical"
-                    android:background="#66000000"
-                    android:visibility="gone">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="节目单"
-                        android:textColor="#FFFFFF"
-                        android:textSize="11sp"
-                        android:padding="2dp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/epg_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent" />
-                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
-        <View
-            android:id="@+id/overlay_click_area"
+        <!-- 右侧：EPG 节目单 -->
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="0.65"
-            android:background="#00000000"
-            android:clickable="true" />
+            android:orientation="vertical"
+            android:background="#66000000"
+            android:padding="4dp">
+            <TextView
+                android:id="@+id/epg_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="节目单"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:padding="4dp"
+                android:background="#44000000" />
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/epg_recycler"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>
 EOF
@@ -2297,30 +2273,24 @@ cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:padding="4dp"
     android:background="?attr/selectableItemBackground">
     <TextView
         android:id="@+id/epg_time"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="11sp"
-        android:textColor="#AAAAAA" />
+        android:textSize="12sp"
+        android:textColor="#AAAAAA"
+        android:minWidth="80dp" />
     <TextView
         android:id="@+id/epg_title"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_weight="1"
         android:textSize="13sp"
         android:textColor="#FFFFFF"
-        android:fontFamily="sans-serif-medium" />
-    <TextView
-        android:id="@+id/epg_desc"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="11sp"
-        android:textColor="#888888"
-        android:visibility="gone"
-        android:paddingTop="2dp" />
+        android:paddingStart="8dp" />
 </LinearLayout>
 EOF
 
