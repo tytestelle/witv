@@ -679,7 +679,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（完全重写，实现所有UI细节） ====================
+# ==================== MainActivity.java（修正构造函数调用） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -891,6 +891,7 @@ public class MainActivity extends AppCompatActivity {
             });
             groupRecycler.setAdapter(groupAdapter);
 
+            // 修正：ChannelAdapter 构造参数补齐
             channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
                 playChannel(channel);
                 loadEpgForChannel(channel);
@@ -898,7 +899,7 @@ public class MainActivity extends AppCompatActivity {
                 if (isScheduleMode) {
                     showScheduleForChannel(channel);
                 }
-            }, this::toggleFavorite);
+            }, this::toggleFavorite, this, epgCacheMap);
             channelRecycler.setAdapter(channelAdapter);
 
             scheduleChannelAdapter = new ScheduleChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
@@ -2178,7 +2179,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件（修改 item_channel.xml 添加节目预告显示，修改 activity_main.xml 布局） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2365,7 +2366,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# 更新 item_channel.xml 添加 epg_title 字段
 cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2413,8 +2413,6 @@ cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# 其他布局文件保持不变（item_sub, item_group, item_epg, popup_info, activity_settings, item_menu, item_content）
-# 为了节省篇幅，我们复用之前的，但确保它们存在
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2559,7 +2557,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# 其他item文件（省略，但会复制已有）
 cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2766,31 +2763,4 @@ intent_filter = ET.SubElement(main_act, 'intent-filter')
 action = ET.SubElement(intent_filter, 'action')
 action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
 cat = ET.SubElement(intent_filter, 'category')
-cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
-app.append(main_act)
-settings_act = ET.Element('activity')
-settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
-settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-app.append(settings_act)
-xml_str = ET.tostring(root, encoding='unicode')
-dom = minidom.parseString(xml_str)
-pretty = dom.toprettyxml(indent="    ")
-pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f: f.write(pretty)
-print("✅ AndroidManifest 已更新")
-PYEOF
-
-python3 /tmp/fix_manifest.py
-rm -f /tmp/fix_manifest.py
-
-# ========== 构建 ==========
-echo "🧹 清理并构建..."
-./gradlew clean
-./gradlew assembleDebug
-
-echo ""
-echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
-echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 修复：频道列表显示当前节目预告，节目单按周几分组，台标显示，蓝色高亮当前频道。"
+cat.set('{http://schemas.android.com/apk/res/android}name', 'android
