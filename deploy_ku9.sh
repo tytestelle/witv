@@ -1,21 +1,31 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG功能全面修复版）"
+echo "🔥 部署 witv 播放器（EPG功能增强版 - 支持别名映射）"
 
 TEMPLATE_DIR="./config"
 
 # 强制重新生成
 rm -rf "$TEMPLATE_DIR"
-mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
+mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values,assets}
 mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite" "$TEMPLATE_DIR/src/utils"
+
+# ==================== 下载 epg_data.json（别名映射） ====================
+echo "📥 下载别名映射 epg_data.json ..."
+curl -s -L -o "$TEMPLATE_DIR/assets/epg_data.json" "https://raw.githubusercontent.com/tytestelle/witv/main/assets/epg_data.json" || \
+wget -q -O "$TEMPLATE_DIR/assets/epg_data.json" "https://raw.githubusercontent.com/tytestelle/witv/main/assets/epg_data.json"
+
+if [ ! -f "$TEMPLATE_DIR/assets/epg_data.json" ]; then
+    echo "⚠️ 下载失败，创建空占位文件"
+    echo '{"epgs":[]}' > "$TEMPLATE_DIR/assets/epg_data.json"
+fi
 
 # ==================== configuration.json ====================
 cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java ====================
+# ==================== SourceManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -141,7 +151,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（稳定版） ====================
+# ==================== LogUtils.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -264,14 +274,18 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（增强匹配） ====================
+# ==================== EPGParser.java（增强匹配，支持别名映射） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
+import android.content.Context;
 import android.util.Xml;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
+
+import org.json.JSONObject;
+import org.json.JSONArray;
 
 import com.whyun.witv.utils.LogUtils;
 
@@ -283,8 +297,10 @@ import java.io.InputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -298,7 +314,45 @@ public class EPGParser {
         void onError(String error);
     }
 
-    public static void loadEpg(String url, String channelName, OnEpgLoadListener listener) {
+    private static Map<String, String> sAliasMap = null; // 别名 -> epgid (归一化后)
+
+    private static synchronized Map<String, String> loadAliasMap(Context context) {
+        if (sAliasMap != null) return sAliasMap;
+        Map<String, String> map = new HashMap<>();
+        try {
+            InputStream is = context.getAssets().open("epg_data.json");
+            byte[] buffer = new byte[is.available()];
+            is.read(buffer);
+            is.close();
+            String json = new String(buffer, "UTF-8");
+            JSONObject root = new JSONObject(json);
+            JSONArray epgs = root.getJSONArray("epgs");
+            for (int i = 0; i < epgs.length(); i++) {
+                JSONObject obj = epgs.getJSONObject(i);
+                String epgid = obj.getString("epgid");
+                String nameStr = obj.getString("name");
+                String[] names = nameStr.split(",");
+                for (String name : names) {
+                    String normalized = normalizeChannelName(name.trim());
+                    if (!normalized.isEmpty()) {
+                        map.put(normalized, epgid);
+                    }
+                }
+                // 也加入 epgid 本身
+                String normalizedEpgid = normalizeChannelName(epgid);
+                if (!normalizedEpgid.isEmpty()) {
+                    map.put(normalizedEpgid, epgid);
+                }
+            }
+            LogUtils.writeLog("别名映射加载完成，条目数: " + map.size());
+        } catch (Exception e) {
+            LogUtils.writeLog("加载别名映射失败: " + e.getMessage());
+        }
+        sAliasMap = map;
+        return sAliasMap;
+    }
+
+    public static void loadEpg(Context context, String url, String channelName, OnEpgLoadListener listener) {
         LogUtils.writeLog("EPG加载开始: url=" + url + ", channel=" + channelName);
         new Thread(() -> {
             InputStream is = null;
@@ -342,7 +396,8 @@ public class EPGParser {
                 LogUtils.writeLog("EPG 下载完成，缓存文件: " + cacheFile.getAbsolutePath());
 
                 is = new FileInputStream(cacheFile);
-                List<EpgProgram> programs = parseXmltvStream(is, channelName);
+                Map<String, String> aliasMap = loadAliasMap(context);
+                List<EpgProgram> programs = parseXmltvStream(is, channelName, aliasMap);
                 LogUtils.writeLog("EPG 解析成功，节目数: " + (programs != null ? programs.size() : 0));
 
                 android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -359,7 +414,7 @@ public class EPGParser {
         }).start();
     }
 
-    private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName)
+    private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName, Map<String, String> aliasMap)
             throws XmlPullParserException, IOException, ParseException {
 
         List<EpgProgram> result = new ArrayList<>();
@@ -417,7 +472,7 @@ public class EPGParser {
                             if (currentTitle != null && !currentTitle.isEmpty()) {
                                 boolean channelMatches = false;
 
-                                // 优先匹配 channel 属性
+                                // 1. 直接匹配 channel 属性
                                 if (currentChannel != null) {
                                     String normalizedCurrent = normalizeChannelName(currentChannel);
                                     if (normalizedCurrent.equals(normalizedChannelName) ||
@@ -427,7 +482,37 @@ public class EPGParser {
                                     }
                                 }
 
-                                // 如果未匹配，尝试用标题匹配（某些EPG不包含channel）
+                                // 2. 利用别名映射匹配
+                                if (!channelMatches && aliasMap != null && !aliasMap.isEmpty()) {
+                                    // 2.1 当前频道名映射到 epgid
+                                    String epgidFromChannel = aliasMap.get(normalizedChannelName);
+                                    if (epgidFromChannel != null) {
+                                        String normalizedEpgid = normalizeChannelName(epgidFromChannel);
+                                        if (currentChannel != null) {
+                                            String normalizedCurrent = normalizeChannelName(currentChannel);
+                                            if (normalizedCurrent.equals(normalizedEpgid) ||
+                                                    normalizedCurrent.contains(normalizedEpgid) ||
+                                                    normalizedEpgid.contains(normalizedCurrent)) {
+                                                channelMatches = true;
+                                            }
+                                        }
+                                    }
+                                    // 2.2 当前 channel 属性映射到 epgid
+                                    if (!channelMatches && currentChannel != null) {
+                                        String normalizedCurrent = normalizeChannelName(currentChannel);
+                                        String epgidFromCurrent = aliasMap.get(normalizedCurrent);
+                                        if (epgidFromCurrent != null) {
+                                            String normalizedEpgidCurrent = normalizeChannelName(epgidFromCurrent);
+                                            if (normalizedEpgidCurrent.equals(normalizedChannelName) ||
+                                                    normalizedEpgidCurrent.contains(normalizedChannelName) ||
+                                                    normalizedChannelName.contains(normalizedEpgidCurrent)) {
+                                                channelMatches = true;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 3. 如果还是未匹配且 channel 属性为空，尝试用标题匹配（原逻辑）
                                 if (!channelMatches && currentChannel == null) {
                                     String normalizedTitle = normalizeChannelName(currentTitle);
                                     if (normalizedTitle.equals(normalizedChannelName) ||
@@ -493,7 +578,7 @@ public class EPGParser {
         String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
                 .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
                 .toLowerCase(Locale.getDefault());
-        // 如果剩余长度太短，可能过度删减，保留原始名称的小写形式
+        // 如果剩余长度太短，可能过度删减，保留原始名称的小写形式（仅去符号）
         if (normalized.length() < 2) {
             return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
         }
@@ -519,7 +604,7 @@ public class EPGParser {
 }
 EOF
 
-# ==================== PlayerConfigManager.java ====================
+# ==================== PlayerConfigManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -539,7 +624,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-# ==================== FavoriteManager.java ====================
+# ==================== FavoriteManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -564,7 +649,7 @@ public class FavoriteManager {
 }
 EOF
 
-# ==================== ConfigurationManager.java ====================
+# ==================== ConfigurationManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -618,7 +703,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（完整修复EPG） ====================
+# ==================== MainActivity.java（修改调用，传入Context） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1183,7 +1268,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== 修复后的 loadEpgForChannel ====================
+    // ==================== 修复后的 loadEpgForChannel（传入 Context） ====================
     private void loadEpgForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         String epgUrl = prefs.getString("epg_url", null);
@@ -1206,7 +1291,8 @@ public class MainActivity extends AppCompatActivity {
         LogUtils.writeLog("开始加载EPG: " + finalEpgUrl + " for " + channel.name);
         Toast.makeText(this, "正在加载EPG...", Toast.LENGTH_SHORT).show();
 
-        EPGParser.loadEpg(finalEpgUrl, channel.name, new EPGParser.OnEpgLoadListener() {
+        // 传入 this (Context)
+        EPGParser.loadEpg(this, finalEpgUrl, channel.name, new EPGParser.OnEpgLoadListener() {
             @Override
             public void onLoaded(List<EPGParser.EpgProgram> programs) {
                 runOnUiThread(() -> {
@@ -1472,7 +1558,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== SettingsActivity.java ====================
+# ==================== SettingsActivity.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1841,7 +1927,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件 activity_main.xml ====================
+# ==================== 布局文件（同前，不变） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -1962,7 +2048,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# 其余布局文件（popup_info, item_*, activity_settings）
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2247,6 +2332,7 @@ rm -rf app/build
 cp -r "$TEMPLATE_DIR/src/." app/src/main/java/com/whyun/witv/
 cp -r "$TEMPLATE_DIR/res/." app/src/main/res/
 cp "$TEMPLATE_DIR/configuration.json" app/src/main/assets/
+cp "$TEMPLATE_DIR/assets/epg_data.json" app/src/main/assets/
 
 mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/assets/download \
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
