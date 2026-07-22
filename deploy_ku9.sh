@@ -142,10 +142,11 @@ public class SourceManager {
 EOF
 
 # ==================== LogUtils.java ====================
+# ==================== LogUtils.java（使用内部存储） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
-import android.os.Environment;
+import android.content.Context;
 import android.util.Log;
 
 import java.io.File;
@@ -161,18 +162,19 @@ public class LogUtils {
     private static final String LOG_DIR_NAME = "logs";
     private static final String LOG_FILE = "app.log";
     private static String sLogDirPath = null;
+    private static Context sContext = null;
 
-    public static void init() {
+    public static void init(Context context) {
+        sContext = context.getApplicationContext();
         if (sLogDirPath != null) return;
-        String basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
-        if (basePath == null) basePath = "/sdcard";
-        File baseDir = new File(basePath, APP_DIR);
+        // 使用内部存储
+        File baseDir = new File(context.getFilesDir(), APP_DIR);
         if (!baseDir.exists()) {
             if (!baseDir.mkdirs()) {
                 Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
             }
         }
-        createAppDirectories();
+        createAppDirectories(context);
         File logDir = new File(baseDir, LOG_DIR_NAME);
         if (!logDir.exists()) {
             if (!logDir.mkdirs()) {
@@ -184,7 +186,7 @@ public class LogUtils {
     }
 
     public static String getLogDir() {
-        if (sLogDirPath == null) init();
+        if (sLogDirPath == null) return sContext.getFilesDir() + "/" + APP_DIR + "/" + LOG_DIR_NAME;
         return sLogDirPath;
     }
 
@@ -228,9 +230,9 @@ public class LogUtils {
         }
     }
 
-    public static void createAppDirectories() {
+    public static void createAppDirectories(Context context) {
         try {
-            File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
+            File baseDir = new File(context.getFilesDir(), APP_DIR);
             String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"};
             for (String sub : subDirs) {
                 File dir = new File(baseDir, sub);
@@ -245,7 +247,8 @@ public class LogUtils {
     }
 
     public static String getAppRootDir() {
-        return Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR;
+        if (sContext == null) return "";
+        return sContext.getFilesDir() + "/" + APP_DIR;
     }
 
     public static String getEpgCacheDir() {
@@ -601,43 +604,805 @@ public class ConfigurationManager {
 EOF
 
 # ==================== MainActivity.java（全新强化版） ====================
-# ==================== MainActivity.java（测试版，仅显示Hello World） ====================
+# ==================== MainActivity.java（使用内部存储，无外部权限） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
-import android.app.Activity;
+import android.app.ProgressDialog;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.graphics.BitmapFactory;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Process;
+import android.preference.PreferenceManager;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.LayoutInflater;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.PopupWindow;
 import android.widget.TextView;
-import android.util.Log;
+import android.widget.Toast;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.ui.PlayerView;
+import com.whyun.witv.source.SourceManager;
+import com.whyun.witv.epg.EPGParser;
+import com.whyun.witv.player.PlayerConfigManager;
+import com.whyun.witv.favorite.FavoriteManager;
+import com.whyun.witv.utils.LogUtils;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+public class MainActivity extends AppCompatActivity {
+    private static final int REQUEST_PERMISSIONS = 100;
+    private PlayerView playerView;
+    private ExoPlayer player;
+    private SourceManager.Channel currentChannel;
+    private List<SourceManager.Channel> currentChannelList = new ArrayList<>();
+    private Map<String, List<SourceManager.Channel>> groupMap = new HashMap<>();
+    private List<String> groupNames = new ArrayList<>();
+    private String currentGroup = "";
+    private String currentSubUrl = "";
+    private String currentSubName = "";
+    private RecyclerView subRecycler, groupRecycler, channelRecycler, epgRecycler;
+    private SubAdapter subAdapter;
+    private GroupAdapter groupAdapter;
+    private ChannelAdapter channelAdapter;
+    private EpgAdapter epgAdapter;
+    private View overlayLayout;
+    private SharedPreferences prefs;
+    private ConfigurationManager config;
+    private boolean isOverlayVisible = false;
+    private Set<String> favoriteSet = new HashSet<>();
+    private static final String KEY_FAVORITES = "favorites";
+    private static final String KEY_SELECTED_SUB = "selected_sub";
+    private static final String KEY_SUB_LIST = "sub_list";
+    private static final String KEY_LAST_CHANNEL = "last_channel";
+    private static final String KEY_LAST_GROUP = "last_group";
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
+    private File logoDir;
+    private Runnable hideOverlayRunnable;
+    private boolean isLoading = false;
+    private List<SubEntry> subEntryList = new ArrayList<>();
+    private View epgContainer;
+    private List<EPGParser.EpgProgram> currentEpgList = new ArrayList<>();
+    private ProgressDialog progressDialog;
+    private boolean loadFinished = false;
+    static class SubEntry { String name, url; }
 
-public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            LogUtils.writeCrashLog(throwable);
+            android.os.Process.killProcess(android.os.Process.myPid());
+            System.exit(1);
+        });
+        try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
-        // 最简单的布局：一个TextView显示"Hello World"
-        TextView tv = new TextView(this);
-        tv.setText("Hello World!\n应用已启动");
-        tv.setTextSize(30);
-        setContentView(tv);
 
-        // 尝试在应用私有目录写日志（不需要任何权限）
+        // 初始化日志（使用内部存储，无需权限）
+        LogUtils.init(this);
+        LogUtils.createAppDirectories(this);
+        LogUtils.writeLog("=== 应用启动 ===");
+        Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_LONG).show();
+
         try {
-            File dir = getFilesDir();
-            File logFile = new File(dir, "test.log");
-            FileOutputStream fos = new FileOutputStream(logFile, true);
-            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
-            fos.write((time + " - 应用启动成功！\n").getBytes());
-            fos.close();
-            // 把日志路径也显示到屏幕上
-            tv.setText("Hello World!\n应用已启动\n日志文件: " + logFile.getAbsolutePath());
+            setContentView(R.layout.activity_main);
+            Toast.makeText(this, "界面加载完成", Toast.LENGTH_SHORT).show();
+
+            config = ConfigurationManager.getInstance(this);
+            PlayerConfigManager.init(this);
+            FavoriteManager.init(this);
+            prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
+            logoDir = new File(LogUtils.getAppRootDir(), "logo");
+            if (!logoDir.exists()) logoDir.mkdirs();
+
+            playerView = findViewById(R.id.player_container);
+            overlayLayout = findViewById(R.id.overlay_layout);
+            subRecycler = findViewById(R.id.sub_recycler);
+            groupRecycler = findViewById(R.id.group_recycler);
+            channelRecycler = findViewById(R.id.channel_recycler);
+            epgRecycler = findViewById(R.id.epg_recycler);
+            epgContainer = findViewById(R.id.epg_container);
+
+            subRecycler.setLayoutManager(new LinearLayoutManager(this));
+            groupRecycler.setLayoutManager(new LinearLayoutManager(this));
+            channelRecycler.setLayoutManager(new LinearLayoutManager(this));
+            epgRecycler.setLayoutManager(new LinearLayoutManager(this));
+
+            loadSubscriptions();
+            subAdapter = new SubAdapter(subEntryList, entry -> {
+                currentSubName = entry.name;
+                currentSubUrl = entry.url;
+                prefs.edit().putString(KEY_SELECTED_SUB, entry.name + "||" + entry.url).apply();
+                loadSourceForUrl(entry.url);
+                hideOverlay();
+            });
+            subRecycler.setAdapter(subAdapter);
+
+            groupAdapter = new GroupAdapter(new ArrayList<>(), group -> {
+                currentGroup = group;
+                showChannelsForGroup(group);
+                groupAdapter.setSelectedGroup(group);
+            });
+            groupRecycler.setAdapter(groupAdapter);
+
+            channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
+                playChannel(channel);
+                loadEpgForChannel(channel);
+                channelAdapter.setSelectedChannel(channel);
+                hideOverlay();
+            }, this::toggleFavorite);
+            channelRecycler.setAdapter(channelAdapter);
+
+            epgAdapter = new EpgAdapter(new ArrayList<>());
+            epgRecycler.setAdapter(epgAdapter);
+
+            playerView.setOnTouchListener((v, event) -> {
+                if (event.getAction() == MotionEvent.ACTION_UP) {
+                    float y = event.getY();
+                    float height = v.getHeight();
+                    if (y > height * 0.5 && y < height * 0.85) {
+                        showInfoPopup();
+                        return true;
+                    }
+                }
+                return false;
+            });
+
+            // 加载订阅源（延迟500ms，确保界面完全渲染）
+            mainHandler.postDelayed(() -> {
+                boolean hasSub = false;
+                String selected = prefs.getString(KEY_SELECTED_SUB, "");
+                if (!selected.isEmpty()) {
+                    String[] parts = selected.split("\\|\\|");
+                    if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
+                        currentSubName = parts[0];
+                        currentSubUrl = parts[1];
+                        hasSub = true;
+                    }
+                }
+                if (!hasSub) {
+                    for (SubEntry se : subEntryList) {
+                        if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                            currentSubName = se.name;
+                            currentSubUrl = se.url;
+                            prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                            hasSub = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
+                    LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
+                    showNoSourceDialog();
+                } else {
+                    LogUtils.writeLog("加载订阅源: " + currentSubUrl);
+                    showLoadingDialog("正在加载订阅源...");
+                    loadSourceForUrl(currentSubUrl);
+                }
+            }, 500);
+
+            hideOverlayRunnable = () -> {
+                if (isOverlayVisible) hideOverlay();
+            };
+            findViewById(R.id.left_click_area).setOnClickListener(v -> {
+                if (!isOverlayVisible) showOverlay();
+            });
+
+            LogUtils.writeLog("应用启动成功");
         } catch (Exception e) {
-            tv.setText("启动失败: " + e.getMessage());
+            LogUtils.writeCrashLog(e);
+            showFatalErrorDialog("初始化失败: " + e.getMessage());
+        }
+    }
+
+    private void showLoadingDialog(String message) {
+        if (progressDialog == null) {
+            progressDialog = new ProgressDialog(this);
+            progressDialog.setCancelable(false);
+        }
+        progressDialog.setMessage(message);
+        progressDialog.show();
+    }
+
+    private void dismissLoadingDialog() {
+        if (progressDialog != null && progressDialog.isShowing()) {
+            progressDialog.dismiss();
+        }
+    }
+
+    private void showNoSourceDialog() {
+        dismissLoadingDialog();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("提示");
+        builder.setMessage("当前没有可用的订阅源，请先添加订阅源。");
+        builder.setPositiveButton("去设置", (dialog, which) -> {
+            startActivity(new Intent(this, SettingsActivity.class));
+        });
+        builder.setNegativeButton("退出", (dialog, which) -> {
+            finish();
+        });
+        builder.setCancelable(false);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    private void showLoadErrorDialog(String errorMsg) {
+        dismissLoadingDialog();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("加载失败");
+        builder.setMessage("订阅源加载失败：\n" + errorMsg + "\n\n请检查网络或源地址是否正确。");
+        builder.setPositiveButton("去设置", (dialog, which) -> {
+            startActivity(new Intent(this, SettingsActivity.class));
+        });
+        builder.setNegativeButton("重试", (dialog, which) -> {
+            if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
+                showLoadingDialog("正在重试...");
+                loadSourceForUrl(currentSubUrl);
+            } else {
+                showNoSourceDialog();
+            }
+        });
+        builder.setCancelable(false);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    private void showFatalErrorDialog(String errorMsg) {
+        dismissLoadingDialog();
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("严重错误");
+        builder.setMessage("应用初始化失败：\n" + errorMsg + "\n\n请查看日志文件：\n" + LogUtils.getLogDir());
+        builder.setPositiveButton("退出", (dialog, which) -> {
+            finish();
+        });
+        builder.setCancelable(false);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 重新加载订阅列表（可能用户在设置中修改了）
+        loadSubscriptions();
+        subAdapter.updateData(subEntryList);
+        // 如果当前没有加载任何源但已经有订阅，重新加载
+        if (groupMap.isEmpty() && !subEntryList.isEmpty() && !isLoading) {
+            String selected = prefs.getString(KEY_SELECTED_SUB, "");
+            if (!selected.isEmpty()) {
+                String[] parts = selected.split("\\|\\|");
+                if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
+                    currentSubName = parts[0];
+                    currentSubUrl = parts[1];
+                    showLoadingDialog("正在加载订阅源...");
+                    loadSourceForUrl(currentSubUrl);
+                }
+            } else {
+                for (SubEntry se : subEntryList) {
+                    if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                        currentSubName = se.name;
+                        currentSubUrl = se.url;
+                        prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                        showLoadingDialog("正在加载订阅源...");
+                        loadSourceForUrl(se.url);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private void loadSubscriptions() {
+        subEntryList.clear();
+        Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
+        if (subSet != null) {
+            for (String entry : subSet) {
+                String[] parts = entry.split("\\|\\|");
+                if (parts.length >= 2) {
+                    SubEntry se = new SubEntry();
+                    se.name = parts[0];
+                    se.url = parts[1];
+                    subEntryList.add(se);
+                }
+            }
+        }
+        SubEntry fav = new SubEntry();
+        fav.name = "我的收藏";
+        fav.url = null;
+        subEntryList.add(0, fav);
+    }
+
+    private void loadSourceForUrl(String url) {
+        if (isLoading || url == null || url.isEmpty()) {
+            if (url == null || url.isEmpty()) {
+                showNoSourceDialog();
+            }
+            return;
+        }
+        isLoading = true;
+        loadFinished = false;
+        if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
+        final String finalUrl = url;
+        LogUtils.writeLog("开始加载源: " + finalUrl);
+        Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
+
+        // 超时检测
+        mainHandler.postDelayed(() -> {
+            if (!loadFinished) {
+                isLoading = false;
+                dismissLoadingDialog();
+                LogUtils.writeLog("加载源超时");
+                showLoadErrorDialog("加载超时，请检查网络或源地址是否有效。");
+            }
+        }, 20000);
+
+        new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
+            @Override
+            public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
+                loadFinished = true;
+                isLoading = false;
+                dismissLoadingDialog();
+                try {
+                    groupMap = map;
+                    groupNames = names;
+                    groupAdapter.updateData(groupNames);
+                    String lastGroup = prefs.getString(KEY_LAST_GROUP, "");
+                    if (!lastGroup.isEmpty() && groupNames.contains(lastGroup)) {
+                        currentGroup = lastGroup;
+                    } else if (!groupNames.isEmpty()) {
+                        currentGroup = groupNames.get(0);
+                    }
+                    if (!currentGroup.isEmpty()) {
+                        groupAdapter.setSelectedGroup(currentGroup);
+                        showChannelsForGroup(currentGroup);
+                    } else {
+                        currentChannelList.clear();
+                        channelAdapter.updateData(currentChannelList);
+                        Toast.makeText(MainActivity.this, "解析成功但无频道数据", Toast.LENGTH_LONG).show();
+                    }
+                    showOverlay();
+                    resetAutoHideTimer();
+                    LogUtils.writeLog("源加载成功，分组数: " + (map != null ? map.size() : 0));
+                } catch (Exception e) {
+                    LogUtils.writeCrashLog(e);
+                    showLoadErrorDialog("数据处理异常: " + e.getMessage());
+                }
+            }
+            @Override
+            public void onError(String error) {
+                loadFinished = true;
+                isLoading = false;
+                dismissLoadingDialog();
+                LogUtils.writeLog("加载源失败: " + error);
+                showLoadErrorDialog(error);
+            }
+        });
+    }
+
+    private void showChannelsForGroup(String group) {
+        try {
+            List<SourceManager.Channel> list;
+            if ("我的收藏".equals(group)) {
+                list = new ArrayList<>();
+                if (groupMap != null) {
+                    for (List<SourceManager.Channel> clist : groupMap.values()) {
+                        for (SourceManager.Channel ch : clist) {
+                            if (favoriteSet.contains(ch.name)) {
+                                list.add(ch);
+                            }
+                        }
+                    }
+                }
+            } else {
+                list = groupMap.get(group);
+                if (list == null) list = new ArrayList<>();
+            }
+            currentChannelList = list;
+            channelAdapter.updateData(currentChannelList);
+            String lastChannel = prefs.getString(KEY_LAST_CHANNEL, "");
+            SourceManager.Channel target = null;
+            if (!lastChannel.isEmpty()) {
+                for (SourceManager.Channel ch : currentChannelList) {
+                    if (ch.name.equals(lastChannel)) {
+                        target = ch;
+                        break;
+                    }
+                }
+            }
+            if (target == null && !currentChannelList.isEmpty()) {
+                target = currentChannelList.get(0);
+            }
+            if (target != null) {
+                channelAdapter.setSelectedChannel(target);
+                playChannel(target);
+                loadEpgForChannel(target);
+            } else {
+                Toast.makeText(this, "该分组无频道", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            LogUtils.writeCrashLog(e);
+            Toast.makeText(this, "显示分组异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void downloadLogo(String logoUrl, String channelName) {
+        new Thread(() -> {
+            try {
+                String fileName = channelName.hashCode() + ".png";
+                File logoFile = new File(logoDir, fileName);
+                if (logoFile.exists()) return;
+                OkHttpClient client = new OkHttpClient.Builder()
+                        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                        .build();
+                Request request = new Request.Builder().url(logoUrl).build();
+                Response response = client.newCall(request).execute();
+                if (response.code() != 200) return;
+                InputStream is = response.body().byteStream();
+                FileOutputStream fos = new FileOutputStream(logoFile);
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = is.read(buf)) != -1) {
+                    fos.write(buf, 0, len);
+                }
+                fos.close();
+                is.close();
+                runOnUiThread(() -> channelAdapter.notifyDataSetChanged());
+            } catch (Exception e) {
+                LogUtils.writeCrashLog(e);
+            }
+        }).start();
+    }
+
+    private void playChannel(SourceManager.Channel channel) {
+        if (channel == null) return;
+        currentChannel = channel;
+        prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
+        prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
+        try {
+            if (player == null) {
+                DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+                player = new ExoPlayer.Builder(this)
+                        .setTrackSelector(trackSelector)
+                        .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                                .setBufferDurationsMs(50000, 80000, 2500, 5000)
+                                .build())
+                        .build();
+                playerView.setPlayer(player);
+                player.addListener(new Player.Listener() {
+                    @Override
+                    public void onPlayerError(PlaybackException error) {
+                        runOnUiThread(() -> {
+                            LogUtils.writeCrashLog(error);
+                            Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                        });
+                    }
+                });
+            }
+            player.setMediaItem(MediaItem.fromUri(channel.url));
+            player.prepare();
+            player.play();
+            loadEpgForChannel(channel);
+            LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
+        } catch (Exception e) {
+            LogUtils.writeCrashLog(e);
+            Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void loadEpgForChannel(SourceManager.Channel channel) {
+        try {
+            String epgUrl = prefs.getString("epg_url", null);
+            if (epgUrl == null || epgUrl.isEmpty()) {
+                epgUrl = config.getString("EPG_URLS", null);
+                if (epgUrl == null || epgUrl.isEmpty()) {
+                    LogUtils.writeLog("未配置EPG URL");
+                    epgAdapter.setItems(new ArrayList<>());
+                    currentEpgList.clear();
+                    return;
+                }
+            }
+            if (epgUrl.contains("$")) epgUrl = epgUrl.substring(0, epgUrl.indexOf("$"));
+            final String finalEpgUrl = epgUrl;
+            LogUtils.writeLog("开始加载EPG: " + finalEpgUrl + " for " + channel.name);
+            EPGParser.loadEpg(finalEpgUrl, channel.name, new EPGParser.OnEpgLoadListener() {
+                @Override
+                public void onLoaded(List<EPGParser.EpgProgram> programs) {
+                    runOnUiThread(() -> {
+                        try {
+                            currentEpgList = programs;
+                            epgAdapter.setItems(programs);
+                            LogUtils.writeLog("EPG加载成功，节目数: " + programs.size());
+                        } catch (Exception e) {
+                            LogUtils.writeCrashLog(e);
+                        }
+                    });
+                }
+                @Override
+                public void onError(String error) {
+                    runOnUiThread(() -> {
+                        epgAdapter.setItems(new ArrayList<>());
+                        currentEpgList.clear();
+                        LogUtils.writeLog("EPG加载失败: " + error);
+                    });
+                }
+            });
+        } catch (Exception e) {
+            LogUtils.writeCrashLog(e);
+            Toast.makeText(this, "EPG加载异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void toggleFavorite(SourceManager.Channel channel) {
+        try {
+            if (favoriteSet.contains(channel.name)) {
+                favoriteSet.remove(channel.name);
+            } else {
+                favoriteSet.add(channel.name);
+            }
+            prefs.edit().putStringSet(KEY_FAVORITES, favoriteSet).apply();
+            showChannelsForGroup(currentGroup);
+            channelAdapter.updateFavorites(favoriteSet);
+            Toast.makeText(this, favoriteSet.contains(channel.name) ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            LogUtils.writeCrashLog(e);
+            Toast.makeText(this, "收藏操作异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showOverlay() {
+        isOverlayVisible = true;
+        overlayLayout.setVisibility(View.VISIBLE);
+        resetAutoHideTimer();
+        epgContainer.setVisibility(View.GONE);
+    }
+
+    private void hideOverlay() {
+        isOverlayVisible = false;
+        overlayLayout.setVisibility(View.GONE);
+        mainHandler.removeCallbacks(hideOverlayRunnable);
+    }
+
+    private void resetAutoHideTimer() {
+        mainHandler.removeCallbacks(hideOverlayRunnable);
+        if (isOverlayVisible) {
+            mainHandler.postDelayed(hideOverlayRunnable, 5000);
+        }
+    }
+
+    private void showInfoPopup() {
+        if (currentChannel == null) return;
+        try {
+            View popupView = getLayoutInflater().inflate(R.layout.popup_info, null);
+            ImageView ivLogo = popupView.findViewById(R.id.popup_logo);
+            TextView tvName = popupView.findViewById(R.id.popup_channel_name);
+            TextView tvResolution = popupView.findViewById(R.id.popup_resolution);
+            TextView tvFps = popupView.findViewById(R.id.popup_fps);
+            TextView tvAudio = popupView.findViewById(R.id.popup_audio);
+            TextView tvIp = popupView.findViewById(R.id.popup_ip);
+            TextView tvLine = popupView.findViewById(R.id.popup_line);
+            TextView tvDuration = popupView.findViewById(R.id.popup_duration);
+            TextView tvCurrentEpg = popupView.findViewById(R.id.popup_current_epg);
+            TextView tvNextEpg = popupView.findViewById(R.id.popup_next_epg);
+            tvName.setText(currentChannel.name);
+            File logoFile = null;
+            if (currentChannel.logoUrl != null && !currentChannel.logoUrl.isEmpty()) {
+                String fileName = currentChannel.name.hashCode() + ".png";
+                logoFile = new File(logoDir, fileName);
+            }
+            if (logoFile != null && logoFile.exists()) {
+                ivLogo.setImageBitmap(BitmapFactory.decodeFile(logoFile.getAbsolutePath()));
+                ivLogo.setVisibility(View.VISIBLE);
+            } else {
+                ivLogo.setVisibility(View.GONE);
+            }
+            tvResolution.setText("720x576");
+            tvFps.setText("25FPS");
+            tvAudio.setText("立体声");
+            tvIp.setText("IPV4");
+            tvLine.setText("线路1/1");
+            long now = System.currentTimeMillis();
+            if (!currentEpgList.isEmpty()) {
+                EPGParser.EpgProgram currentProg = currentEpgList.get(0);
+                long endTime = currentProg.endTime;
+                long duration = endTime - now;
+                if (duration < 0) duration = 0;
+                long minutes = duration / 60000;
+                tvDuration.setText("距结束：" + minutes + "分钟");
+                SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
+                String currentTime = sdf.format(new Date(currentProg.startTime)) + "-" + sdf.format(new Date(currentProg.endTime));
+                tvCurrentEpg.setText("正在播放：" + currentTime + " " + currentProg.title);
+                if (currentEpgList.size() > 1) {
+                    EPGParser.EpgProgram next = currentEpgList.get(1);
+                    tvNextEpg.setText("下一节目：" + sdf.format(new Date(next.startTime)) + "-" + sdf.format(new Date(next.endTime)) + " " + next.title);
+                } else {
+                    tvNextEpg.setText("下一节目：暂无");
+                }
+            } else {
+                tvDuration.setText("距结束：--");
+                tvCurrentEpg.setText("正在播放：暂无EPG");
+                tvNextEpg.setText("下一节目：暂无");
+            }
+            PopupWindow popup = new PopupWindow(popupView,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    true);
+            popup.setBackgroundDrawable(null);
+            popup.setOutsideTouchable(true);
+            popup.showAtLocation(findViewById(android.R.id.content), Gravity.BOTTOM, 0, 0);
+            popupView.setOnClickListener(v -> popup.dismiss());
+        } catch (Exception e) {
+            LogUtils.writeCrashLog(e);
+            Toast.makeText(this, "信息窗口异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            startActivity(new Intent(this, SettingsActivity.class));
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (player != null) {
+            player.release();
+            player = null;
+        }
+        mainHandler.removeCallbacks(hideOverlayRunnable);
+        dismissLoadingDialog();
+        LogUtils.writeLog("=== 应用退出 ===");
+    }
+
+    // ---------- Adapters ----------
+    static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
+        private List<SubEntry> data;
+        private OnSubClickListener listener;
+        interface OnSubClickListener { void onClick(SubEntry entry); }
+        SubAdapter(List<SubEntry> data, OnSubClickListener listener) { this.data = data; this.listener = listener; }
+        void updateData(List<SubEntry> newData) { this.data = newData; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_sub, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            SubEntry entry = data.get(position);
+            holder.name.setText(entry.name);
+            if ("我的收藏".equals(entry.name)) holder.name.setTextColor(0xFFFFD700);
+            else holder.name.setTextColor(0xFFFFFFFF);
+            holder.itemView.setOnClickListener(v -> listener.onClick(entry));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.sub_name); }
+        }
+    }
+    static class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
+        private List<String> data;
+        private String selectedGroup;
+        private OnGroupClickListener listener;
+        interface OnGroupClickListener { void onClick(String group); }
+        GroupAdapter(List<String> data, OnGroupClickListener listener) { this.data = data; this.listener = listener; }
+        void updateData(List<String> newData) { this.data = newData; notifyDataSetChanged(); }
+        void setSelectedGroup(String group) { this.selectedGroup = group; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_group, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            String group = data.get(position);
+            holder.name.setText(group);
+            holder.itemView.setBackgroundColor(group.equals(selectedGroup) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(group));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); }
+        }
+    }
+    static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
+        private List<SourceManager.Channel> data;
+        private SourceManager.Channel selectedChannel;
+        private OnChannelClickListener listener;
+        private OnFavoriteClickListener favListener;
+        private Set<String> favoriteSet;
+        private File logoDir;
+        interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
+        interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
+        ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir,
+                       OnChannelClickListener listener, OnFavoriteClickListener favListener) {
+            this.data = data; this.favoriteSet = favorites; this.logoDir = logoDir;
+            this.listener = listener; this.favListener = favListener;
+        }
+        void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
+        void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
+        void setSelectedChannel(SourceManager.Channel ch) { this.selectedChannel = ch; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            SourceManager.Channel ch = data.get(position);
+            holder.name.setText(ch.name);
+            boolean isFav = favoriteSet.contains(ch.name);
+            holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
+            holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(ch));
+            holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
+            if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
+                String fileName = ch.name.hashCode() + ".png";
+                File logoFile = new File(logoDir, fileName);
+                if (logoFile.exists()) {
+                    holder.logo.setImageBitmap(BitmapFactory.decodeFile(logoFile.getAbsolutePath()));
+                    holder.logo.setVisibility(View.VISIBLE);
+                } else {
+                    holder.logo.setVisibility(View.GONE);
+                }
+            } else {
+                holder.logo.setVisibility(View.GONE);
+            }
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name, favIcon;
+            ImageView logo;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); logo = v.findViewById(R.id.channel_logo); }
+        }
+    }
+    static class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
+        private List<EPGParser.EpgProgram> data = new ArrayList<>();
+        EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
+        void setItems(List<EPGParser.EpgProgram> newData) { this.data = newData; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_epg, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            EPGParser.EpgProgram prog = data.get(position);
+            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
+            holder.time.setText(time);
+            holder.title.setText(prog.title);
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView time, title;
+            ViewHolder(View v) { super(v); time = v.findViewById(R.id.epg_time); title = v.findViewById(R.id.epg_title); }
         }
     }
 }
