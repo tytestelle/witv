@@ -5,8 +5,7 @@ echo "🔥 部署酷9播放器（强制生成所有文件到 config/）"
 
 TEMPLATE_DIR="./config"
 
-# ========== 强制重新生成模板 ==========
-echo "📁 强制重新生成模板文件到 $TEMPLATE_DIR ..."
+# 强制重新生成，删除旧目录
 rm -rf "$TEMPLATE_DIR"
 mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
 mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
