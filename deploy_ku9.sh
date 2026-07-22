@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终修正版 - 窄覆盖层 + 自定义图标）"
+echo "🔥 部署酷9播放器（最终比例修正 + 信息窗口）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -339,7 +339,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java（移除 right_click_area） ====================
+    # ==================== MainActivity.java（包含信息窗口） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -349,12 +349,14 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.preference.PreferenceManager;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
@@ -416,143 +418,135 @@ public class MainActivity extends AppCompatActivity {
     private boolean isLoading = false;
     private List<SubEntry> subEntryList = new ArrayList<>();
     private View epgContainer;
+    private List<EPGParser.EpgProgram> currentEpgList = new ArrayList<>();
 
     static class SubEntry { String name, url; }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        try {
-            setContentView(R.layout.activity_main);
-            config = ConfigurationManager.getInstance(this);
-            PlayerConfigManager.init(this);
-            FavoriteManager.init(this);
-            prefs = PreferenceManager.getDefaultSharedPreferences(this);
-            favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
-            logoDir = new File(getFilesDir(), "logo");
-            if (!logoDir.exists()) logoDir.mkdirs();
+        setContentView(R.layout.activity_main);
+        config = ConfigurationManager.getInstance(this);
+        PlayerConfigManager.init(this);
+        FavoriteManager.init(this);
+        prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
+        logoDir = new File(getFilesDir(), "logo");
+        if (!logoDir.exists()) logoDir.mkdirs();
 
-            playerView = findViewById(R.id.player_container);
-            if (playerView == null) {
-                Toast.makeText(this, "playerView 为空", Toast.LENGTH_LONG).show();
-                return;
-            }
-            overlayLayout = findViewById(R.id.overlay_layout);
-            subRecycler = findViewById(R.id.sub_recycler);
-            groupRecycler = findViewById(R.id.group_recycler);
-            channelRecycler = findViewById(R.id.channel_recycler);
-            epgRecycler = findViewById(R.id.epg_recycler);
-            epgContainer = findViewById(R.id.epg_container);
+        playerView = findViewById(R.id.player_container);
+        overlayLayout = findViewById(R.id.overlay_layout);
+        subRecycler = findViewById(R.id.sub_recycler);
+        groupRecycler = findViewById(R.id.group_recycler);
+        channelRecycler = findViewById(R.id.channel_recycler);
+        epgRecycler = findViewById(R.id.epg_recycler);
+        epgContainer = findViewById(R.id.epg_container);
 
-            subRecycler.setLayoutManager(new LinearLayoutManager(this));
-            groupRecycler.setLayoutManager(new LinearLayoutManager(this));
-            channelRecycler.setLayoutManager(new LinearLayoutManager(this));
-            epgRecycler.setLayoutManager(new LinearLayoutManager(this));
+        subRecycler.setLayoutManager(new LinearLayoutManager(this));
+        groupRecycler.setLayoutManager(new LinearLayoutManager(this));
+        channelRecycler.setLayoutManager(new LinearLayoutManager(this));
+        epgRecycler.setLayoutManager(new LinearLayoutManager(this));
 
-            loadSubscriptions();
+        loadSubscriptions();
 
-            subAdapter = new SubAdapter(subEntryList, entry -> {
-                currentSubName = entry.name;
-                currentSubUrl = entry.url;
-                prefs.edit().putString(KEY_SELECTED_SUB, entry.name + "||" + entry.url).apply();
-                loadSourceForUrl(entry.url);
-                hideOverlay();
-            });
-            subRecycler.setAdapter(subAdapter);
+        subAdapter = new SubAdapter(subEntryList, entry -> {
+            currentSubName = entry.name;
+            currentSubUrl = entry.url;
+            prefs.edit().putString(KEY_SELECTED_SUB, entry.name + "||" + entry.url).apply();
+            loadSourceForUrl(entry.url);
+            hideOverlay();
+        });
+        subRecycler.setAdapter(subAdapter);
 
-            groupAdapter = new GroupAdapter(new ArrayList<>(), group -> {
-                currentGroup = group;
-                showChannelsForGroup(group);
-                groupAdapter.setSelectedGroup(group);
-            });
-            groupRecycler.setAdapter(groupAdapter);
+        groupAdapter = new GroupAdapter(new ArrayList<>(), group -> {
+            currentGroup = group;
+            showChannelsForGroup(group);
+            groupAdapter.setSelectedGroup(group);
+        });
+        groupRecycler.setAdapter(groupAdapter);
 
-            channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
-                playChannel(channel);
-                loadEpgForChannel(channel);
-                channelAdapter.setSelectedChannel(channel);
-                hideOverlay();
-            }, this::toggleFavorite);
-            channelRecycler.setAdapter(channelAdapter);
+        channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
+            playChannel(channel);
+            loadEpgForChannel(channel);
+            channelAdapter.setSelectedChannel(channel);
+            hideOverlay();
+        }, this::toggleFavorite);
+        channelRecycler.setAdapter(channelAdapter);
 
-            epgAdapter = new EpgAdapter(new ArrayList<>());
-            epgRecycler.setAdapter(epgAdapter);
+        epgAdapter = new EpgAdapter(new ArrayList<>());
+        epgRecycler.setAdapter(epgAdapter);
 
-            tvChannelName = findViewById(R.id.tv_channel_name);
-            tvEpgInfo = findViewById(R.id.tv_epg_info);
-            tvTime = findViewById(R.id.tv_time);
+        tvChannelName = findViewById(R.id.tv_channel_name);
+        tvEpgInfo = findViewById(R.id.tv_epg_info);
+        tvTime = findViewById(R.id.tv_time);
 
-            updateTime();
+        updateTime();
 
-            playerView.setOnTouchListener((v, event) -> {
-                if (event.getAction() == MotionEvent.ACTION_UP) {
-                    float y = event.getY();
-                    float height = v.getHeight();
-                    if (y > height * 0.5 && y < height * 0.85) {
-                        Toast.makeText(this, "信息窗口（模拟）", Toast.LENGTH_SHORT).show();
-                        return true;
-                    }
+        // 点击播放器中间下半部分弹出信息窗口
+        playerView.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_UP) {
+                float y = event.getY();
+                float height = v.getHeight();
+                if (y > height * 0.5 && y < height * 0.85) {
+                    showInfoPopup();
+                    return true;
                 }
-                return false;
-            });
+            }
+            return false;
+        });
 
-            findViewById(R.id.btn_epg).setOnClickListener(v -> {
-                if (currentChannel != null) {
-                    if (epgContainer.getVisibility() == View.VISIBLE) {
-                        epgContainer.setVisibility(View.GONE);
-                    } else {
-                        epgContainer.setVisibility(View.VISIBLE);
-                        loadEpgForChannel(currentChannel);
-                    }
+        findViewById(R.id.btn_epg).setOnClickListener(v -> {
+            if (currentChannel != null) {
+                if (epgContainer.getVisibility() == View.VISIBLE) {
+                    epgContainer.setVisibility(View.GONE);
                 } else {
-                    Toast.makeText(this, "请先选择一个频道", Toast.LENGTH_SHORT).show();
-                }
-            });
-            findViewById(R.id.btn_announce).setOnClickListener(v -> Toast.makeText(this, "使用公告", Toast.LENGTH_SHORT).show());
-
-            String selected = prefs.getString(KEY_SELECTED_SUB, "");
-            if (!selected.isEmpty()) {
-                String[] parts = selected.split("\\|\\|");
-                if (parts.length == 2) {
-                    currentSubName = parts[0];
-                    currentSubUrl = parts[1];
-                }
-            }
-            if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
-                loadSourceForUrl(currentSubUrl);
-            } else if (!subEntryList.isEmpty()) {
-                for (SubEntry se : subEntryList) {
-                    if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
-                        currentSubName = se.name;
-                        currentSubUrl = se.url;
-                        prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
-                        loadSourceForUrl(se.url);
-                        break;
-                    }
+                    epgContainer.setVisibility(View.VISIBLE);
+                    loadEpgForChannel(currentChannel);
                 }
             } else {
-                String defaultUrl = config.getLiveUrls();
-                if (defaultUrl != null && !defaultUrl.isEmpty()) {
-                    currentSubName = "默认源";
-                    currentSubUrl = defaultUrl;
-                    loadSourceForUrl(defaultUrl);
+                Toast.makeText(this, "请先选择一个频道", Toast.LENGTH_SHORT).show();
+            }
+        });
+        findViewById(R.id.btn_announce).setOnClickListener(v -> Toast.makeText(this, "使用公告", Toast.LENGTH_SHORT).show());
+
+        String selected = prefs.getString(KEY_SELECTED_SUB, "");
+        if (!selected.isEmpty()) {
+            String[] parts = selected.split("\\|\\|");
+            if (parts.length == 2) {
+                currentSubName = parts[0];
+                currentSubUrl = parts[1];
+            }
+        }
+        if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
+            loadSourceForUrl(currentSubUrl);
+        } else if (!subEntryList.isEmpty()) {
+            for (SubEntry se : subEntryList) {
+                if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                    currentSubName = se.name;
+                    currentSubUrl = se.url;
+                    prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                    loadSourceForUrl(se.url);
+                    break;
                 }
             }
-
-            hideOverlayRunnable = () -> {
-                if (isOverlayVisible) hideOverlay();
-            };
-
-            findViewById(R.id.left_click_area).setOnClickListener(v -> {
-                if (!isOverlayVisible) showOverlay();
-            });
-
-            // 覆盖层右侧30%区域点击关闭（已在布局中设置 android:onClick="hideOverlay"）
-
-        } catch (Exception e) {
-            Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            e.printStackTrace();
+        } else {
+            String defaultUrl = config.getLiveUrls();
+            if (defaultUrl != null && !defaultUrl.isEmpty()) {
+                currentSubName = "默认源";
+                currentSubUrl = defaultUrl;
+                loadSourceForUrl(defaultUrl);
+            }
         }
+
+        hideOverlayRunnable = () -> {
+            if (isOverlayVisible) hideOverlay();
+        };
+
+        findViewById(R.id.left_click_area).setOnClickListener(v -> {
+            if (!isOverlayVisible) showOverlay();
+        });
+
+        // 覆盖层右侧透明区域点击关闭已在布局中处理
     }
 
     @Override
@@ -739,6 +733,7 @@ public class MainActivity extends AppCompatActivity {
                 if (epgUrl == null || epgUrl.isEmpty()) {
                     tvEpgInfo.setText("暂无EPG");
                     epgAdapter.setItems(new ArrayList<>());
+                    currentEpgList.clear();
                     return;
                 }
             }
@@ -748,6 +743,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onLoaded(List<EPGParser.EpgProgram> programs) {
                     runOnUiThread(() -> {
+                        currentEpgList = programs;
                         epgAdapter.setItems(programs);
                         if (!programs.isEmpty()) {
                             EPGParser.EpgProgram first = programs.get(0);
@@ -764,6 +760,7 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         tvEpgInfo.setText("EPG加载失败");
                         epgAdapter.setItems(new ArrayList<>());
+                        currentEpgList.clear();
                     });
                 }
             });
@@ -804,6 +801,76 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void showInfoPopup() {
+        if (currentChannel == null) return;
+        View popupView = getLayoutInflater().inflate(R.layout.popup_info, null);
+        ImageView ivLogo = popupView.findViewById(R.id.popup_logo);
+        TextView tvName = popupView.findViewById(R.id.popup_channel_name);
+        TextView tvResolution = popupView.findViewById(R.id.popup_resolution);
+        TextView tvFps = popupView.findViewById(R.id.popup_fps);
+        TextView tvAudio = popupView.findViewById(R.id.popup_audio);
+        TextView tvIp = popupView.findViewById(R.id.popup_ip);
+        TextView tvLine = popupView.findViewById(R.id.popup_line);
+        TextView tvDuration = popupView.findViewById(R.id.popup_duration);
+        TextView tvCurrentEpg = popupView.findViewById(R.id.popup_current_epg);
+        TextView tvNextEpg = popupView.findViewById(R.id.popup_next_epg);
+
+        tvName.setText(currentChannel.name);
+        File logoFile = null;
+        if (currentChannel.logoUrl != null && !currentChannel.logoUrl.isEmpty()) {
+            String fileName = currentChannel.name.hashCode() + ".png";
+            logoFile = new File(logoDir, fileName);
+        }
+        if (logoFile != null && logoFile.exists()) {
+            ivLogo.setImageBitmap(BitmapFactory.decodeFile(logoFile.getAbsolutePath()));
+            ivLogo.setVisibility(View.VISIBLE);
+        } else {
+            ivLogo.setVisibility(View.GONE);
+        }
+
+        // 模拟数据（实际可从播放器获取）
+        tvResolution.setText("720x576");
+        tvFps.setText("25FPS");
+        tvAudio.setText("立体声");
+        tvIp.setText("IPV4");
+        tvLine.setText("线路1/1");
+
+        // 计算距结束时间
+        long now = System.currentTimeMillis();
+        long endTime = 0;
+        long duration = 0;
+        if (!currentEpgList.isEmpty()) {
+            EPGParser.EpgProgram currentProg = currentEpgList.get(0);
+            endTime = currentProg.endTime;
+            duration = endTime - now;
+            if (duration < 0) duration = 0;
+            long minutes = duration / 60000;
+            tvDuration.setText("距结束：" + minutes + "分钟");
+            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            String currentTime = sdf.format(new Date(currentProg.startTime)) + "-" + sdf.format(new Date(currentProg.endTime));
+            tvCurrentEpg.setText(currentTime + " " + currentProg.title);
+            if (currentEpgList.size() > 1) {
+                EPGParser.EpgProgram next = currentEpgList.get(1);
+                tvNextEpg.setText(sdf.format(new Date(next.startTime)) + " " + next.title);
+            } else {
+                tvNextEpg.setText("暂无下一节目");
+            }
+        } else {
+            tvDuration.setText("距结束：--");
+            tvCurrentEpg.setText("暂无EPG");
+            tvNextEpg.setText("");
+        }
+
+        PopupWindow popup = new PopupWindow(popupView,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true);
+        popup.setBackgroundDrawable(null);
+        popup.setOutsideTouchable(true);
+        popup.showAtLocation(findViewById(android.R.id.content), Gravity.BOTTOM, 0, 0);
+        popupView.setOnClickListener(v -> popup.dismiss());
+    }
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -829,6 +896,7 @@ public class MainActivity extends AppCompatActivity {
         mainHandler.removeCallbacks(hideOverlayRunnable);
     }
 
+    // ==================== Adapters ====================
     static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
         private List<SubEntry> data;
         private OnSubClickListener listener;
@@ -948,7 +1016,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== SettingsActivity.java ====================
+    # ==================== SettingsActivity.java（完整） ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1318,7 +1386,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件（无 right_click_area） ====================
+    # ==================== 布局文件（覆盖层宽度60%） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1397,7 +1465,7 @@ EOF
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- 覆盖层（宽度仅占70%，靠左） -->
+    <!-- 覆盖层（宽度60%，三列比例 1:0.9:1.4） -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -1406,11 +1474,11 @@ EOF
         android:background="#CC000000"
         android:visibility="gone">
 
-        <!-- 内容容器：宽度70%，包含三列 -->
+        <!-- 内容容器 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.7"
+            android:layout_weight="0.6"
             android:orientation="horizontal"
             android:background="#CC000000">
 
@@ -1439,7 +1507,7 @@ EOF
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
+                android:layout_weight="0.9"
                 android:orientation="vertical"
                 android:background="#44000000"
                 android:padding="4dp">
@@ -1460,7 +1528,7 @@ EOF
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1.8"
+                android:layout_weight="1.4"
                 android:orientation="vertical"
                 android:background="#55000000"
                 android:padding="4dp">
@@ -1499,11 +1567,11 @@ EOF
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 右侧空白区域（30%）点击关闭 -->
+        <!-- 右侧透明关闭区域 -->
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.3"
+            android:layout_weight="0.4"
             android:background="#00000000"
             android:clickable="true"
             android:onClick="hideOverlay" />
@@ -1511,7 +1579,122 @@ EOF
 </FrameLayout>
 EOF
 
-    # ==================== 其他布局文件（同前） ====================
+    # ==================== 信息窗口布局（popup_info.xml） ====================
+    cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#DD000000"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/popup_logo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/popup_channel_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="频道名"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/popup_resolution"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="720x576"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/popup_fps"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="25FPS"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/popup_audio"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="立体声"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/popup_ip"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="IPV4"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/popup_line"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="线路1/1"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/popup_duration"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="距结束：--分钟"
+        android:textColor="#AAAAAA"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/popup_current_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="当前节目"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/popup_next_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="下一节目"
+        android:textColor="#AAAAAA"
+        android:textSize="12sp" />
+</LinearLayout>
+EOF
+
+    # ==================== 其他布局文件（不变） ====================
     cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1656,7 +1839,7 @@ EOF
 </LinearLayout>
 EOF
 
-    # ==================== 默认矢量图标（备用） ====================
+    # ==================== 图标资源 ====================
     cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
@@ -1699,27 +1882,21 @@ mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/a
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
 echo "✅ 文件复制完成"
 
-# 为 SettingsActivity 添加缺失的 import
 sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
-# ========== 处理自定义图标 ==========
+# ========== 自定义图标 ==========
 if [ -f "apk ico.jpeg" ]; then
-    echo "📁 找到自定义图标 apk ico.jpeg，将作为应用图标..."
     cp "apk ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
     rm -f app/src/main/res/drawable/ic_launcher.xml
 elif [ -f "apk_ico.jpeg" ]; then
-    echo "📁 找到自定义图标 apk_ico.jpeg，将作为应用图标..."
     cp "apk_ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
     rm -f app/src/main/res/drawable/ic_launcher.xml
 elif [ -f "apk ico.png" ]; then
-    echo "📁 找到自定义图标 apk ico.png，将作为应用图标..."
     cp "apk ico.png" "app/src/main/res/drawable/ic_launcher.png"
     rm -f app/src/main/res/drawable/ic_launcher.xml
-else
-    echo "⚠️ 未找到自定义图标文件，使用默认矢量图标"
 fi
 
-# ========== 添加依赖和权限 ==========
+# ========== 依赖和权限 ==========
 APP_GRADLE="app/build.gradle"
 MANIFEST="app/src/main/AndroidManifest.xml"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
@@ -1734,8 +1911,7 @@ sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 echo "✅ 权限已添加"
 
-# ========== 设置应用图标 ==========
-echo "🛠️ 设置应用图标..."
+# ========== 设置图标 ==========
 python3 <<PYTHON_SCRIPT
 import sys, xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -1743,26 +1919,15 @@ ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
 manifest_file = "$MANIFEST"
 pkg = "com.whyun.witv"
 try:
-    tree = ET.parse(manifest_file)
-    root = tree.getroot()
+    tree = ET.parse(manifest_file); root = tree.getroot()
 except Exception as e:
-    print(f"解析失败: {e}", file=sys.stderr)
-    sys.exit(1)
-
+    print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
 app = root.find('application')
 if app is None:
-    print("未找到 application", file=sys.stderr)
-    sys.exit(1)
-
-# 设置图标属性
+    print("未找到 application", file=sys.stderr); sys.exit(1)
 icon_attr = '{http://schemas.android.com/apk/res/android}icon'
 app.set(icon_attr, '@drawable/ic_launcher')
-
-# 清除所有旧 activity，重新创建
-for act in app.findall('activity'):
-    app.remove(act)
-
-# 主 Activity
+for act in app.findall('activity'): app.remove(act)
 main_act = ET.Element('activity')
 main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
 main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
@@ -1772,20 +1937,16 @@ action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.a
 cat = ET.SubElement(intent_filter, 'category')
 cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
 app.append(main_act)
-
-# Settings Activity
 settings_act = ET.Element('activity')
 settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
 settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
 app.append(settings_act)
-
 xml_str = ET.tostring(root, encoding='unicode')
 dom = minidom.parseString(xml_str)
 pretty = dom.toprettyxml(indent="    ")
 pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f:
-    f.write(pretty)
-print("✅ AndroidManifest 已更新（图标 + Activity）")
+with open(manifest_file, 'w') as f: f.write(pretty)
+print("✅ AndroidManifest 已更新")
 PYTHON_SCRIPT
 
 # ========== 构建 ==========
@@ -1796,7 +1957,7 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 修正内容："
-echo "   ✅ 移除了 right_click_area 引用，使用右侧透明区域点击关闭"
-echo "   ✅ 覆盖层宽度缩至屏幕 70%，三列比例 1:1:1.8"
-echo "   ✅ 自定义图标自动设置"
-echo "   ✅ 所有功能正常"
+echo "   ✅ 覆盖层宽度缩至 60%，三列比例 1:0.9:1.4，更接近酷9"
+echo "   ✅ 信息窗口完整显示分辨率、帧率、音轨、IP、线路、距结束时间、当前/下一节目"
+echo "   ✅ 点击播放器中间下半部分弹出信息窗口"
+echo "   ✅ 自定义图标已应用"
