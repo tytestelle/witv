@@ -275,7 +275,6 @@ public class LogUtils {
 EOF
 
 # ==================== EPGParser.java（增强匹配，支持别名映射） ====================
-cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
 import android.content.Context;
@@ -471,54 +470,69 @@ public class EPGParser {
 
                             if (currentTitle != null && !currentTitle.isEmpty()) {
                                 boolean channelMatches = false;
+                                String normalizedCurrentChannel = null;
+                                String normalizedTitle = normalizeChannelName(currentTitle);
 
                                 // 1. 直接匹配 channel 属性
                                 if (currentChannel != null) {
-                                    String normalizedCurrent = normalizeChannelName(currentChannel);
-                                    if (normalizedCurrent.equals(normalizedChannelName) ||
-                                            normalizedCurrent.contains(normalizedChannelName) ||
-                                            normalizedChannelName.contains(normalizedCurrent)) {
+                                    normalizedCurrentChannel = normalizeChannelName(currentChannel);
+                                    if (normalizedCurrentChannel.equals(normalizedChannelName) ||
+                                            normalizedCurrentChannel.contains(normalizedChannelName) ||
+                                            normalizedChannelName.contains(normalizedCurrentChannel)) {
                                         channelMatches = true;
+                                        LogUtils.writeLog("直接匹配 channel: " + currentChannel + " -> " + currentTitle);
                                     }
                                 }
 
-                                // 2. 利用别名映射匹配
+                                // 2. 别名映射匹配
                                 if (!channelMatches && aliasMap != null && !aliasMap.isEmpty()) {
                                     // 2.1 当前频道名映射到 epgid
                                     String epgidFromChannel = aliasMap.get(normalizedChannelName);
                                     if (epgidFromChannel != null) {
                                         String normalizedEpgid = normalizeChannelName(epgidFromChannel);
                                         if (currentChannel != null) {
-                                            String normalizedCurrent = normalizeChannelName(currentChannel);
-                                            if (normalizedCurrent.equals(normalizedEpgid) ||
-                                                    normalizedCurrent.contains(normalizedEpgid) ||
-                                                    normalizedEpgid.contains(normalizedCurrent)) {
+                                            String normCurrent = normalizeChannelName(currentChannel);
+                                            if (normCurrent.equals(normalizedEpgid) ||
+                                                    normCurrent.contains(normalizedEpgid) ||
+                                                    normalizedEpgid.contains(normCurrent)) {
                                                 channelMatches = true;
+                                                LogUtils.writeLog("别名映射(正向): " + channelName + " -> " + epgidFromChannel + " 匹配 " + currentChannel);
                                             }
                                         }
                                     }
                                     // 2.2 当前 channel 属性映射到 epgid
                                     if (!channelMatches && currentChannel != null) {
-                                        String normalizedCurrent = normalizeChannelName(currentChannel);
-                                        String epgidFromCurrent = aliasMap.get(normalizedCurrent);
+                                        String normCurrent = normalizeChannelName(currentChannel);
+                                        String epgidFromCurrent = aliasMap.get(normCurrent);
                                         if (epgidFromCurrent != null) {
                                             String normalizedEpgidCurrent = normalizeChannelName(epgidFromCurrent);
                                             if (normalizedEpgidCurrent.equals(normalizedChannelName) ||
                                                     normalizedEpgidCurrent.contains(normalizedChannelName) ||
                                                     normalizedChannelName.contains(normalizedEpgidCurrent)) {
                                                 channelMatches = true;
+                                                LogUtils.writeLog("别名映射(反向): " + currentChannel + " -> " + epgidFromCurrent + " 匹配 " + channelName);
                                             }
                                         }
                                     }
                                 }
 
-                                // 3. 如果还是未匹配且 channel 属性为空，尝试用标题匹配（原逻辑）
-                                if (!channelMatches && currentChannel == null) {
-                                    String normalizedTitle = normalizeChannelName(currentTitle);
-                                    if (normalizedTitle.equals(normalizedChannelName) ||
-                                            normalizedTitle.contains(normalizedChannelName) ||
-                                            normalizedChannelName.contains(normalizedTitle)) {
-                                        channelMatches = true;
+                                // 3. 包含匹配 (channel 或 title)
+                                if (!channelMatches) {
+                                    // 3.1 检查 channel 是否包含频道名（或反之）
+                                    if (currentChannel != null && normalizedCurrentChannel != null) {
+                                        if (normalizedCurrentChannel.contains(normalizedChannelName) ||
+                                                normalizedChannelName.contains(normalizedCurrentChannel)) {
+                                            channelMatches = true;
+                                            LogUtils.writeLog("包含匹配 channel: " + currentChannel + " 包含 " + channelName);
+                                        }
+                                    }
+                                    // 3.2 检查 title 是否包含频道名（或反之）
+                                    if (!channelMatches && normalizedTitle != null) {
+                                        if (normalizedTitle.contains(normalizedChannelName) ||
+                                                normalizedChannelName.contains(normalizedTitle)) {
+                                            channelMatches = true;
+                                            LogUtils.writeLog("包含匹配 title: " + currentTitle + " 包含 " + channelName);
+                                        }
                                     }
                                 }
 
@@ -554,7 +568,6 @@ public class EPGParser {
                                     }
 
                                     result.add(prog);
-                                    LogUtils.writeLog("匹配到节目: " + prog.title + " " + prog.startTime);
                                 }
                             }
                         }
@@ -602,7 +615,6 @@ public class EPGParser {
         }
     }
 }
-EOF
 
 # ==================== PlayerConfigManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
