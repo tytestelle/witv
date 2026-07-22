@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终修正版）"
+echo "🔥 部署 witv 播放器（最终修正版 - 修复编译错误）"
 
 TEMPLATE_DIR="./config"
 
@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（修正存储位置） ====================
+# ==================== LogUtils.java（修正，提供无参版本） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -162,9 +162,9 @@ public class LogUtils {
     private static final String LOG_FILE = "app.log";
     private static String sLogDirPath = null;
 
+    // 无参初始化，自动使用外部存储
     public static void init() {
         if (sLogDirPath != null) return;
-        // 优先使用外部存储
         String basePath = null;
         try {
             if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
@@ -174,19 +174,18 @@ public class LogUtils {
             Log.e("LogUtils", "获取外部存储失败", e);
         }
         if (basePath == null) {
-            // 回退到内部存储 files 目录
-            basePath = "/sdcard"; // 再尝试
+            basePath = "/sdcard";
         }
         File baseDir = new File(basePath, APP_DIR);
         if (!baseDir.exists()) {
             if (!baseDir.mkdirs()) {
-                // 如果外部存储创建失败，使用内部存储
+                // 如果外部存储创建失败，使用内部存储 files 目录
                 baseDir = new File(Environment.getDataDirectory(), "data/com.whyun.witv/files/" + APP_DIR);
                 baseDir.mkdirs();
             }
         }
-        // 创建所有子目录
-        createAppDirectories(baseDir);
+        // 创建所有子目录（无参调用）
+        createAppDirectories();
         File logDir = new File(baseDir, LOG_DIR_NAME);
         if (!logDir.exists()) {
             logDir.mkdirs();
@@ -240,6 +239,24 @@ public class LogUtils {
         }
     }
 
+    // 无参版本，自动获取外部存储根目录
+    public static void createAppDirectories() {
+        String basePath = null;
+        try {
+            if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
+                basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
+            }
+        } catch (Exception e) {
+            Log.e("LogUtils", "获取外部存储失败", e);
+        }
+        if (basePath == null) {
+            basePath = "/sdcard";
+        }
+        File baseDir = new File(basePath, APP_DIR);
+        createAppDirectories(baseDir);
+    }
+
+    // 带参版本，创建指定目录下的子目录
     public static void createAppDirectories(File baseDir) {
         try {
             String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"};
@@ -613,7 +630,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（修正布局引用，强制定向外部存储） ====================
+# ==================== MainActivity.java（修正，调用无参 createAppDirectories） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -723,7 +740,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         LogUtils.init();
-        LogUtils.createAppDirectories();
+        LogUtils.createAppDirectories();  // 无参版本
         LogUtils.writeLog("=== 应用启动 ===");
         Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_LONG).show();
 
@@ -927,7 +944,7 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_PERMISSIONS) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 LogUtils.writeLog("存储权限已获取");
-                LogUtils.createAppDirectories();
+                LogUtils.createAppDirectories(); // 无参版本
                 Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_SHORT).show();
             } else {
                 LogUtils.writeLog("存储权限被拒绝");
