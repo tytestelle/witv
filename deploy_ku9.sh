@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（全局缓存，一次性解析全部频道） ====================
+# ==================== EPGParser.java（全局缓存，已修复 lambda final 问题） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -233,11 +233,8 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
 
     private static Map<String, String> sAliasMap = null;
-    // 全局缓存：channelId -> 该频道所有节目（未排序）
     private static Map<String, List<EpgProgram>> sAllPrograms = null;
-    // 归一化频道名 -> channelId
     private static Map<String, String> sChannelNameToId = null;
-    // 是否正在加载中
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
 
@@ -272,11 +269,9 @@ public class EPGParser {
         return sAliasMap;
     }
 
-    // 初始化全局缓存（只执行一次）
     private static void initAllPrograms(Context context, String url) {
         if (sLoaded) return;
         if (!sLoading.compareAndSet(false, true)) {
-            // 其他线程正在加载，等待
             int waitCount = 0;
             while (!sLoaded && waitCount < 300) {
                 try { Thread.sleep(100); } catch (InterruptedException ignored) {}
@@ -451,7 +446,6 @@ public class EPGParser {
                                 channelNameToId.put(normName, currentChannelId);
                                 channelNameToId.put(currentDisplayName, currentChannelId);
                             }
-                            // 存储显示名到ID（原始名称）
                             channelNameToId.put(currentDisplayName, currentChannelId);
                         }
                     } else if ("programme".equals(parser.getName())) {
@@ -478,7 +472,6 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 结合别名映射补充映射关系
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
@@ -496,32 +489,29 @@ public class EPGParser {
 
     // 对外接口：加载某个频道的EPG（从缓存获取）
     public static void loadEpg(Context context, String url, String channelName, OnEpgLoadListener listener) {
-        // 先加载别名映射
         loadAliasMap(context);
 
-        // 初始化全局缓存（首次调用时执行）
         if (!sLoaded) {
             initAllPrograms(context, url);
         }
 
+        final OnEpgLoadListener finalListener = listener;
+
         if (!sLoaded) {
-            listener.onError("EPG数据正在加载中，请稍后重试");
+            android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+            mainHandler.post(() -> finalListener.onError("EPG数据正在加载中，请稍后重试"));
             return;
         }
 
-        // 查找频道ID
         String normalizedChannelName = normalizeChannelName(channelName);
         String channelId = null;
 
-        // 1. 尝试通过映射查找
         if (sChannelNameToId != null) {
-            // 先尝试原始名称
             if (sChannelNameToId.containsKey(channelName)) {
                 channelId = sChannelNameToId.get(channelName);
             } else if (sChannelNameToId.containsKey(normalizedChannelName)) {
                 channelId = sChannelNameToId.get(normalizedChannelName);
             } else {
-                // 遍历所有key进行包含匹配（处理不精确匹配）
                 for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                     String key = entry.getKey();
                     if (key.contains(normalizedChannelName) || normalizedChannelName.contains(key)) {
@@ -535,15 +525,14 @@ public class EPGParser {
 
         if (channelId == null) {
             LogUtils.writeLog("未找到频道ID: " + channelName);
-            listener.onLoaded(new ArrayList<>());
+            android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+            mainHandler.post(() -> finalListener.onLoaded(new ArrayList<>()));
             return;
         }
 
-        // 获取该频道的节目列表
         List<EpgProgram> result = sAllPrograms.get(channelId);
         if (result == null) result = new ArrayList<>();
 
-        // 按当前时间排序（从当前节目开始）
         long currentTime = System.currentTimeMillis();
         Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
         int currentIndex = 0;
@@ -562,11 +551,10 @@ public class EPGParser {
 
         LogUtils.writeLog("返回频道 " + channelName + " 的节目数: " + result.size());
         android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        mainHandler.post(() -> listener.onLoaded(result));
+        mainHandler.post(() -> finalListener.onLoaded(result));
     }
 
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
-        // 此方法保留，但在全量解析中未使用，可保留供以后调用
         try {
             if (iconUrl == null || iconUrl.isEmpty()) return;
             String decoded = URLDecoder.decode(iconUrl, "UTF-8");
@@ -693,7 +681,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（无需改动，接口不变） ====================
+# ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
