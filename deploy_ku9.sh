@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（单缓存+哈希对比+修正解析）"
+echo "🔥 部署 witv 播放器（单缓存+哈希对比+当前时间排序）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（修正 display-name 解析） ====================
+# ==================== EPGParser.java（修正排序：从当前时间开始） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -218,6 +218,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -406,7 +407,6 @@ public class EPGParser {
                         currentDisplayName = null;
                         currentIconUrl = null;
                     } else if (inChannel && "display-name".equals(currentTag)) {
-                        // 直接读取文本内容，避免因文本节点拆分导致获取失败
                         currentDisplayName = parser.nextText().trim();
                     } else if (inChannel && "icon".equals(currentTag)) {
                         currentIconUrl = parser.getAttributeValue(null, "src");
@@ -420,7 +420,6 @@ public class EPGParser {
                     }
                     break;
                 case XmlPullParser.TEXT:
-                    // 对于 display-name 我们已经用 nextText() 处理，所以这里不再处理
                     if (inProgramme && parser.getText() != null) {
                         String text = parser.getText().trim();
                         if ("title".equals(currentTag)) {
@@ -510,7 +509,37 @@ public class EPGParser {
         }
         List<EpgProgram> result = programMap.get(targetChannelId);
         if (result == null) result = new ArrayList<>();
+
+        // ========== 修改排序逻辑：从当前时间开始 ==========
+        long currentTime = System.currentTimeMillis();
+        
+        // 先按开始时间排序（从小到大）
         Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
+        
+        // 找到第一个结束时间 > 当前时间的节目（即当前正在播放的节目）
+        int currentIndex = 0;
+        for (int i = 0; i < result.size(); i++) {
+            if (result.get(i).endTime > currentTime) {
+                currentIndex = i;
+                break;
+            }
+        }
+        
+        // 如果找到了当前节目，重新排列：从当前节目开始，然后循环到列表末尾，再从头开始
+        if (currentIndex > 0 && currentIndex < result.size()) {
+            List<EpgProgram> sortedList = new ArrayList<>();
+            // 从 currentIndex 到末尾
+            for (int i = currentIndex; i < result.size(); i++) {
+                sortedList.add(result.get(i));
+            }
+            // 从 0 到 currentIndex-1
+            for (int i = 0; i < currentIndex; i++) {
+                sortedList.add(result.get(i));
+            }
+            result = sortedList;
+        }
+        // ========== 排序逻辑结束 ==========
+
         LogUtils.writeLog("最终返回节目数: " + result.size());
         return result;
     }
