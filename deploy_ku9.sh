@@ -6,6 +6,7 @@ echo "🔥 部署酷9风格UI到现有WiTV项目"
 # 定义模板目录和源码目录
 TEMPLATE_DIR="./template"
 UI_PKG_DIR="app/src/main/java/com/whyun/witv/ui"
+EPG_PKG_DIR="app/src/main/java/com/whyun/witv/epg"
 RES_LAYOUT_DIR="app/src/main/res/layout"
 RES_DRAWABLE_DIR="app/src/main/res/drawable"
 
@@ -13,8 +14,111 @@ RES_DRAWABLE_DIR="app/src/main/res/drawable"
 if [ ! -d "$TEMPLATE_DIR" ]; then
     echo "📁 首次运行，创建模板目录并生成文件..."
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable}
+    mkdir -p "$TEMPLATE_DIR/src/epg"
 
-    # 生成修改后的 PlayerActivity.java
+    # ========== 生成 EPGParser.java ==========
+    cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
+package com.whyun.witv.epg;
+import android.util.Xml;
+import org.xmlpull.v1.XmlPullParser;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+public class EPGParser {
+    public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
+    public static void loadEpg(String url, String channelName, OnEpgLoadListener listener) {
+        new Thread(() -> {
+            OkHttpClient client = null;
+            Response response = null;
+            InputStream is = null;
+            try {
+                client = new OkHttpClient.Builder()
+                        .connectTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .build();
+                Request request = new Request.Builder().url(url).build();
+                response = client.newCall(request).execute();
+                if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
+                is = response.body().byteStream();
+                List<EpgProgram> programs = parseXmltv(is, channelName);
+                if (listener != null) {
+                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                    mainHandler.post(() -> listener.onLoaded(programs));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                if (listener != null) {
+                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                    mainHandler.post(() -> listener.onError(e.getMessage()));
+                }
+            } finally {
+                try { if (is != null) is.close(); } catch (Exception e) {}
+                try { if (response != null) response.close(); } catch (Exception e) {}
+            }
+        }).start();
+    }
+    private static List<EpgProgram> parseXmltv(InputStream is, String channelName) throws Exception {
+        List<EpgProgram> result = new ArrayList<>();
+        XmlPullParser parser = Xml.newPullParser();
+        parser.setInput(is, "UTF-8");
+        int event = parser.getEventType();
+        String currentTag = "", currentTitle = "", currentStart = "", currentStop = "", currentDesc = "";
+        boolean inProgramme = false;
+        String currentChannel = "";
+        while (event != XmlPullParser.END_DOCUMENT) {
+            switch (event) {
+                case XmlPullParser.START_TAG:
+                    currentTag = parser.getName();
+                    if ("programme".equals(currentTag)) {
+                        inProgramme = true;
+                        currentChannel = parser.getAttributeValue(null, "channel");
+                        currentStart = parser.getAttributeValue(null, "start");
+                        currentStop = parser.getAttributeValue(null, "stop");
+                        currentTitle = ""; currentDesc = "";
+                    }
+                    break;
+                case XmlPullParser.TEXT:
+                    if (inProgramme) {
+                        String text = parser.getText().trim();
+                        if ("title".equals(currentTag)) currentTitle += text;
+                        else if ("desc".equals(currentTag)) currentDesc += text;
+                    }
+                    break;
+                case XmlPullParser.END_TAG:
+                    if ("programme".equals(parser.getName())) {
+                        inProgramme = false;
+                        if (!currentTitle.isEmpty() && (currentChannel.equals(channelName) || currentChannel.isEmpty())) {
+                            EpgProgram prog = new EpgProgram();
+                            prog.title = currentTitle; prog.desc = currentDesc;
+                            try {
+                                SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
+                                prog.startTime = sdf.parse(currentStart + " +0000").getTime();
+                                prog.endTime = sdf.parse(currentStop + " +0000").getTime();
+                            } catch (Exception e) {}
+                            result.add(prog);
+                        }
+                    }
+                    break;
+            }
+            event = parser.next();
+        }
+        return result;
+    }
+    public static class EpgProgram {
+        public long startTime, endTime;
+        public String title, desc;
+    }
+}
+EOF
+    echo "✅ 生成 EPGParser.java"
+
+    # ========== 生成修改后的 PlayerActivity.java ==========
     cat > "$TEMPLATE_DIR/src/PlayerActivity.java" <<'EOF'
 package com.whyun.witv.ui;
 
@@ -58,6 +162,7 @@ import com.whyun.witv.data.db.entity.EpgProgram;
 import com.whyun.witv.data.repository.ChannelRepository;
 import com.whyun.witv.data.repository.EpgRepository;
 import com.whyun.witv.player.PlayerManager;
+import com.whyun.witv.epg.EPGParser;
 import java.util.ArrayList;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -302,6 +407,7 @@ public class PlayerActivity extends FragmentActivity implements PlayerManager.Ca
     }
 }
 EOF
+    echo "✅ 生成 PlayerActivity.java"
 
     # ========== 生成修改后的 activity_player.xml ==========
     cat > "$TEMPLATE_DIR/res/layout/activity_player.xml" <<'EOF'
@@ -505,6 +611,7 @@ EOF
     </LinearLayout>
 </FrameLayout>
 EOF
+    echo "✅ 生成 activity_player.xml"
 
     # ========== 生成图标资源 ==========
     cat > "$TEMPLATE_DIR/res/drawable/ic_epg.xml" <<'EOF'
@@ -530,6 +637,7 @@ EOF
         android:pathData="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
 </vector>
 EOF
+    echo "✅ 图标资源生成"
 
     echo "✅ 模板文件生成完成: $TEMPLATE_DIR"
 else
@@ -539,7 +647,13 @@ fi
 # ========== 2. 从模板复制文件到项目 ==========
 echo "📂 从模板复制文件到项目..."
 
-# 复制 Java 文件
+# 复制 Java 文件（包括 epg 包）
+if [ -f "$TEMPLATE_DIR/src/epg/EPGParser.java" ]; then
+    mkdir -p "$EPG_PKG_DIR"
+    cp "$TEMPLATE_DIR/src/epg/EPGParser.java" "$EPG_PKG_DIR/EPGParser.java"
+    echo "✅ 已更新 EPGParser.java"
+fi
+
 if [ -f "$TEMPLATE_DIR/src/PlayerActivity.java" ]; then
     cp "$TEMPLATE_DIR/src/PlayerActivity.java" "$UI_PKG_DIR/PlayerActivity.java"
     echo "✅ 已更新 PlayerActivity.java"
