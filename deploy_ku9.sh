@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（精确匹配，不去重） ====================
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -535,7 +535,7 @@ public class EPGParser {
         String targetChannelId = null;
         String targetDisplayName = null;
 
-        // 1. 别名映射匹配（取第一个匹配的）
+        // 1. 别名映射匹配
         String mappedEpgid = aliasMap.get(normalizedChannelName);
         if (mappedEpgid != null) {
             String normMapped = normalizeChannelName(mappedEpgid);
@@ -550,7 +550,7 @@ public class EPGParser {
             }
         }
 
-        // 2. 若未命中，则取第一个 displayName 包含频道名的
+        // 2. 若未命中，取第一个 displayName 包含频道名的
         if (targetChannelId == null) {
             for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
                 String normDisp = normalizeChannelName(entry.getValue().displayName);
@@ -574,11 +574,9 @@ public class EPGParser {
             downloadIcon(targetInfo.iconUrl, channelName, logoDir);
         }
 
-        // 取该频道的所有节目（不去重）
         List<EpgProgram> result = programMap.get(targetChannelId);
         if (result == null) result = new ArrayList<>();
 
-        // 按开始时间排序
         Collections.sort(result, new Comparator<EpgProgram>() {
             @Override
             public int compare(EpgProgram o1, EpgProgram o2) {
@@ -762,7 +760,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（右侧显示 EPG 节目单） ====================
+# ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -948,7 +946,6 @@ public class MainActivity extends AppCompatActivity {
                 playChannel(channel);
                 loadEpgForChannel(channel);
                 channelAdapter.setSelectedChannel(channel);
-                // 不隐藏overlay，让EPG继续显示
             }, this::toggleFavorite);
             channelRecycler.setAdapter(channelAdapter);
 
@@ -1393,7 +1390,7 @@ public class MainActivity extends AppCompatActivity {
         isOverlayVisible = true;
         overlayLayout.setVisibility(View.VISIBLE);
         resetAutoHideTimer();
-        // EPG容器默认隐藏，加载到数据后显示
+        epgContainer.setVisibility(View.GONE);
     }
 
     private void hideOverlay() {
@@ -1605,7 +1602,6 @@ public class MainActivity extends AppCompatActivity {
             String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
             holder.time.setText(time);
             holder.title.setText(prog.title);
-            // 不显示描述，只显示标题和时间
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
@@ -2081,14 +2077,15 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         </LinearLayout>
         <!-- 右侧：EPG 节目单 -->
         <LinearLayout
+            android:id="@+id/epg_container"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="0.65"
             android:orientation="vertical"
             android:background="#66000000"
-            android:padding="4dp">
+            android:padding="4dp"
+            android:visibility="gone">
             <TextView
-                android:id="@+id/epg_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="节目单"
@@ -2101,6 +2098,13 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
         </LinearLayout>
+        <View
+            android:id="@+id/overlay_click_area"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0"
+            android:background="#00000000"
+            android:clickable="true" />
     </LinearLayout>
 </FrameLayout>
 EOF
