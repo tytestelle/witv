@@ -21,7 +21,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java（保持不变） ====================
+# ==================== SourceManager.java ====================
 printf '%s\n' \
 'package com.whyun.witv.source;' \
 'import android.content.Context;' \
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（全局缓存，无编译错误） ====================
+# ==================== EPGParser.java（全局缓存） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -679,7 +679,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（完整修复，包含所有import） ====================
+# ==================== MainActivity.java（完全重写，移除不存在的视图，适配新布局） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -780,7 +780,6 @@ public class MainActivity extends AppCompatActivity {
     private List<EPGParser.EpgProgram> currentEpgList = new ArrayList<>();
     private ProgressDialog progressDialog;
     private boolean loadFinished = false;
-    private View overlayClickArea;
     private Set<String> selectedSubs = new HashSet<>();
     private Button btnEpgSchedule;
     private boolean isScheduleMode = false;
@@ -790,8 +789,6 @@ public class MainActivity extends AppCompatActivity {
     private List<String> dayLabels = new ArrayList<>();
     private LinearLayoutManager scheduleEpgLayoutManager;
     private LinearLayout dayTabs;
-    private RecyclerView epgRecycler;
-    private View epgContainer;
 
     static class SubEntry { String name; String url; }
 
@@ -859,17 +856,7 @@ public class MainActivity extends AppCompatActivity {
             scheduleChannelRecycler = findViewById(R.id.schedule_channel_recycler);
             scheduleEpgRecycler = findViewById(R.id.schedule_epg_recycler);
             btnEpgSchedule = findViewById(R.id.btn_epg_schedule);
-            overlayClickArea = findViewById(R.id.overlay_click_area);
             dayTabs = findViewById(R.id.day_tabs);
-            // 因为原布局中没有 epgRecycler 和 epgContainer，但可能有，我们查找，若无则创建虚拟
-            epgRecycler = findViewById(R.id.epg_recycler);
-            if (epgRecycler == null) {
-                epgRecycler = new RecyclerView(this);
-            }
-            epgContainer = findViewById(R.id.epg_container);
-            if (epgContainer == null) {
-                epgContainer = new View(this);
-            }
 
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -929,13 +916,12 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            if (overlayClickArea != null) {
-                overlayClickArea.setOnClickListener(v -> hideOverlay());
-            }
-
             btnEpgSchedule.setOnClickListener(v -> toggleScheduleMode());
 
             findViewById(R.id.schedule_close_area).setOnClickListener(v -> toggleScheduleMode());
+
+            // 点击覆盖层空白区域关闭
+            overlayLayout.setOnClickListener(v -> hideOverlay());
 
             mainHandler.postDelayed(() -> {
                 if (selectedSubs.isEmpty()) {
@@ -1151,13 +1137,7 @@ public class MainActivity extends AppCompatActivity {
         if (epgUrl == null || epgUrl.isEmpty()) {
             LogUtils.writeLog("未配置EPG URL");
             Toast.makeText(this, "未设置EPG地址", Toast.LENGTH_SHORT).show();
-            if (epgAdapter != null) {
-                epgAdapter.setItems(new ArrayList<>());
-            }
             currentEpgList.clear();
-            if (epgContainer != null) {
-                epgContainer.setVisibility(View.GONE);
-            }
             return;
         }
         if (epgUrl.contains("$")) epgUrl = epgUrl.substring(0, epgUrl.indexOf("$"));
@@ -1170,28 +1150,16 @@ public class MainActivity extends AppCompatActivity {
             public void onLoaded(List<EPGParser.EpgProgram> programs) {
                 runOnUiThread(() -> {
                     currentEpgList = programs;
-                    if (epgAdapter != null) {
-                        epgAdapter.setItems(programs);
-                    }
                     LogUtils.writeLog("EPG加载成功，节目数: " + programs.size());
                     Toast.makeText(MainActivity.this, "EPG加载成功，共" + programs.size() + "个节目", Toast.LENGTH_SHORT).show();
-                    if (epgContainer != null) {
-                        epgContainer.setVisibility(View.VISIBLE);
-                    }
                 });
             }
             @Override
             public void onError(String error) {
                 runOnUiThread(() -> {
-                    if (epgAdapter != null) {
-                        epgAdapter.setItems(new ArrayList<>());
-                    }
                     currentEpgList.clear();
                     LogUtils.writeLog("EPG加载失败: " + error);
                     Toast.makeText(MainActivity.this, "EPG加载失败: " + error, Toast.LENGTH_SHORT).show();
-                    if (epgContainer != null) {
-                        epgContainer.setVisibility(View.GONE);
-                    }
                 });
             }
         });
@@ -1207,6 +1175,7 @@ public class MainActivity extends AppCompatActivity {
             prefs.edit().putStringSet(KEY_FAVORITES, favoriteSet).apply();
             showChannelsForGroup(currentGroup);
             channelAdapter.updateFavorites(favoriteSet);
+            scheduleChannelAdapter.updateFavorites(favoriteSet);
             Toast.makeText(this, favoriteSet.contains(channel.name) ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
@@ -1290,6 +1259,7 @@ public class MainActivity extends AppCompatActivity {
             dayTabs.removeAllViews();
             return;
         }
+        // 按开始时间排序
         Collections.sort(programs, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
         Set<String> dateSet = new HashSet<>();
         SimpleDateFormat sdf = new SimpleDateFormat("MM/dd", Locale.getDefault());
@@ -1335,6 +1305,7 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
+    // ========== 信息弹窗 ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1417,6 +1388,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ========== 对话框方法 ==========
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -1672,6 +1644,7 @@ public class MainActivity extends AppCompatActivity {
             this.data = data; this.favoriteSet = favorites; this.logoDir = logoDir; this.listener = listener;
         }
         void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
+        void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
         @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
         }
@@ -2093,7 +2066,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件（窗口缩小至一半，包含所有id） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2112,17 +2085,15 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:layout_gravity="start"
         android:background="#00000000" />
     
-    <!-- 主覆盖层（占用屏幕一半宽度，靠左） -->
+    <!-- 主覆盖层（占屏幕一半宽度） -->
     <LinearLayout
+        android:id="@+id/overlay_layout"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="0.5"
         android:orientation="horizontal"
         android:background="#CC000000"
-        android:visibility="gone"
-        android:id="@+id/overlay_layout">
-        
-        <!-- 三列：订阅源、分组、频道列表 -->
+        android:visibility="gone">
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -2199,7 +2170,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 节目单视图（覆盖层，同样只占一半宽度） -->
+    <!-- 节目单视图（同样占一半宽度） -->
     <LinearLayout
         android:id="@+id/schedule_layout"
         android:layout_width="0dp"
@@ -2258,7 +2229,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# ==================== 其他布局文件（popup_info, item_*）保持不变 ====================
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2410,6 +2380,8 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 </LinearLayout>
 EOF
 
+# 其他布局文件（item_*.xml）与之前相同，省略（但实际脚本中必须包含）
+# 为节省篇幅，只列出必须的
 cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
