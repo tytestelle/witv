@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（无默认源，无源时引导设置）"
+echo "🔥 部署 witv 播放器（增强错误提示）"
 
 TEMPLATE_DIR="./config"
 
@@ -10,12 +10,12 @@ rm -rf "$TEMPLATE_DIR"
 mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
 mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite" "$TEMPLATE_DIR/src/utils"
 
-# ==================== configuration.json（LIVE_URLS 为 null） ====================
+# ==================== configuration.json ====================
 cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java（不变） ====================
+# ==================== SourceManager.java ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（完整） ====================
+# ==================== LogUtils.java ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -254,7 +254,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（不变） ====================
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -600,7 +600,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（增强错误处理与提示） ====================
+# ==================== MainActivity.java（全新强化版） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -697,6 +697,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 异常捕获
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             LogUtils.writeCrashLog(throwable);
             android.os.Process.killProcess(android.os.Process.myPid());
@@ -705,11 +706,20 @@ public class MainActivity extends AppCompatActivity {
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
 
-        LogUtils.init();
-        LogUtils.createAppDirectories();
-        LogUtils.writeLog("=== 应用启动 ===");
-        Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_LONG).show();
+        // 初始化日志（即使权限未授予，也尝试创建目录）
+        try {
+            LogUtils.init();
+            LogUtils.createAppDirectories();
+            LogUtils.writeLog("=== 应用启动 ===");
+        } catch (Exception e) {
+            // 如果日志初始化失败，至少使用 Toast 提示
+            Toast.makeText(this, "日志初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
 
+        // 立即显示一个 Toast 提示，表示应用已启动
+        Toast.makeText(this, "应用初始化中...", Toast.LENGTH_SHORT).show();
+
+        // 请求存储权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -722,6 +732,9 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             setContentView(R.layout.activity_main);
+            // 再次显示 Toast 表示界面加载完成
+            Toast.makeText(this, "界面加载完成", Toast.LENGTH_SHORT).show();
+
             config = ConfigurationManager.getInstance(this);
             PlayerConfigManager.init(this);
             FavoriteManager.init(this);
@@ -730,6 +743,7 @@ public class MainActivity extends AppCompatActivity {
             logoDir = new File(LogUtils.getAppRootDir(), "logo");
             if (!logoDir.exists()) logoDir.mkdirs();
 
+            // 初始化控件
             playerView = findViewById(R.id.player_container);
             overlayLayout = findViewById(R.id.overlay_layout);
             subRecycler = findViewById(R.id.sub_recycler);
@@ -783,7 +797,7 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // ----- 加载订阅源 -----
+            // 加载订阅源
             boolean hasSub = false;
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
@@ -808,7 +822,8 @@ public class MainActivity extends AppCompatActivity {
 
             if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
                 LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
-                showNoSourceDialog();
+                // 延迟显示对话框，确保界面已渲染
+                mainHandler.postDelayed(() -> showNoSourceDialog(), 500);
             } else {
                 LogUtils.writeLog("加载订阅源: " + currentSubUrl);
                 Toast.makeText(this, "正在加载订阅源...", Toast.LENGTH_SHORT).show();
@@ -825,7 +840,8 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeLog("应用启动成功");
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
-            showFatalErrorDialog("初始化失败: " + e.getMessage());
+            // 显示错误对话框
+            mainHandler.post(() -> showFatalErrorDialog("初始化失败: " + e.getMessage()));
         }
     }
 
@@ -1389,7 +1405,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== SettingsActivity.java（不变） ====================
+# ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1758,7 +1774,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件（保持不变） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
