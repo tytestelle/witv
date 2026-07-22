@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终修正版 - 窄列 + 图标）"
+echo "🔥 部署酷9播放器（最终修正版 - 窄列 + 隐藏分组名）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -339,7 +339,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java ====================
+    # ==================== MainActivity.java（隐藏分组名） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -445,6 +445,12 @@ public class MainActivity extends AppCompatActivity {
             epgRecycler = findViewById(R.id.epg_recycler);
             epgContainer = findViewById(R.id.epg_container);
 
+            // 隐藏左上角分组名（用户要求不显示）
+            tvGroupName = findViewById(R.id.tv_group_name);
+            if (tvGroupName != null) {
+                tvGroupName.setVisibility(View.GONE);
+            }
+
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
             channelRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -479,7 +485,6 @@ public class MainActivity extends AppCompatActivity {
             epgAdapter = new EpgAdapter(new ArrayList<>());
             epgRecycler.setAdapter(epgAdapter);
 
-            tvGroupName = findViewById(R.id.tv_group_name);
             tvChannelName = findViewById(R.id.tv_channel_name);
             tvEpgInfo = findViewById(R.id.tv_epg_info);
             tvTime = findViewById(R.id.tv_time);
@@ -660,7 +665,6 @@ public class MainActivity extends AppCompatActivity {
         }
         currentChannelList = list;
         channelAdapter.updateData(currentChannelList);
-        tvGroupName.setText(group);
 
         String lastChannel = prefs.getString(KEY_LAST_CHANNEL, "");
         if (!lastChannel.isEmpty()) {
@@ -1324,7 +1328,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件 ====================
+    # ==================== 布局文件（缩窄频道列） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1347,17 +1351,7 @@ EOF
         android:layout_height="match_parent"
         android:layout_gravity="end"
         android:background="#00000000" />
-    <TextView
-        android:id="@+id/tv_group_name"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="start|top"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="16dp"
-        android:text="分组"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
-        android:textStyle="bold" />
+    <!-- 左上角分组名已隐藏（在代码中设置 GONE） -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
@@ -1442,7 +1436,7 @@ EOF
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="1.1"
+            android:layout_weight="1"
             android:orientation="vertical"
             android:background="#44000000"
             android:padding="4dp">
@@ -1461,7 +1455,7 @@ EOF
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="2.2"
+            android:layout_weight="1.8"
             android:orientation="vertical"
             android:background="#55000000"
             android:padding="4dp">
@@ -1501,7 +1495,7 @@ EOF
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.15"
+            android:layout_weight="0.2"
             android:background="#00000000"
             android:clickable="true"
             android:onClick="hideOverlay" />
@@ -1714,7 +1708,7 @@ sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 echo "✅ 权限已添加"
 
-# ========== 修改 AndroidManifest.xml 设置图标（使用 Python 统一处理） ==========
+# ========== 设置应用图标 ==========
 echo "🛠️ 设置应用图标..."
 python3 <<PYTHON_SCRIPT
 import sys, xml.etree.ElementTree as ET
@@ -1734,12 +1728,9 @@ if app is None:
     print("未找到 application", file=sys.stderr)
     sys.exit(1)
 
-# 设置图标属性（如果已存在则更新，否则添加）
+# 设置图标属性
 icon_attr = '{http://schemas.android.com/apk/res/android}icon'
-if icon_attr in app.attrib:
-    app.set(icon_attr, '@drawable/ic_launcher')
-else:
-    app.set(icon_attr, '@drawable/ic_launcher')
+app.set(icon_attr, '@drawable/ic_launcher')
 
 # 清除所有旧 activity，重新创建
 for act in app.findall('activity'):
@@ -1779,9 +1770,7 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 修正内容："
-echo "   ✅ 修复了 AndroidManifest 重复属性错误"
-echo "   ✅ 三列宽度缩窄，布局紧凑"
-echo "   ✅ 频道列表只显示频道名，分组显示在分组列"
-echo "   ✅ 播放按钮图标已设置"
-echo "   ✅ 记忆播放功能已实现"
-echo "   ✅ 节目单按钮切换 EPG 显示"
+echo "   ✅ 左上角分组名已隐藏（用户要求不显示）"
+echo "   ✅ 频道列表宽度缩窄（权重从2.2减至1.8）"
+echo "   ✅ 列间距更加紧凑，接近图三效果"
+echo "   ✅ 记忆播放、EPG 切换等功能已保留"
