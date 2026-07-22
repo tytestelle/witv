@@ -141,22 +141,35 @@ public class SourceManager {
 }
 EOF
 
-# ==================== EPGParser.java ====================
+# ==================== EPGParser.java（增强版，支持模糊匹配和流式解析） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
+
 import android.util.Xml;
+
 import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
+import java.io.IOException;
 import java.io.InputStream;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+
 public class EPGParser {
-    public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
+
+    public interface OnEpgLoadListener {
+        void onLoaded(List<EpgProgram> programs);
+        void onError(String error);
+    }
+
     public static void loadEpg(String url, String channelName, OnEpgLoadListener listener) {
         new Thread(() -> {
             OkHttpClient client = null;
@@ -164,40 +177,66 @@ public class EPGParser {
             InputStream is = null;
             try {
                 client = new OkHttpClient.Builder()
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
-                    .build();
-                Request request = new Request.Builder().url(url).build();
+                        .connectTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .addInterceptor(chain -> {
+                            Request original = chain.request();
+                            Request request = original.newBuilder()
+                                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                                    .build();
+                            return chain.proceed(request);
+                        })
+                        .build();
+
+                Request request = new Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .build();
+
                 response = client.newCall(request).execute();
-                if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
-                is = response.body().byteStream();
-                List<EpgProgram> programs = parseXmltv(is, channelName);
-                if (listener != null) {
-                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                    mainHandler.post(() -> listener.onLoaded(programs));
+                if (!response.isSuccessful()) {
+                    throw new Exception("HTTP " + response.code());
                 }
+
+                is = response.body().byteStream();
+                List<EpgProgram> programs = parseXmltvStream(is, channelName);
+
+                android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                mainHandler.post(() -> listener.onLoaded(programs));
+
             } catch (Exception e) {
                 e.printStackTrace();
-                if (listener != null) {
-                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                    mainHandler.post(() -> listener.onError(e.getMessage()));
-                }
+                android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                mainHandler.post(() -> listener.onError(e.getMessage()));
             } finally {
-                try { if (is != null) is.close(); } catch (Exception e) {}
-                try { if (response != null) response.close(); } catch (Exception e) {}
+                try { if (is != null) is.close(); } catch (Exception ignored) {}
+                try { if (response != null) response.close(); } catch (Exception ignored) {}
             }
         }).start();
     }
-    private static List<EpgProgram> parseXmltv(InputStream is, String channelName) throws Exception {
+
+    private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName)
+            throws XmlPullParserException, IOException, ParseException {
+
         List<EpgProgram> result = new ArrayList<>();
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
-        int event = parser.getEventType();
-        String currentTag = "", currentTitle = "", currentStart = "", currentStop = "", currentDesc = "";
+
+        String normalizedChannelName = normalizeChannelName(channelName);
+
+        int eventType = parser.getEventType();
+        String currentTag = null;
+        String currentChannel = null;
+        String currentStart = null;
+        String currentStop = null;
+        String currentTitle = null;
+        String currentDesc = null;
         boolean inProgramme = false;
-        String currentChannel = "";
-        while (event != XmlPullParser.END_DOCUMENT) {
-            switch (event) {
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
+
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            switch (eventType) {
                 case XmlPullParser.START_TAG:
                     currentTag = parser.getName();
                     if ("programme".equals(currentTag)) {
@@ -205,39 +244,110 @@ public class EPGParser {
                         currentChannel = parser.getAttributeValue(null, "channel");
                         currentStart = parser.getAttributeValue(null, "start");
                         currentStop = parser.getAttributeValue(null, "stop");
-                        currentTitle = ""; currentDesc = "";
+                        currentTitle = null;
+                        currentDesc = null;
                     }
                     break;
+
                 case XmlPullParser.TEXT:
-                    if (inProgramme) {
+                    if (inProgramme && parser.getText() != null) {
                         String text = parser.getText().trim();
-                        if ("title".equals(currentTag)) currentTitle += text;
-                        else if ("desc".equals(currentTag)) currentDesc += text;
+                        if ("title".equals(currentTag)) {
+                            if (currentTitle == null) currentTitle = text;
+                            else currentTitle += text;
+                        } else if ("desc".equals(currentTag)) {
+                            if (currentDesc == null) currentDesc = text;
+                            else currentDesc += text;
+                        }
                     }
                     break;
+
                 case XmlPullParser.END_TAG:
                     if ("programme".equals(parser.getName())) {
                         inProgramme = false;
-                        if (!currentTitle.isEmpty() && (currentChannel.equals(channelName) || currentChannel.isEmpty())) {
-                            EpgProgram prog = new EpgProgram();
-                            prog.title = currentTitle; prog.desc = currentDesc;
-                            try {
-                                SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
-                                prog.startTime = sdf.parse(currentStart + " +0000").getTime();
-                                prog.endTime = sdf.parse(currentStop + " +0000").getTime();
-                            } catch (Exception e) {}
-                            result.add(prog);
+
+                        if (currentTitle != null && !currentTitle.isEmpty()) {
+                            boolean channelMatches = false;
+
+                            if (currentChannel != null) {
+                                String normalizedCurrent = normalizeChannelName(currentChannel);
+                                if (normalizedCurrent.equals(normalizedChannelName) ||
+                                        normalizedCurrent.contains(normalizedChannelName) ||
+                                        normalizedChannelName.contains(normalizedCurrent)) {
+                                    channelMatches = true;
+                                }
+                            }
+
+                            if (!channelMatches && currentChannel == null) {
+                                String normalizedTitle = normalizeChannelName(currentTitle);
+                                if (normalizedTitle.equals(normalizedChannelName) ||
+                                        normalizedTitle.contains(normalizedChannelName) ||
+                                        normalizedChannelName.contains(normalizedTitle)) {
+                                    channelMatches = true;
+                                }
+                            }
+
+                            if (channelMatches) {
+                                EpgProgram prog = new EpgProgram();
+                                prog.title = currentTitle != null ? currentTitle : "";
+                                prog.desc = currentDesc != null ? currentDesc : "";
+
+                                if (currentStart != null && !currentStart.isEmpty()) {
+                                    try {
+                                        prog.startTime = sdf.parse(currentStart + " +0000").getTime();
+                                    } catch (ParseException e) {
+                                        try {
+                                            SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+                                            prog.startTime = sdf2.parse(currentStart).getTime();
+                                        } catch (ParseException ignored) {}
+                                    }
+                                }
+
+                                if (currentStop != null && !currentStop.isEmpty()) {
+                                    try {
+                                        prog.endTime = sdf.parse(currentStop + " +0000").getTime();
+                                    } catch (ParseException e) {
+                                        try {
+                                            SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+                                            prog.endTime = sdf2.parse(currentStop).getTime();
+                                        } catch (ParseException ignored) {}
+                                    }
+                                }
+
+                                result.add(prog);
+                            }
                         }
                     }
                     break;
             }
-            event = parser.next();
+            eventType = parser.next();
         }
+
         return result;
     }
+
+    private static String normalizeChannelName(String name) {
+        if (name == null) return "";
+        return name.replaceAll("[\\s\\-_.()（）【】\\[\\]·]", "")
+                   .replaceAll("高清|HD|标清|SD", "")
+                   .toLowerCase(Locale.getDefault());
+    }
+
     public static class EpgProgram {
-        public long startTime, endTime;
-        public String title, desc;
+        public long startTime;
+        public long endTime;
+        public String title;
+        public String desc;
+
+        @Override
+        public String toString() {
+            return "EpgProgram{" +
+                    "startTime=" + startTime +
+                    ", endTime=" + endTime +
+                    ", title='" + title + '\'' +
+                    ", desc='" + desc + '\'' +
+                    '}';
+        }
     }
 }
 EOF
@@ -341,7 +451,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（移除底部栏相关代码） ====================
+# ==================== MainActivity.java（已移除底部栏） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -732,7 +842,6 @@ public class MainActivity extends AppCompatActivity {
             if (epgUrl == null || epgUrl.isEmpty()) {
                 epgUrl = config.getString("EPG_URLS", null);
                 if (epgUrl == null || epgUrl.isEmpty()) {
-                    // 无EPG时不做显示（底部已移除）
                     epgAdapter.setItems(new ArrayList<>());
                     currentEpgList.clear();
                     return;
