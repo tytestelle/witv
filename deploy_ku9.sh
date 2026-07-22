@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG功能增强版 - 支持别名映射）"
+echo "🔥 部署 witv 播放器（EPG功能增强版 - 支持别名映射 & 图标下载）"
 
 TEMPLATE_DIR="./config"
 
@@ -25,7 +25,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java ====================
+# ==================== SourceManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -151,7 +151,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java ====================
+# ==================== LogUtils.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（增强匹配，支持别名映射 + 包含匹配） ====================
+# ==================== EPGParser.java（增强匹配 + 图标下载） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -397,7 +397,8 @@ public class EPGParser {
 
                 is = new FileInputStream(cacheFile);
                 Map<String, String> aliasMap = loadAliasMap(context);
-                List<EpgProgram> programs = parseXmltvStream(is, channelName, aliasMap);
+                String logoDir = LogUtils.getAppRootDir() + "/logo";
+                List<EpgProgram> programs = parseXmltvStream(is, channelName, aliasMap, logoDir);
                 LogUtils.writeLog("EPG 解析成功，节目数: " + (programs != null ? programs.size() : 0));
 
                 android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -414,7 +415,7 @@ public class EPGParser {
         }).start();
     }
 
-    private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName, Map<String, String> aliasMap)
+    private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName, Map<String, String> aliasMap, String logoDir)
             throws XmlPullParserException, IOException, ParseException {
 
         List<EpgProgram> result = new ArrayList<>();
@@ -424,179 +425,239 @@ public class EPGParser {
         String normalizedChannelName = normalizeChannelName(channelName);
         LogUtils.writeLog("归一化频道名: " + normalizedChannelName);
 
+        // 第一步：收集所有频道信息
+        Map<String, ChannelInfo> channelMap = new HashMap<>(); // id -> ChannelInfo
+        Map<String, String> displayNameToId = new HashMap<>(); // 归一化displayName -> id
+
         int eventType = parser.getEventType();
         String currentTag = null;
-        String currentChannel = null;
-        String currentStart = null;
-        String currentStop = null;
-        String currentTitle = null;
-        String currentDesc = null;
-        boolean inProgramme = false;
-        int programCount = 0;
+        boolean inChannel = false;
+        String currentChannelId = null;
+        String currentDisplayName = null;
+        String currentIconUrl = null;
 
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            switch (eventType) {
+                case XmlPullParser.START_TAG:
+                    currentTag = parser.getName();
+                    if ("channel".equals(currentTag)) {
+                        inChannel = true;
+                        currentChannelId = parser.getAttributeValue(null, "id");
+                        currentDisplayName = null;
+                        currentIconUrl = null;
+                    } else if (inChannel && "display-name".equals(currentTag)) {
+                        // 读取display-name
+                    } else if (inChannel && "icon".equals(currentTag)) {
+                        currentIconUrl = parser.getAttributeValue(null, "src");
+                    }
+                    break;
+
+                case XmlPullParser.TEXT:
+                    if (inChannel && "display-name".equals(currentTag) && parser.getText() != null) {
+                        currentDisplayName = parser.getText().trim();
+                    }
+                    break;
+
+                case XmlPullParser.END_TAG:
+                    if ("channel".equals(parser.getName())) {
+                        inChannel = false;
+                        if (currentChannelId != null && currentDisplayName != null) {
+                            ChannelInfo info = new ChannelInfo();
+                            info.id = currentChannelId;
+                            info.displayName = currentDisplayName;
+                            info.iconUrl = currentIconUrl;
+                            channelMap.put(currentChannelId, info);
+                            String norm = normalizeChannelName(currentDisplayName);
+                            displayNameToId.put(norm, currentChannelId);
+                            LogUtils.writeLog("找到频道: " + currentDisplayName + " (" + currentChannelId + ")");
+                        }
+                    }
+                    break;
+            }
+            eventType = parser.next();
+        }
+
+        LogUtils.writeLog("共找到 " + channelMap.size() + " 个频道");
+
+        // 第二步：匹配目标频道
+        String targetChannelId = null;
+        String targetDisplayName = null;
+
+        // 2.1 先尝试通过别名映射匹配
+        String mappedEpgid = aliasMap.get(normalizedChannelName);
+        if (mappedEpgid != null) {
+            String normMapped = normalizeChannelName(mappedEpgid);
+            for (String normDisp : displayNameToId.keySet()) {
+                if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
+                    targetChannelId = displayNameToId.get(normDisp);
+                    targetDisplayName = channelMap.get(targetChannelId).displayName;
+                    LogUtils.writeLog("别名映射匹配成功: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
+                    break;
+                }
+            }
+        }
+
+        // 2.2 如果别名映射未匹配，直接尝试 displayName 包含匹配
+        if (targetChannelId == null) {
+            for (Map.Entry<String, String> entry : displayNameToId.entrySet()) {
+                String normDisp = entry.getKey();
+                if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
+                    targetChannelId = entry.getValue();
+                    targetDisplayName = channelMap.get(targetChannelId).displayName;
+                    LogUtils.writeLog("包含匹配成功: " + channelName + " -> " + targetDisplayName);
+                    break;
+                }
+            }
+        }
+
+        if (targetChannelId == null) {
+            LogUtils.writeLog("未找到匹配的频道，节目数为0");
+            return new ArrayList<>();
+        }
+
+        // 下载图标
+        ChannelInfo targetInfo = channelMap.get(targetChannelId);
+        if (targetInfo.iconUrl != null && !targetInfo.iconUrl.isEmpty()) {
+            downloadIcon(targetInfo.iconUrl, channelName, logoDir);
+        }
+
+        // 第三步：只解析目标频道的节目
+        // 重置解析器到开头
+        is.reset();
+        parser.setInput(is, "UTF-8");
+        eventType = parser.getEventType();
+        currentTag = null;
+        boolean inProgramme = false;
+        String progChannelId = null;
+        String progStart = null;
+        String progStop = null;
+        String progTitle = null;
+        String progDesc = null;
+        int programCount = 0;
         SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
-            try {
-                switch (eventType) {
-                    case XmlPullParser.START_TAG:
-                        currentTag = parser.getName();
-                        if ("programme".equals(currentTag)) {
-                            inProgramme = true;
-                            currentChannel = parser.getAttributeValue(null, "channel");
-                            currentStart = parser.getAttributeValue(null, "start");
-                            currentStop = parser.getAttributeValue(null, "stop");
-                            currentTitle = null;
-                            currentDesc = null;
-                            programCount++;
+            switch (eventType) {
+                case XmlPullParser.START_TAG:
+                    currentTag = parser.getName();
+                    if ("programme".equals(currentTag)) {
+                        inProgramme = true;
+                        progChannelId = parser.getAttributeValue(null, "channel");
+                        progStart = parser.getAttributeValue(null, "start");
+                        progStop = parser.getAttributeValue(null, "stop");
+                        progTitle = null;
+                        progDesc = null;
+                        programCount++;
+                    }
+                    break;
+
+                case XmlPullParser.TEXT:
+                    if (inProgramme && parser.getText() != null) {
+                        String text = parser.getText().trim();
+                        if ("title".equals(currentTag)) {
+                            if (progTitle == null) progTitle = text;
+                            else progTitle += text;
+                        } else if ("desc".equals(currentTag)) {
+                            if (progDesc == null) progDesc = text;
+                            else progDesc += text;
                         }
-                        break;
+                    }
+                    break;
 
-                    case XmlPullParser.TEXT:
-                        if (inProgramme && parser.getText() != null) {
-                            String text = parser.getText().trim();
-                            if ("title".equals(currentTag)) {
-                                if (currentTitle == null) currentTitle = text;
-                                else currentTitle += text;
-                            } else if ("desc".equals(currentTag)) {
-                                if (currentDesc == null) currentDesc = text;
-                                else currentDesc += text;
-                            }
-                        }
-                        break;
+                case XmlPullParser.END_TAG:
+                    if ("programme".equals(parser.getName())) {
+                        inProgramme = false;
+                        if (progChannelId != null && progChannelId.equals(targetChannelId) && progTitle != null) {
+                            EpgProgram prog = new EpgProgram();
+                            prog.title = progTitle;
+                            prog.desc = (progDesc != null) ? progDesc : "";
 
-                    case XmlPullParser.END_TAG:
-                        if ("programme".equals(parser.getName())) {
-                            inProgramme = false;
-
-                            if (currentTitle != null && !currentTitle.isEmpty()) {
-                                boolean channelMatches = false;
-                                String normalizedCurrentChannel = null;
-                                String normalizedTitle = normalizeChannelName(currentTitle);
-
-                                // 1. 直接匹配 channel 属性
-                                if (currentChannel != null) {
-                                    normalizedCurrentChannel = normalizeChannelName(currentChannel);
-                                    if (normalizedCurrentChannel.equals(normalizedChannelName) ||
-                                            normalizedCurrentChannel.contains(normalizedChannelName) ||
-                                            normalizedChannelName.contains(normalizedCurrentChannel)) {
-                                        channelMatches = true;
-                                        LogUtils.writeLog("直接匹配 channel: " + currentChannel + " -> " + currentTitle);
-                                    }
-                                }
-
-                                // 2. 别名映射匹配
-                                if (!channelMatches && aliasMap != null && !aliasMap.isEmpty()) {
-                                    // 2.1 当前频道名映射到 epgid
-                                    String epgidFromChannel = aliasMap.get(normalizedChannelName);
-                                    if (epgidFromChannel != null) {
-                                        String normalizedEpgid = normalizeChannelName(epgidFromChannel);
-                                        if (currentChannel != null) {
-                                            String normCurrent = normalizeChannelName(currentChannel);
-                                            if (normCurrent.equals(normalizedEpgid) ||
-                                                    normCurrent.contains(normalizedEpgid) ||
-                                                    normalizedEpgid.contains(normCurrent)) {
-                                                channelMatches = true;
-                                                LogUtils.writeLog("别名映射(正向): " + channelName + " -> " + epgidFromChannel + " 匹配 " + currentChannel);
-                                            }
-                                        }
-                                    }
-                                    // 2.2 当前 channel 属性映射到 epgid
-                                    if (!channelMatches && currentChannel != null) {
-                                        String normCurrent = normalizeChannelName(currentChannel);
-                                        String epgidFromCurrent = aliasMap.get(normCurrent);
-                                        if (epgidFromCurrent != null) {
-                                            String normalizedEpgidCurrent = normalizeChannelName(epgidFromCurrent);
-                                            if (normalizedEpgidCurrent.equals(normalizedChannelName) ||
-                                                    normalizedEpgidCurrent.contains(normalizedChannelName) ||
-                                                    normalizedChannelName.contains(normalizedEpgidCurrent)) {
-                                                channelMatches = true;
-                                                LogUtils.writeLog("别名映射(反向): " + currentChannel + " -> " + epgidFromCurrent + " 匹配 " + channelName);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 3. 包含匹配 (channel 或 title)
-                                if (!channelMatches) {
-                                    // 3.1 检查 channel 是否包含频道名（或反之）
-                                    if (currentChannel != null && normalizedCurrentChannel != null) {
-                                        if (normalizedCurrentChannel.contains(normalizedChannelName) ||
-                                                normalizedChannelName.contains(normalizedCurrentChannel)) {
-                                            channelMatches = true;
-                                            LogUtils.writeLog("包含匹配 channel: " + currentChannel + " 包含 " + channelName);
-                                        }
-                                    }
-                                    // 3.2 检查 title 是否包含频道名（或反之）
-                                    if (!channelMatches && normalizedTitle != null) {
-                                        if (normalizedTitle.contains(normalizedChannelName) ||
-                                                normalizedChannelName.contains(normalizedTitle)) {
-                                            channelMatches = true;
-                                            LogUtils.writeLog("包含匹配 title: " + currentTitle + " 包含 " + channelName);
-                                        }
-                                    }
-                                }
-
-                                if (channelMatches) {
-                                    EpgProgram prog = new EpgProgram();
-                                    prog.title = currentTitle != null ? currentTitle : "";
-                                    prog.desc = currentDesc != null ? currentDesc : "";
-
-                                    if (currentStart != null && !currentStart.isEmpty()) {
-                                        try {
-                                            prog.startTime = sdf.parse(currentStart + " +0000").getTime();
-                                        } catch (ParseException e) {
-                                            try {
-                                                SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-                                                prog.startTime = sdf2.parse(currentStart).getTime();
-                                            } catch (ParseException ignored) {
-                                                LogUtils.writeLog("解析开始时间失败: " + currentStart);
-                                            }
-                                        }
-                                    }
-
-                                    if (currentStop != null && !currentStop.isEmpty()) {
-                                        try {
-                                            prog.endTime = sdf.parse(currentStop + " +0000").getTime();
-                                        } catch (ParseException e) {
-                                            try {
-                                                SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-                                                prog.endTime = sdf2.parse(currentStop).getTime();
-                                            } catch (ParseException ignored) {
-                                                LogUtils.writeLog("解析结束时间失败: " + currentStop);
-                                            }
-                                        }
-                                    }
-
-                                    result.add(prog);
+                            if (progStart != null && !progStart.isEmpty()) {
+                                try {
+                                    prog.startTime = sdf.parse(progStart + " +0000").getTime();
+                                } catch (ParseException e) {
+                                    try {
+                                        SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+                                        prog.startTime = sdf2.parse(progStart).getTime();
+                                    } catch (ParseException ignored) {}
                                 }
                             }
+                            if (progStop != null && !progStop.isEmpty()) {
+                                try {
+                                    prog.endTime = sdf.parse(progStop + " +0000").getTime();
+                                } catch (ParseException e) {
+                                    try {
+                                        SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+                                        prog.endTime = sdf2.parse(progStop).getTime();
+                                    } catch (ParseException ignored) {}
+                                }
+                            }
+                            result.add(prog);
                         }
-                        break;
-                }
-                eventType = parser.next();
-            } catch (Exception e) {
-                LogUtils.writeCrashLog(e);
-                LogUtils.writeLog("解析XML异常: " + e.getMessage());
-                throw e;
+                    }
+                    break;
             }
+            eventType = parser.next();
         }
 
         LogUtils.writeLog("解析完成，总节目数: " + programCount + ", 匹配结果数: " + result.size());
         return result;
     }
 
+    private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
+        try {
+            if (iconUrl == null || iconUrl.isEmpty()) return;
+            // 解码URL（可能包含%编码）
+            String decoded = java.net.URLDecoder.decode(iconUrl, "UTF-8");
+            // 如果URL是相对路径，补全（但通常是完整URL）
+            File logoFolder = new File(logoDir);
+            if (!logoFolder.exists()) logoFolder.mkdirs();
+            String fileName = channelName.hashCode() + ".png";
+            File logoFile = new File(logoFolder, fileName);
+            if (logoFile.exists()) {
+                LogUtils.writeLog("图标已存在: " + logoFile.getAbsolutePath());
+                return;
+            }
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build();
+            Request request = new Request.Builder().url(decoded).build();
+            Response response = client.newCall(request).execute();
+            if (response.code() != 200) {
+                LogUtils.writeLog("下载图标失败: " + response.code());
+                return;
+            }
+            InputStream is = response.body().byteStream();
+            FileOutputStream fos = new FileOutputStream(logoFile);
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = is.read(buf)) != -1) {
+                fos.write(buf, 0, len);
+            }
+            fos.close();
+            is.close();
+            LogUtils.writeLog("图标下载成功: " + logoFile.getAbsolutePath());
+        } catch (Exception e) {
+            LogUtils.writeLog("下载图标异常: " + e.getMessage());
+        }
+    }
+
     private static String normalizeChannelName(String name) {
         if (name == null) return "";
-        // 去除空格、下划线、点、括号等常见符号，并移除高清、HD等后缀
         String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
                 .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
                 .toLowerCase(Locale.getDefault());
-        // 如果剩余长度太短，可能过度删减，保留原始名称的小写形式（仅去符号）
         if (normalized.length() < 2) {
             return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
         }
         return normalized;
+    }
+
+    private static class ChannelInfo {
+        String id;
+        String displayName;
+        String iconUrl;
     }
 
     public static class EpgProgram {
@@ -618,7 +679,7 @@ public class EPGParser {
 }
 EOF
 
-# ==================== PlayerConfigManager.java ====================
+# ==================== PlayerConfigManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -638,7 +699,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-# ==================== FavoriteManager.java ====================
+# ==================== FavoriteManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -663,7 +724,7 @@ public class FavoriteManager {
 }
 EOF
 
-# ==================== ConfigurationManager.java ====================
+# ==================== ConfigurationManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -717,7 +778,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java ====================
+# ==================== MainActivity.java（不变，但调用 EPGParser.loadEpg 传入 this） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -859,7 +920,7 @@ public class MainActivity extends AppCompatActivity {
             logoDir = new File(LogUtils.getAppRootDir(), "logo");
             if (!logoDir.exists()) logoDir.mkdirs();
 
-            // ---------- 自动保存 EPG_URL ----------
+            // ---------- 自动保存 EPG_URL（关键修复） ----------
             String epgUrlPref = prefs.getString("epg_url", null);
             if (epgUrlPref == null || epgUrlPref.isEmpty()) {
                 String configEpg = config.getString("EPG_URLS", null);
@@ -1570,7 +1631,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== SettingsActivity.java ====================
+# ==================== SettingsActivity.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1939,7 +2000,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件 ====================
+# ==================== 布局文件（同前，不变） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2382,7 +2443,7 @@ sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INT
 sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
 echo "✅ 权限和 cleartext 已添加"
 
-# ========== 设置应用图标（修复 heredoc 问题） ==========
+# ========== 设置应用图标（修复 Python 执行） ==========
 cat > /tmp/fix_manifest.py <<'PYEOF'
 import sys, xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -2433,3 +2494,4 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
+echo "💡 提示：若仍需手动添加别名，请编辑 assets/epg_data.json 后重新构建"
