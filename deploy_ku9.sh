@@ -341,7 +341,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（含日志） ====================
+# ==================== MainActivity.java（移除底部栏相关代码） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -421,7 +421,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_LAST_CHANNEL = "last_channel";
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
-    private TextView tvChannelName, tvEpgInfo, tvTime;
     private Runnable hideOverlayRunnable;
     private boolean isLoading = false;
     private List<SubEntry> subEntryList = new ArrayList<>();
@@ -481,12 +480,6 @@ public class MainActivity extends AppCompatActivity {
             channelRecycler.setAdapter(channelAdapter);
             epgAdapter = new EpgAdapter(new ArrayList<>());
             epgRecycler.setAdapter(epgAdapter);
-            tvChannelName = findViewById(R.id.tv_channel_name);
-            tvEpgInfo = findViewById(R.id.tv_epg_info);
-            tvTime = findViewById(R.id.tv_time);
-            if (tvChannelName != null) tvChannelName.setVisibility(View.GONE);
-            if (tvEpgInfo != null) tvEpgInfo.setVisibility(View.GONE);
-            updateTime();
             playerView.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_UP) {
                     float y = event.getY();
@@ -498,19 +491,6 @@ public class MainActivity extends AppCompatActivity {
                 }
                 return false;
             });
-            findViewById(R.id.btn_epg).setOnClickListener(v -> {
-                if (currentChannel != null) {
-                    if (epgContainer.getVisibility() == View.VISIBLE) {
-                        epgContainer.setVisibility(View.GONE);
-                    } else {
-                        epgContainer.setVisibility(View.VISIBLE);
-                        loadEpgForChannel(currentChannel);
-                    }
-                } else {
-                    Toast.makeText(this, "请先选择一个频道", Toast.LENGTH_SHORT).show();
-                }
-            });
-            findViewById(R.id.btn_announce).setOnClickListener(v -> Toast.makeText(this, "使用公告", Toast.LENGTH_SHORT).show());
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
@@ -752,7 +732,7 @@ public class MainActivity extends AppCompatActivity {
             if (epgUrl == null || epgUrl.isEmpty()) {
                 epgUrl = config.getString("EPG_URLS", null);
                 if (epgUrl == null || epgUrl.isEmpty()) {
-                    tvEpgInfo.setText("暂无EPG");
+                    // 无EPG时不做显示（底部已移除）
                     epgAdapter.setItems(new ArrayList<>());
                     currentEpgList.clear();
                     return;
@@ -767,13 +747,6 @@ public class MainActivity extends AppCompatActivity {
                         try {
                             currentEpgList = programs;
                             epgAdapter.setItems(programs);
-                            if (!programs.isEmpty()) {
-                                EPGParser.EpgProgram first = programs.get(0);
-                                SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
-                                tvEpgInfo.setText(first.title + " " + sdf.format(new Date(first.startTime)));
-                            } else {
-                                tvEpgInfo.setText("暂无节目");
-                            }
                             writeLog("EPG加载成功，节目数: " + programs.size());
                         } catch (Exception e) {
                             writeCrashLog(e);
@@ -783,7 +756,6 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onError(String error) {
                     runOnUiThread(() -> {
-                        tvEpgInfo.setText("EPG加载失败");
                         epgAdapter.setItems(new ArrayList<>());
                         currentEpgList.clear();
                         writeLog("EPG加载失败: " + error);
@@ -901,11 +873,6 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
         return super.onKeyDown(keyCode, event);
-    }
-    private void updateTime() {
-        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm EEEE", Locale.getDefault());
-        tvTime.setText(sdf.format(new Date()));
-        mainHandler.postDelayed(this::updateTime, 60000);
     }
     @Override
     protected void onDestroy() {
@@ -1450,59 +1417,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:background="#00000000" />
-    <LinearLayout
-        android:id="@+id/bottom_bar"
-        android:layout_width="match_parent"
-        android:layout_height="50dp"
-        android:layout_gravity="bottom"
-        android:background="#CC000000"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
-        <TextView
-            android:id="@+id/tv_channel_name"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="频道名"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/tv_epg_info"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="节目信息"
-            android:textColor="#AAAAAA"
-            android:textSize="11sp"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/tv_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="16dp"
-            android:text="00:00 周一"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp" />
-        <ImageButton
-            android:id="@+id/btn_epg"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_epg"
-            android:background="#00000000"
-            android:tint="#FFFFFF" />
-        <ImageButton
-            android:id="@+id/btn_announce"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/ic_announce"
-            android:layout_marginStart="8dp"
-            android:background="#00000000"
-            android:tint="#FFFFFF" />
-    </LinearLayout>
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
