@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（酷9风格最终版）"
+echo "🔥 部署 witv 播放器（全局EPG缓存版 - 一次解析全部频道）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（完整） ====================
+# ==================== EPGParser.java（全局缓存，一次性解析全部频道） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -223,6 +223,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -232,6 +233,13 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
 
     private static Map<String, String> sAliasMap = null;
+    // 全局缓存：channelId -> 该频道所有节目（未排序）
+    private static Map<String, List<EpgProgram>> sAllPrograms = null;
+    // 归一化频道名 -> channelId
+    private static Map<String, String> sChannelNameToId = null;
+    // 是否正在加载中
+    private static AtomicBoolean sLoading = new AtomicBoolean(false);
+    private static boolean sLoaded = false;
 
     private static synchronized Map<String, String> loadAliasMap(Context context) {
         if (sAliasMap != null) return sAliasMap;
@@ -264,120 +272,125 @@ public class EPGParser {
         return sAliasMap;
     }
 
-    public static void loadEpg(Context context, String url, String channelName, OnEpgLoadListener listener) {
-        LogUtils.writeLog("EPG加载开始: url=" + url + ", channel=" + channelName);
-        new Thread(() -> {
-            InputStream is = null;
-            try {
-                String cacheDir = LogUtils.getEpgCacheDir();
-                File cacheDirFile = new File(cacheDir);
-                if (!cacheDirFile.exists()) cacheDirFile.mkdirs();
-
-                String hashFile = LogUtils.getEpgHashFile();
-                File hashFileObj = new File(hashFile);
-
-                String remoteHash = null;
-                boolean useHash = true;
-                try {
-                    String hashUrl = url + ".hash";
-                    OkHttpClient client = new OkHttpClient.Builder()
-                            .connectTimeout(10, TimeUnit.SECONDS)
-                            .readTimeout(10, TimeUnit.SECONDS)
-                            .build();
-                    Request request = new Request.Builder().url(hashUrl).header("User-Agent", "Mozilla/5.0").build();
-                    Response response = client.newCall(request).execute();
-                    if (response.isSuccessful()) {
-                        remoteHash = response.body().string().trim();
-                        LogUtils.writeLog("获取远程哈希成功: " + remoteHash);
-                    } else {
-                        useHash = false;
-                        LogUtils.writeLog("远程哈希不存在，将直接下载EPG");
-                    }
-                    response.close();
-                } catch (Exception e) {
-                    useHash = false;
-                    LogUtils.writeLog("获取远程哈希失败，将直接下载EPG: " + e.getMessage());
-                }
-
-                File cacheFile = null;
-                boolean needDownload = true;
-                if (useHash && remoteHash != null && hashFileObj.exists()) {
-                    String localHash = new String(java.nio.file.Files.readAllBytes(hashFileObj.toPath())).trim();
-                    if (localHash.equals(remoteHash)) {
-                        for (File f : cacheDirFile.listFiles()) {
-                            if (f.getName().endsWith(".xml")) {
-                                cacheFile = f;
-                                break;
-                            }
-                        }
-                        if (cacheFile != null && cacheFile.exists()) {
-                            needDownload = false;
-                            LogUtils.writeLog("哈希匹配，使用缓存: " + cacheFile.getAbsolutePath());
-                        }
-                    }
-                }
-
-                if (needDownload) {
-                    OkHttpClient client = new OkHttpClient.Builder()
-                            .connectTimeout(30, TimeUnit.SECONDS)
-                            .readTimeout(60, TimeUnit.SECONDS)
-                            .build();
-                    Request request = new Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build();
-                    LogUtils.writeLog("下载EPG: " + url);
-                    Response response = client.newCall(request).execute();
-                    if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
-
-                    for (File f : cacheDirFile.listFiles()) {
-                        if (f.getName().endsWith(".xml")) f.delete();
-                    }
-
-                    String fileName = "epg_" + System.currentTimeMillis() + ".xml";
-                    cacheFile = new File(cacheDirFile, fileName);
-                    InputStream responseStream = response.body().byteStream();
-                    FileOutputStream fos = new FileOutputStream(cacheFile);
-                    byte[] buffer = new byte[8192];
-                    int len;
-                    while ((len = responseStream.read(buffer)) != -1) fos.write(buffer, 0, len);
-                    fos.close();
-                    responseStream.close();
-                    LogUtils.writeLog("EPG下载完成: " + cacheFile.getAbsolutePath());
-
-                    if (useHash && remoteHash != null) {
-                        FileOutputStream hfos = new FileOutputStream(hashFileObj);
-                        hfos.write(remoteHash.getBytes());
-                        hfos.close();
-                        LogUtils.writeLog("更新本地哈希: " + remoteHash);
-                    }
-                }
-
-                if (cacheFile == null || !cacheFile.exists()) {
-                    throw new Exception("无法获取EPG缓存文件");
-                }
-
-                LogUtils.writeLog("使用EPG缓存: " + cacheFile.getAbsolutePath());
-                is = new FileInputStream(cacheFile);
-                Map<String, String> aliasMap = loadAliasMap(context);
-                String logoDir = LogUtils.getAppRootDir() + "/logo";
-                List<EpgProgram> programs = parseXmltvStream(is, channelName, aliasMap, logoDir);
-                LogUtils.writeLog("EPG 解析成功，节目数: " + (programs != null ? programs.size() : 0));
-                android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                mainHandler.post(() -> listener.onLoaded(programs));
-
-            } catch (Exception e) {
-                LogUtils.writeCrashLog(e);
-                LogUtils.writeLog("EPG 加载异常: " + e.getMessage());
-                android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                mainHandler.post(() -> listener.onError(e.getMessage()));
-            } finally {
-                try { if (is != null) is.close(); } catch (Exception ignored) {}
+    // 初始化全局缓存（只执行一次）
+    private static void initAllPrograms(Context context, String url) {
+        if (sLoaded) return;
+        if (!sLoading.compareAndSet(false, true)) {
+            // 其他线程正在加载，等待
+            int waitCount = 0;
+            while (!sLoaded && waitCount < 300) {
+                try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+                waitCount++;
             }
-        }).start();
+            return;
+        }
+
+        LogUtils.writeLog("开始全量加载并解析EPG...");
+        try {
+            String cacheDir = LogUtils.getEpgCacheDir();
+            File cacheDirFile = new File(cacheDir);
+            if (!cacheDirFile.exists()) cacheDirFile.mkdirs();
+
+            String hashFile = LogUtils.getEpgHashFile();
+            File hashFileObj = new File(hashFile);
+
+            String remoteHash = null;
+            boolean useHash = true;
+            try {
+                String hashUrl = url + ".hash";
+                OkHttpClient client = new OkHttpClient.Builder()
+                        .connectTimeout(10, TimeUnit.SECONDS)
+                        .readTimeout(10, TimeUnit.SECONDS)
+                        .build();
+                Request request = new Request.Builder().url(hashUrl).header("User-Agent", "Mozilla/5.0").build();
+                Response response = client.newCall(request).execute();
+                if (response.isSuccessful()) {
+                    remoteHash = response.body().string().trim();
+                    LogUtils.writeLog("获取远程哈希成功: " + remoteHash);
+                } else {
+                    useHash = false;
+                    LogUtils.writeLog("远程哈希不存在，将直接下载EPG");
+                }
+                response.close();
+            } catch (Exception e) {
+                useHash = false;
+                LogUtils.writeLog("获取远程哈希失败，将直接下载EPG: " + e.getMessage());
+            }
+
+            File cacheFile = null;
+            boolean needDownload = true;
+            if (useHash && remoteHash != null && hashFileObj.exists()) {
+                String localHash = new String(java.nio.file.Files.readAllBytes(hashFileObj.toPath())).trim();
+                if (localHash.equals(remoteHash)) {
+                    for (File f : cacheDirFile.listFiles()) {
+                        if (f.getName().endsWith(".xml")) {
+                            cacheFile = f;
+                            break;
+                        }
+                    }
+                    if (cacheFile != null && cacheFile.exists()) {
+                        needDownload = false;
+                        LogUtils.writeLog("哈希匹配，使用缓存: " + cacheFile.getAbsolutePath());
+                    }
+                }
+            }
+
+            if (needDownload) {
+                OkHttpClient client = new OkHttpClient.Builder()
+                        .connectTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .build();
+                Request request = new Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build();
+                LogUtils.writeLog("下载EPG: " + url);
+                Response response = client.newCall(request).execute();
+                if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
+
+                for (File f : cacheDirFile.listFiles()) {
+                    if (f.getName().endsWith(".xml")) f.delete();
+                }
+
+                String fileName = "epg_" + System.currentTimeMillis() + ".xml";
+                cacheFile = new File(cacheDirFile, fileName);
+                InputStream responseStream = response.body().byteStream();
+                FileOutputStream fos = new FileOutputStream(cacheFile);
+                byte[] buffer = new byte[8192];
+                int len;
+                while ((len = responseStream.read(buffer)) != -1) fos.write(buffer, 0, len);
+                fos.close();
+                responseStream.close();
+                LogUtils.writeLog("EPG下载完成: " + cacheFile.getAbsolutePath());
+
+                if (useHash && remoteHash != null) {
+                    FileOutputStream hfos = new FileOutputStream(hashFileObj);
+                    hfos.write(remoteHash.getBytes());
+                    hfos.close();
+                    LogUtils.writeLog("更新本地哈希: " + remoteHash);
+                }
+            }
+
+            if (cacheFile == null || !cacheFile.exists()) {
+                throw new Exception("无法获取EPG缓存文件");
+            }
+
+            LogUtils.writeLog("开始解析EPG: " + cacheFile.getAbsolutePath());
+            InputStream is = new FileInputStream(cacheFile);
+            parseAllData(is);
+            is.close();
+            sLoaded = true;
+            LogUtils.writeLog("EPG全量解析完成，共解析 " + (sAllPrograms != null ? sAllPrograms.size() : 0) + " 个频道");
+        } catch (Exception e) {
+            LogUtils.writeCrashLog(e);
+            LogUtils.writeLog("全量加载EPG失败: " + e.getMessage());
+            sLoaded = false;
+        } finally {
+            sLoading.set(false);
+        }
     }
 
-    private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName, Map<String, String> aliasMap, String logoDir)
-            throws XmlPullParserException, IOException, ParseException {
-        Map<String, ChannelInfo> channelMap = new HashMap<>();
-        Map<String, List<EpgProgram>> programMap = new HashMap<>();
+    private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
+        Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
+        Map<String, String> channelNameToId = new HashMap<>();
+
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
         int eventType = parser.getEventType();
@@ -394,6 +407,7 @@ public class EPGParser {
         String progDesc = null;
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
                 case XmlPullParser.START_TAG:
@@ -432,12 +446,13 @@ public class EPGParser {
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
                         if (currentChannelId != null && currentDisplayName != null && !currentDisplayName.isEmpty()) {
-                            ChannelInfo info = new ChannelInfo();
-                            info.id = currentChannelId;
-                            info.displayName = currentDisplayName;
-                            info.iconUrl = currentIconUrl;
-                            channelMap.put(currentChannelId, info);
-                            LogUtils.writeLog("找到频道: " + currentDisplayName + " (" + currentChannelId + ")");
+                            String normName = normalizeChannelName(currentDisplayName);
+                            if (!normName.isEmpty()) {
+                                channelNameToId.put(normName, currentChannelId);
+                                channelNameToId.put(currentDisplayName, currentChannelId);
+                            }
+                            // 存储显示名到ID（原始名称）
+                            channelNameToId.put(currentDisplayName, currentChannelId);
                         }
                     } else if ("programme".equals(parser.getName())) {
                         inProgramme = false;
@@ -453,8 +468,8 @@ public class EPGParser {
                                 try { prog.endTime = sdfWithZone.parse(progStop).getTime(); }
                                 catch (ParseException e) { try { prog.endTime = sdfNoZone.parse(progStop).getTime(); } catch (ParseException ignored) {} }
                             }
-                            List<EpgProgram> list = programMap.get(progChannelId);
-                            if (list == null) { list = new ArrayList<>(); programMap.put(progChannelId, list); }
+                            List<EpgProgram> list = allPrograms.get(progChannelId);
+                            if (list == null) { list = new ArrayList<>(); allPrograms.put(progChannelId, list); }
                             list.add(prog);
                         }
                     }
@@ -462,52 +477,73 @@ public class EPGParser {
             }
             eventType = parser.next();
         }
-        LogUtils.writeLog("共找到 " + channelMap.size() + " 个频道, " + programMap.size() + " 个有节目");
-        String normalizedChannelName = normalizeChannelName(channelName);
-        String targetChannelId = null;
-        String targetDisplayName = null;
-        String mappedEpgid = aliasMap.get(normalizedChannelName);
-        if (mappedEpgid != null && programMap.containsKey(mappedEpgid)) {
-            targetChannelId = mappedEpgid;
-            ChannelInfo info = channelMap.get(mappedEpgid);
-            targetDisplayName = (info != null && info.displayName != null) ? info.displayName : mappedEpgid;
-            LogUtils.writeLog("别名直接匹配: " + channelName + " -> epgid=" + mappedEpgid);
-        }
-        if (targetChannelId == null) {
-            List<MatchCandidate> candidates = new ArrayList<>();
-            for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
-                String display = entry.getValue().displayName;
-                if (display == null || display.isEmpty()) continue;
-                String normDisp = normalizeChannelName(display);
-                if (normDisp.isEmpty()) continue;
-                if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
-                    int score = 0;
-                    if (normDisp.equals(normalizedChannelName)) score = 100;
-                    else if (normDisp.contains(normalizedChannelName)) score = 50 + normalizedChannelName.length();
-                    else if (normalizedChannelName.contains(normDisp)) score = 30 + normDisp.length();
-                    candidates.add(new MatchCandidate(entry.getKey(), display, score));
+
+        // 结合别名映射补充映射关系
+        if (sAliasMap != null) {
+            for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+                String alias = entry.getKey();
+                String epgid = entry.getValue();
+                if (allPrograms.containsKey(epgid)) {
+                    channelNameToId.put(alias, epgid);
                 }
             }
-            if (!candidates.isEmpty()) {
-                Collections.sort(candidates, (o1, o2) -> Integer.compare(o2.score, o1.score));
-                MatchCandidate best = candidates.get(0);
-                targetChannelId = best.id;
-                targetDisplayName = best.displayName;
-                LogUtils.writeLog("包含匹配成功: " + channelName + " -> " + targetDisplayName + " (分数 " + best.score + ")");
+        }
+
+        sAllPrograms = allPrograms;
+        sChannelNameToId = channelNameToId;
+        LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
+    }
+
+    // 对外接口：加载某个频道的EPG（从缓存获取）
+    public static void loadEpg(Context context, String url, String channelName, OnEpgLoadListener listener) {
+        // 先加载别名映射
+        loadAliasMap(context);
+
+        // 初始化全局缓存（首次调用时执行）
+        if (!sLoaded) {
+            initAllPrograms(context, url);
+        }
+
+        if (!sLoaded) {
+            listener.onError("EPG数据正在加载中，请稍后重试");
+            return;
+        }
+
+        // 查找频道ID
+        String normalizedChannelName = normalizeChannelName(channelName);
+        String channelId = null;
+
+        // 1. 尝试通过映射查找
+        if (sChannelNameToId != null) {
+            // 先尝试原始名称
+            if (sChannelNameToId.containsKey(channelName)) {
+                channelId = sChannelNameToId.get(channelName);
+            } else if (sChannelNameToId.containsKey(normalizedChannelName)) {
+                channelId = sChannelNameToId.get(normalizedChannelName);
+            } else {
+                // 遍历所有key进行包含匹配（处理不精确匹配）
+                for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
+                    String key = entry.getKey();
+                    if (key.contains(normalizedChannelName) || normalizedChannelName.contains(key)) {
+                        channelId = entry.getValue();
+                        LogUtils.writeLog("通过包含匹配找到频道: " + key + " -> " + channelId);
+                        break;
+                    }
+                }
             }
         }
-        if (targetChannelId == null) {
-            LogUtils.writeLog("未找到匹配的频道，节目数为0");
-            return new ArrayList<>();
+
+        if (channelId == null) {
+            LogUtils.writeLog("未找到频道ID: " + channelName);
+            listener.onLoaded(new ArrayList<>());
+            return;
         }
-        ChannelInfo targetInfo = channelMap.get(targetChannelId);
-        if (targetInfo != null && targetInfo.iconUrl != null && !targetInfo.iconUrl.isEmpty()) {
-            downloadIcon(targetInfo.iconUrl, channelName, logoDir);
-        }
-        List<EpgProgram> result = programMap.get(targetChannelId);
+
+        // 获取该频道的节目列表
+        List<EpgProgram> result = sAllPrograms.get(channelId);
         if (result == null) result = new ArrayList<>();
 
-        // 排序：从当前时间开始
+        // 按当前时间排序（从当前节目开始）
         long currentTime = System.currentTimeMillis();
         Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
         int currentIndex = 0;
@@ -524,18 +560,13 @@ public class EPGParser {
             result = sortedList;
         }
 
-        LogUtils.writeLog("最终返回节目数: " + result.size());
-        return result;
-    }
-
-    private static class MatchCandidate {
-        String id;
-        String displayName;
-        int score;
-        MatchCandidate(String id, String displayName, int score) { this.id = id; this.displayName = displayName; this.score = score; }
+        LogUtils.writeLog("返回频道 " + channelName + " 的节目数: " + result.size());
+        android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        mainHandler.post(() -> listener.onLoaded(result));
     }
 
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
+        // 此方法保留，但在全量解析中未使用，可保留供以后调用
         try {
             if (iconUrl == null || iconUrl.isEmpty()) return;
             String decoded = URLDecoder.decode(iconUrl, "UTF-8");
@@ -573,12 +604,6 @@ public class EPGParser {
             return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
         }
         return normalized;
-    }
-
-    private static class ChannelInfo {
-        String id;
-        String displayName;
-        String iconUrl;
     }
 
     public static class EpgProgram {
@@ -668,7 +693,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（含酷9风格showInfoPopup） ====================
+# ==================== MainActivity.java（无需改动，接口不变） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1314,7 +1339,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 酷9风格 showInfoPopup ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1332,10 +1356,8 @@ public class MainActivity extends AppCompatActivity {
             TextView tvNextEpg = popupView.findViewById(R.id.popup_next_epg);
             TextView tvExtra = popupView.findViewById(R.id.popup_extra);
 
-            // 频道名
             tvName.setText(currentChannel.name);
 
-            // 台标
             File logoFile = null;
             if (currentChannel.logoUrl != null && !currentChannel.logoUrl.isEmpty()) {
                 String fileName = currentChannel.name.hashCode() + ".png";
@@ -1348,7 +1370,6 @@ public class MainActivity extends AppCompatActivity {
                 ivLogo.setVisibility(View.GONE);
             }
 
-            // 分辨率、帧率等（可从播放器获取，此处固定示例）
             tvResolution.setText("FHD");
             tvFps.setText("29FPS");
             tvAudio.setText("立体声");
@@ -1910,7 +1931,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== popup_info.xml（酷9风格精确复刻） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2063,7 +2084,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# ==================== 其他布局文件 ====================
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2459,4 +2479,4 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 单缓存目录 epgCache，哈希文件 epg_hash.txt"
+echo "💡 全局EPG缓存：首次加载时一次性解析全部频道和一周节目，切换频道直接读取缓存，速度极快。"
