@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（酷9风格最终完整版 - 修复频道组&节目单）"
+echo "🔥 部署 witv 播放器（酷9风格 - 修复频道组显示）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -679,7 +679,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（修复频道组和节目单显示） ====================
+# ==================== MainActivity.java（修正视图引用） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -763,6 +763,7 @@ public class MainActivity extends AppCompatActivity {
     private ScheduleChannelAdapter scheduleChannelAdapter;
     private ScheduleEpgAdapter scheduleEpgAdapter;
     private View overlayLayout, scheduleLayout;
+    private View overlayContainer;
     private SharedPreferences prefs;
     private ConfigurationManager config;
     private boolean isOverlayVisible = false;
@@ -849,6 +850,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             playerView = findViewById(R.id.player_container);
+            overlayContainer = findViewById(R.id.overlay_container);
             overlayLayout = findViewById(R.id.overlay_layout);
             scheduleLayout = findViewById(R.id.schedule_layout);
             subRecycler = findViewById(R.id.sub_recycler);
@@ -918,26 +920,21 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // 节目单按钮
             btnEpgSchedule.setOnClickListener(v -> toggleScheduleMode());
 
-            // 关闭节目单（点击空白区域）
             findViewById(R.id.schedule_close_area).setOnClickListener(v -> toggleScheduleMode());
 
-            // 点击左侧区域显示频道组
             leftClickArea.setOnClickListener(v -> {
                 if (isScheduleMode) {
-                    // 如果当前在节目单模式，先退出节目单再显示频道组
                     toggleScheduleMode();
-                    // 延迟一下再显示
                     mainHandler.postDelayed(() -> showOverlay(), 100);
                 } else {
                     showOverlay();
                 }
             });
 
-            // 点击覆盖层空白区域关闭
-            overlayLayout.setOnClickListener(v -> hideOverlay());
+            // 点击覆盖层空白区域关闭（可选）
+            // 注意：overlay_container 本身不处理点击，靠子布局处理
 
             mainHandler.postDelayed(() -> {
                 if (selectedSubs.isEmpty()) {
@@ -1196,21 +1193,24 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 显示频道组（覆盖层） ==========
+    // ========== 显示/隐藏频道组 ==========
     private void showOverlay() {
         if (isScheduleMode) {
-            // 如果当前在节目单模式，先退出
             scheduleLayout.setVisibility(View.GONE);
             isScheduleMode = false;
         }
         isOverlayVisible = true;
+        overlayContainer.setVisibility(View.VISIBLE);
         overlayLayout.setVisibility(View.VISIBLE);
+        scheduleLayout.setVisibility(View.GONE);
         resetAutoHideTimer();
     }
 
     private void hideOverlay() {
         isOverlayVisible = false;
+        overlayContainer.setVisibility(View.GONE);
         overlayLayout.setVisibility(View.GONE);
+        scheduleLayout.setVisibility(View.GONE);
         mainHandler.removeCallbacks(hideOverlayRunnable);
     }
 
@@ -1224,13 +1224,11 @@ public class MainActivity extends AppCompatActivity {
     // ========== 节目单切换 ==========
     private void toggleScheduleMode() {
         if (isScheduleMode) {
-            // 关闭节目单，回到频道组（如果覆盖层之前是显示的，则显示覆盖层）
             scheduleLayout.setVisibility(View.GONE);
             isScheduleMode = false;
             if (isOverlayVisible) {
                 overlayLayout.setVisibility(View.VISIBLE);
             } else {
-                // 如果覆盖层没显示，则显示它
                 showOverlay();
             }
         } else {
@@ -1238,10 +1236,9 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "请先选择一个频道", Toast.LENGTH_SHORT).show();
                 return;
             }
-            // 隐藏覆盖层
             overlayLayout.setVisibility(View.GONE);
             isOverlayVisible = false;
-            // 显示节目单
+            overlayContainer.setVisibility(View.VISIBLE);
             scheduleLayout.setVisibility(View.VISIBLE);
             isScheduleMode = true;
             showScheduleForChannel(currentChannel);
@@ -1285,7 +1282,6 @@ public class MainActivity extends AppCompatActivity {
             dayTabs.removeAllViews();
             return;
         }
-        // 按开始时间排序
         Collections.sort(programs, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
         Set<String> dateSet = new HashSet<>();
         SimpleDateFormat sdf = new SimpleDateFormat("MM/dd", Locale.getDefault());
@@ -2092,7 +2088,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件（占一半宽度，三列） ====================
+# ==================== 布局文件（修正占一半宽度） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2113,154 +2109,173 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:background="#00000000"
         android:clickable="true"
         android:focusable="true" />
-    
-    <!-- 主覆盖层（频道组）占一半宽度 -->
-    <LinearLayout
-        android:id="@+id/overlay_layout"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="0.5"
-        android:orientation="horizontal"
-        android:background="#CC000000"
-        android:visibility="gone">
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.2"
-            android:orientation="vertical"
-            android:background="#33000000"
-            android:padding="2dp">
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="订阅源"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp"
-                android:paddingBottom="2dp" />
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/sub_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-        </LinearLayout>
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.2"
-            android:orientation="vertical"
-            android:background="#44000000"
-            android:padding="2dp">
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="分组"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp"
-                android:paddingBottom="2dp" />
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/group_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-        </LinearLayout>
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.6"
-            android:orientation="vertical"
-            android:background="#55000000"
-            android:padding="2dp">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="频道列表"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp" />
-                <Button
-                    android:id="@+id/btn_epg_schedule"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="节目单"
-                    android:textColor="#FFD700"
-                    android:background="@null"
-                    android:textSize="11sp" />
-            </LinearLayout>
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/channel_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-        </LinearLayout>
-    </LinearLayout>
 
-    <!-- 节目单视图（同样占一半宽度） -->
+    <!-- 覆盖层容器（左半屏） -->
     <LinearLayout
-        android:id="@+id/schedule_layout"
-        android:layout_width="0dp"
+        android:id="@+id/overlay_container"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_weight="0.5"
         android:orientation="horizontal"
-        android:background="#CC000000"
+        android:background="#00000000"
         android:visibility="gone">
-        <LinearLayout
+        
+        <!-- 左侧覆盖层内容（占一半宽度） -->
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.4"
-            android:orientation="vertical"
-            android:background="#55000000"
-            android:padding="2dp">
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="频道列表"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp" />
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/schedule_channel_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-        </LinearLayout>
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.6"
-            android:orientation="vertical"
-            android:background="#66000000"
-            android:padding="2dp">
+            android:layout_weight="0.5">
+            
+            <!-- 频道组 -->
             <LinearLayout
-                android:id="@+id/day_tabs"
+                android:id="@+id/overlay_layout"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:orientation="horizontal"
-                android:gravity="center"
-                android:padding="4dp" />
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/schedule_epg_recycler"
+                android:background="#CC000000"
+                android:visibility="visible">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#33000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="订阅源"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/sub_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#44000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="分组"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/group_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="频道列表"
+                            android:textColor="#FFFFFF"
+                            android:textSize="11sp" />
+                        <Button
+                            android:id="@+id/btn_epg_schedule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="节目单"
+                            android:textColor="#FFD700"
+                            android:background="@null"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 节目单 -->
+            <LinearLayout
+                android:id="@+id/schedule_layout"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-        </LinearLayout>
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:background="#CC000000"
+                android:visibility="gone">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.4"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="频道列表"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#66000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:id="@+id/day_tabs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:padding="4dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_epg_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <View
+                    android:id="@+id/schedule_close_area"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0"
+                    android:background="#00000000"
+                    android:clickable="true" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- 右侧透明占位（留出播放画面） -->
         <View
-            android:id="@+id/schedule_close_area"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0"
-            android:background="#00000000"
-            android:clickable="true" />
+            android:layout_weight="0.5" />
     </LinearLayout>
 </FrameLayout>
 EOF
 
-# 其余布局文件（popup_info, item_*.xml）保持不变，此处省略，实际脚本中包含完整。
-# 为节省篇幅，只列出必要的部分，但完整脚本中已包含所有文件。
-
+# ==================== 其余布局文件 ====================
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2686,4 +2701,4 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 窗口已缩小至屏幕一半，左侧点击区域可弹出频道组，节目单按钮可查看一周EPG。"
+echo "💡 修复：频道组和节目单现在正确显示，覆盖层占屏幕一半宽度。"
