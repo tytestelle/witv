@@ -679,7 +679,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（包含所有修正，导入LinearLayout，布局缩小至一半） ====================
+# ==================== MainActivity.java（修正版，导入Collections，移除epgAdapter/epgContainer） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -733,6 +733,7 @@ import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1127,6 +1128,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ========== 修正后的 EPG 加载方法（不引用 epgAdapter/epgContainer） ==========
     private void loadEpgForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         String epgUrl = prefs.getString("epg_url", null);
@@ -1139,9 +1141,7 @@ public class MainActivity extends AppCompatActivity {
         if (epgUrl == null || epgUrl.isEmpty()) {
             LogUtils.writeLog("未配置EPG URL");
             Toast.makeText(this, "未设置EPG地址", Toast.LENGTH_SHORT).show();
-            epgAdapter.setItems(new ArrayList<>());
             currentEpgList.clear();
-            epgContainer.setVisibility(View.GONE);
             return;
         }
         if (epgUrl.contains("$")) epgUrl = epgUrl.substring(0, epgUrl.indexOf("$"));
@@ -1154,20 +1154,16 @@ public class MainActivity extends AppCompatActivity {
             public void onLoaded(List<EPGParser.EpgProgram> programs) {
                 runOnUiThread(() -> {
                     currentEpgList = programs;
-                    epgAdapter.setItems(programs);
                     LogUtils.writeLog("EPG加载成功，节目数: " + programs.size());
                     Toast.makeText(MainActivity.this, "EPG加载成功，共" + programs.size() + "个节目", Toast.LENGTH_SHORT).show();
-                    epgContainer.setVisibility(View.VISIBLE);
                 });
             }
             @Override
             public void onError(String error) {
                 runOnUiThread(() -> {
-                    epgAdapter.setItems(new ArrayList<>());
                     currentEpgList.clear();
                     LogUtils.writeLog("EPG加载失败: " + error);
                     Toast.makeText(MainActivity.this, "EPG加载失败: " + error, Toast.LENGTH_SHORT).show();
-                    epgContainer.setVisibility(View.GONE);
                 });
             }
         });
@@ -1194,7 +1190,6 @@ public class MainActivity extends AppCompatActivity {
         isOverlayVisible = true;
         overlayLayout.setVisibility(View.VISIBLE);
         resetAutoHideTimer();
-        // 如果正在节目单模式，关闭节目单
         if (isScheduleMode) {
             toggleScheduleMode();
         }
@@ -1233,8 +1228,6 @@ public class MainActivity extends AppCompatActivity {
     private void showScheduleForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentScheduleChannelName = channel.name;
-        // 获取该频道的所有EPG数据（从缓存中取）
-        // 由于EPGParser是全局缓存，我们直接调用loadEpg获取数据
         String epgUrl = prefs.getString("epg_url", null);
         if (epgUrl == null || epgUrl.isEmpty()) {
             epgUrl = config.getString("EPG_URLS", null);
@@ -1249,9 +1242,7 @@ public class MainActivity extends AppCompatActivity {
             public void onLoaded(List<EPGParser.EpgProgram> programs) {
                 runOnUiThread(() -> {
                     currentScheduleEpg = programs;
-                    // 生成周几标签
                     generateDayTabs(programs);
-                    // 默认显示今天
                     selectedDayIndex = 0;
                     showDayPrograms(0);
                 });
@@ -1271,9 +1262,7 @@ public class MainActivity extends AppCompatActivity {
             dayTabs.removeAllViews();
             return;
         }
-        // 按开始时间排序
         Collections.sort(programs, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
-        // 找出所有不同的日期
         Set<String> dateSet = new HashSet<>();
         SimpleDateFormat sdf = new SimpleDateFormat("MM/dd", Locale.getDefault());
         for (EPGParser.EpgProgram prog : programs) {
@@ -1283,7 +1272,6 @@ public class MainActivity extends AppCompatActivity {
         List<String> dates = new ArrayList<>(dateSet);
         Collections.sort(dates);
         dayLabels = dates;
-        // 生成标签
         dayTabs.removeAllViews();
         for (int i = 0; i < dayLabels.size(); i++) {
             TextView tv = new TextView(this);
@@ -1295,7 +1283,6 @@ public class MainActivity extends AppCompatActivity {
             tv.setOnClickListener(v -> {
                 selectedDayIndex = index;
                 showDayPrograms(index);
-                // 刷新标签颜色
                 for (int j = 0; j < dayTabs.getChildCount(); j++) {
                     TextView child = (TextView) dayTabs.getChildAt(j);
                     child.setTextColor(j == index ? 0xFFFFD700 : 0xFFFFFFFF);
@@ -1317,7 +1304,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         scheduleEpgAdapter.setItems(dayPrograms);
-        // 滚动到顶部
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
@@ -1642,8 +1628,6 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 holder.logo.setVisibility(View.GONE);
             }
-            // 显示当前节目预告（在频道名下面）
-            // 由于需要EPG数据，此处简化，不在此处显示，由外部更新
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
@@ -2591,9 +2575,6 @@ mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/a
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
 echo "✅ 文件复制完成"
-
-# 修复 SettingsActivity import
-sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
 # ========== 自定义图标 ==========
 if [ -f "apk ico.jpeg" ]; then
