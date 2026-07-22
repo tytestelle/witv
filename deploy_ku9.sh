@@ -141,12 +141,11 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java ====================
-# ==================== LogUtils.java（使用内部存储） ====================
+# ==================== LogUtils.java（使用外部存储） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
-import android.content.Context;
+import android.os.Environment;
 import android.util.Log;
 
 import java.io.File;
@@ -162,19 +161,22 @@ public class LogUtils {
     private static final String LOG_DIR_NAME = "logs";
     private static final String LOG_FILE = "app.log";
     private static String sLogDirPath = null;
-    private static Context sContext = null;
 
-    public static void init(Context context) {
-        sContext = context.getApplicationContext();
+    public static void init() {
         if (sLogDirPath != null) return;
-        // 使用内部存储
-        File baseDir = new File(context.getFilesDir(), APP_DIR);
+        // 使用外部存储
+        File externalDir = Environment.getExternalStorageDirectory();
+        if (externalDir == null) {
+            // 备选：使用内部存储的 files 目录（但推荐外部）
+            externalDir = new File("/sdcard");
+        }
+        File baseDir = new File(externalDir, APP_DIR);
         if (!baseDir.exists()) {
             if (!baseDir.mkdirs()) {
                 Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
             }
         }
-        createAppDirectories(context);
+        createAppDirectories();
         File logDir = new File(baseDir, LOG_DIR_NAME);
         if (!logDir.exists()) {
             if (!logDir.mkdirs()) {
@@ -186,7 +188,7 @@ public class LogUtils {
     }
 
     public static String getLogDir() {
-        if (sLogDirPath == null) return sContext.getFilesDir() + "/" + APP_DIR + "/" + LOG_DIR_NAME;
+        if (sLogDirPath == null) init();
         return sLogDirPath;
     }
 
@@ -230,9 +232,9 @@ public class LogUtils {
         }
     }
 
-    public static void createAppDirectories(Context context) {
+    public static void createAppDirectories() {
         try {
-            File baseDir = new File(context.getFilesDir(), APP_DIR);
+            File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
             String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"};
             for (String sub : subDirs) {
                 File dir = new File(baseDir, sub);
@@ -247,8 +249,7 @@ public class LogUtils {
     }
 
     public static String getAppRootDir() {
-        if (sContext == null) return "";
-        return sContext.getFilesDir() + "/" + APP_DIR;
+        return Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR;
     }
 
     public static String getEpgCacheDir() {
@@ -256,7 +257,9 @@ public class LogUtils {
     }
 }
 EOF
-
+     
+          
+            
 # ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
@@ -603,10 +606,10 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（全新强化版） ====================
-# ==================== MainActivity.java（使用内部存储，无外部权限） ====================
+# ==================== MainActivity.java（修复 hideOverlay 和目录） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
+import android.Manifest;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -632,6 +635,8 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.media3.common.MediaItem;
@@ -709,11 +714,20 @@ public class MainActivity extends AppCompatActivity {
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
 
-        // 初始化日志（使用内部存储，无需权限）
-        LogUtils.init(this);
-        LogUtils.createAppDirectories(this);
+        LogUtils.init();
+        LogUtils.createAppDirectories();
         LogUtils.writeLog("=== 应用启动 ===");
         Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_LONG).show();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                Manifest.permission.READ_EXTERNAL_STORAGE},
+                        REQUEST_PERMISSIONS);
+            }
+        }
 
         try {
             setContentView(R.layout.activity_main);
@@ -780,39 +794,37 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // 加载订阅源（延迟500ms，确保界面完全渲染）
-            mainHandler.postDelayed(() -> {
-                boolean hasSub = false;
-                String selected = prefs.getString(KEY_SELECTED_SUB, "");
-                if (!selected.isEmpty()) {
-                    String[] parts = selected.split("\\|\\|");
-                    if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
-                        currentSubName = parts[0];
-                        currentSubUrl = parts[1];
+            // 加载订阅源
+            boolean hasSub = false;
+            String selected = prefs.getString(KEY_SELECTED_SUB, "");
+            if (!selected.isEmpty()) {
+                String[] parts = selected.split("\\|\\|");
+                if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
+                    currentSubName = parts[0];
+                    currentSubUrl = parts[1];
+                    hasSub = true;
+                }
+            }
+            if (!hasSub) {
+                for (SubEntry se : subEntryList) {
+                    if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                        currentSubName = se.name;
+                        currentSubUrl = se.url;
+                        prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
                         hasSub = true;
+                        break;
                     }
                 }
-                if (!hasSub) {
-                    for (SubEntry se : subEntryList) {
-                        if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
-                            currentSubName = se.name;
-                            currentSubUrl = se.url;
-                            prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
-                            hasSub = true;
-                            break;
-                        }
-                    }
-                }
+            }
 
-                if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
-                    LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
-                    showNoSourceDialog();
-                } else {
-                    LogUtils.writeLog("加载订阅源: " + currentSubUrl);
-                    showLoadingDialog("正在加载订阅源...");
-                    loadSourceForUrl(currentSubUrl);
-                }
-            }, 500);
+            if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
+                LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
+                showNoSourceDialog();
+            } else {
+                LogUtils.writeLog("加载订阅源: " + currentSubUrl);
+                showLoadingDialog("正在加载订阅源...");
+                loadSourceForUrl(currentSubUrl);
+            }
 
             hideOverlayRunnable = () -> {
                 if (isOverlayVisible) hideOverlay();
@@ -826,6 +838,11 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeCrashLog(e);
             showFatalErrorDialog("初始化失败: " + e.getMessage());
         }
+    }
+
+    // 必须为 public，否则 xml 中的 onClick 找不到
+    public void hideOverlay(View v) {
+        hideOverlay();
     }
 
     private void showLoadingDialog(String message) {
@@ -894,12 +911,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_PERMISSIONS) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                LogUtils.writeLog("存储权限已获取");
+                LogUtils.createAppDirectories();
+                Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_SHORT).show();
+            } else {
+                LogUtils.writeLog("存储权限被拒绝");
+                Toast.makeText(this, "存储权限被拒绝，日志可能无法保存", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
-        // 重新加载订阅列表（可能用户在设置中修改了）
         loadSubscriptions();
         subAdapter.updateData(subEntryList);
-        // 如果当前没有加载任何源但已经有订阅，重新加载
         if (groupMap.isEmpty() && !subEntryList.isEmpty() && !isLoading) {
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
@@ -959,7 +989,6 @@ public class MainActivity extends AppCompatActivity {
         LogUtils.writeLog("开始加载源: " + finalUrl);
         Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
 
-        // 超时检测
         mainHandler.postDelayed(() -> {
             if (!loadFinished) {
                 isLoading = false;
@@ -1407,6 +1436,7 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 EOF
+
 
 # ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
