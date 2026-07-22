@@ -1185,7 +1185,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onPlayerError(PlaybackException error) {
                         runOnUiThread(() -> {
                             LogUtils.writeCrashLog(error);
-                            Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show());
+                            Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
                             // 尝试重连（断线重连）
                             if (player != null) {
                                 player.retry();
