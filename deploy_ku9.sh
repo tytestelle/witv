@@ -195,7 +195,8 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（全局缓存，已修复 lambda final 问题） ====================
+# ==================== EPGParser.java ====================
+cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
 import android.content.Context;
@@ -232,11 +233,8 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
 
     private static Map<String, String> sAliasMap = null;
-    // 全局缓存：channelId -> 该频道所有节目（未排序）
     private static Map<String, List<EpgProgram>> sAllPrograms = null;
-    // 归一化频道名 -> channelId
     private static Map<String, String> sChannelNameToId = null;
-    // 是否正在加载中
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
 
@@ -271,7 +269,6 @@ public class EPGParser {
         return sAliasMap;
     }
 
-    // 初始化全局缓存（只执行一次）
     private static void initAllPrograms(Context context, String url) {
         if (sLoaded) return;
         if (!sLoading.compareAndSet(false, true)) {
@@ -475,7 +472,6 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 结合别名映射补充映射关系
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
@@ -491,12 +487,9 @@ public class EPGParser {
         LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
     }
 
-    // ==================== 修正后的 loadEpg 方法 ====================
     public static void loadEpg(Context context, String url, String channelName, OnEpgLoadListener listener) {
-        // 先加载别名映射
         loadAliasMap(context);
 
-        // 初始化全局缓存（首次调用时执行）
         if (!sLoaded) {
             initAllPrograms(context, url);
         }
@@ -509,7 +502,6 @@ public class EPGParser {
             return;
         }
 
-        // 查找频道ID
         String normalizedChannelName = normalizeChannelName(channelName);
         String channelId = null;
 
@@ -536,7 +528,6 @@ public class EPGParser {
         }
         if (temp == null) temp = new ArrayList<>();
 
-        // 排序：从当前时间开始
         if (!temp.isEmpty()) {
             long currentTime = System.currentTimeMillis();
             Collections.sort(temp, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
@@ -617,6 +608,7 @@ public class EPGParser {
         }
     }
 }
+EPGFULL
 
 # ==================== PlayerConfigManager.java ====================
 printf '%s\n' \
