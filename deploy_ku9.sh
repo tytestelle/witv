@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（酷9风格最终完整版）"
+echo "🔥 部署 witv 播放器（酷9风格最终完整版 - 修复频道组&节目单）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（全局缓存） ====================
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -679,7 +679,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（完全重写，移除不存在的视图，适配新布局） ====================
+# ==================== MainActivity.java（修复频道组和节目单显示） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -789,6 +789,7 @@ public class MainActivity extends AppCompatActivity {
     private List<String> dayLabels = new ArrayList<>();
     private LinearLayoutManager scheduleEpgLayoutManager;
     private LinearLayout dayTabs;
+    private View leftClickArea;
 
     static class SubEntry { String name; String url; }
 
@@ -857,6 +858,7 @@ public class MainActivity extends AppCompatActivity {
             scheduleEpgRecycler = findViewById(R.id.schedule_epg_recycler);
             btnEpgSchedule = findViewById(R.id.btn_epg_schedule);
             dayTabs = findViewById(R.id.day_tabs);
+            leftClickArea = findViewById(R.id.left_click_area);
 
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -916,9 +918,23 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
+            // 节目单按钮
             btnEpgSchedule.setOnClickListener(v -> toggleScheduleMode());
 
+            // 关闭节目单（点击空白区域）
             findViewById(R.id.schedule_close_area).setOnClickListener(v -> toggleScheduleMode());
+
+            // 点击左侧区域显示频道组
+            leftClickArea.setOnClickListener(v -> {
+                if (isScheduleMode) {
+                    // 如果当前在节目单模式，先退出节目单再显示频道组
+                    toggleScheduleMode();
+                    // 延迟一下再显示
+                    mainHandler.postDelayed(() -> showOverlay(), 100);
+                } else {
+                    showOverlay();
+                }
+            });
 
             // 点击覆盖层空白区域关闭
             overlayLayout.setOnClickListener(v -> hideOverlay());
@@ -946,9 +962,6 @@ public class MainActivity extends AppCompatActivity {
             hideOverlayRunnable = () -> {
                 if (isOverlayVisible) hideOverlay();
             };
-            findViewById(R.id.left_click_area).setOnClickListener(v -> {
-                if (!isOverlayVisible) showOverlay();
-            });
 
             LogUtils.writeLog("应用启动成功");
         } catch (Exception e) {
@@ -1183,21 +1196,21 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ========== 显示频道组（覆盖层） ==========
     private void showOverlay() {
+        if (isScheduleMode) {
+            // 如果当前在节目单模式，先退出
+            scheduleLayout.setVisibility(View.GONE);
+            isScheduleMode = false;
+        }
         isOverlayVisible = true;
         overlayLayout.setVisibility(View.VISIBLE);
         resetAutoHideTimer();
-        if (isScheduleMode) {
-            toggleScheduleMode();
-        }
     }
 
     private void hideOverlay() {
         isOverlayVisible = false;
         overlayLayout.setVisibility(View.GONE);
-        if (isScheduleMode) {
-            scheduleLayout.setVisibility(View.GONE);
-        }
         mainHandler.removeCallbacks(hideOverlayRunnable);
     }
 
@@ -1208,14 +1221,27 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ========== 节目单切换 ==========
     private void toggleScheduleMode() {
         if (isScheduleMode) {
+            // 关闭节目单，回到频道组（如果覆盖层之前是显示的，则显示覆盖层）
             scheduleLayout.setVisibility(View.GONE);
-            overlayLayout.setVisibility(View.VISIBLE);
             isScheduleMode = false;
+            if (isOverlayVisible) {
+                overlayLayout.setVisibility(View.VISIBLE);
+            } else {
+                // 如果覆盖层没显示，则显示它
+                showOverlay();
+            }
         } else {
-            if (currentChannel == null) return;
+            if (currentChannel == null) {
+                Toast.makeText(this, "请先选择一个频道", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // 隐藏覆盖层
             overlayLayout.setVisibility(View.GONE);
+            isOverlayVisible = false;
+            // 显示节目单
             scheduleLayout.setVisibility(View.VISIBLE);
             isScheduleMode = true;
             showScheduleForChannel(currentChannel);
@@ -2066,7 +2092,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件 ====================
+# ==================== 布局文件（占一半宽度，三列） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2078,14 +2104,17 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:id="@+id/player_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+    <!-- 左侧点击区域 -->
     <View
         android:id="@+id/left_click_area"
         android:layout_width="40dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:background="#00000000" />
+        android:background="#00000000"
+        android:clickable="true"
+        android:focusable="true" />
     
-    <!-- 主覆盖层（占屏幕一半宽度） -->
+    <!-- 主覆盖层（频道组）占一半宽度 -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="0dp"
@@ -2228,6 +2257,9 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
     </LinearLayout>
 </FrameLayout>
 EOF
+
+# 其余布局文件（popup_info, item_*.xml）保持不变，此处省略，实际脚本中包含完整。
+# 为节省篇幅，只列出必要的部分，但完整脚本中已包含所有文件。
 
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2380,8 +2412,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# 其他布局文件（item_*.xml）与之前相同，省略（但实际脚本中必须包含）
-# 为节省篇幅，只列出必须的
 cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2656,4 +2686,4 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 窗口已缩小至屏幕一半，左侧覆盖层占50%宽度，右侧保留播放画面。"
+echo "💡 窗口已缩小至屏幕一半，左侧点击区域可弹出频道组，节目单按钮可查看一周EPG。"
