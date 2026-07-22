@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（修复崩溃 + 外部存储）"
+echo "🔥 部署 witv 播放器（最终修正版）"
 
 TEMPLATE_DIR="./config"
 
@@ -15,7 +15,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java ====================
+# ==================== SourceManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（修正为公共外部存储） ====================
+# ==================== LogUtils.java（修正存储位置） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -164,19 +164,32 @@ public class LogUtils {
 
     public static void init() {
         if (sLogDirPath != null) return;
-        // 使用公共外部存储（/sdcard/witv/）
-        File baseDir = new File("/sdcard", APP_DIR);
+        // 优先使用外部存储
+        String basePath = null;
+        try {
+            if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
+                basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
+            }
+        } catch (Exception e) {
+            Log.e("LogUtils", "获取外部存储失败", e);
+        }
+        if (basePath == null) {
+            // 回退到内部存储 files 目录
+            basePath = "/sdcard"; // 再尝试
+        }
+        File baseDir = new File(basePath, APP_DIR);
         if (!baseDir.exists()) {
             if (!baseDir.mkdirs()) {
-                Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
+                // 如果外部存储创建失败，使用内部存储
+                baseDir = new File(Environment.getDataDirectory(), "data/com.whyun.witv/files/" + APP_DIR);
+                baseDir.mkdirs();
             }
         }
-        createAppDirectories();
+        // 创建所有子目录
+        createAppDirectories(baseDir);
         File logDir = new File(baseDir, LOG_DIR_NAME);
         if (!logDir.exists()) {
-            if (!logDir.mkdirs()) {
-                Log.e("LogUtils", "创建日志目录失败: " + logDir.getAbsolutePath());
-            }
+            logDir.mkdirs();
         }
         sLogDirPath = logDir.getAbsolutePath();
         writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
@@ -227,9 +240,8 @@ public class LogUtils {
         }
     }
 
-    public static void createAppDirectories() {
+    public static void createAppDirectories(File baseDir) {
         try {
-            File baseDir = new File("/sdcard", APP_DIR);
             String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"};
             for (String sub : subDirs) {
                 File dir = new File(baseDir, sub);
@@ -244,7 +256,9 @@ public class LogUtils {
     }
 
     public static String getAppRootDir() {
-        return "/sdcard/" + APP_DIR;
+        if (sLogDirPath == null) init();
+        File baseDir = new File(sLogDirPath).getParentFile();
+        return baseDir != null ? baseDir.getAbsolutePath() : "/sdcard/witv";
     }
 
     public static String getEpgCacheDir() {
@@ -253,7 +267,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java ====================
+# ==================== EPGParser.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -599,7 +613,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（修复崩溃 + 外部存储） ====================
+# ==================== MainActivity.java（修正布局引用，强制定向外部存储） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -695,6 +709,7 @@ public class MainActivity extends AppCompatActivity {
     private List<EPGParser.EpgProgram> currentEpgList = new ArrayList<>();
     private ProgressDialog progressDialog;
     private boolean loadFinished = false;
+    private View overlayClickArea;
     static class SubEntry { String name, url; }
 
     @Override
@@ -742,12 +757,6 @@ public class MainActivity extends AppCompatActivity {
             epgRecycler = findViewById(R.id.epg_recycler);
             epgContainer = findViewById(R.id.epg_container);
 
-            // 修复崩溃：移除 onClick 属性，改用代码设置
-            View overlayClickArea = overlayLayout.findViewById(R.id.overlay_click_area);
-            if (overlayClickArea != null) {
-                overlayClickArea.setOnClickListener(v -> hideOverlay());
-            }
-
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
             channelRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -793,7 +802,13 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // 加载订阅源
+            // 设置 overlay 点击区域（原 android:onClick 改为代码设置）
+            overlayClickArea = findViewById(R.id.overlay_click_area);
+            if (overlayClickArea != null) {
+                overlayClickArea.setOnClickListener(v -> hideOverlay());
+            }
+
+            // 加载订阅源（延迟500ms，确保界面完全渲染）
             mainHandler.postDelayed(() -> {
                 boolean hasSub = false;
                 String selected = prefs.getString(KEY_SELECTED_SUB, "");
@@ -1802,7 +1817,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件（修改：移除 onClick） ====================
+# ==================== 布局文件 activity_main.xml（移除 android:onClick） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -1923,6 +1938,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
+# 其余布局文件不变（popup_info, item_*, activity_settings）
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2242,7 +2258,7 @@ echo "✅ 依赖已添加"
 # 添加存储权限和 cleartext
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-sed -i '/<application /a \        android:usesCleartextTraffic="true"\n        android:requestLegacyExternalStorage="true"' "$MANIFEST"
+sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
 echo "✅ 权限和 cleartext 已添加"
 
 # ========== 设置应用图标 ==========
@@ -2291,7 +2307,6 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在 /sdcard/witv/ 下创建以下目录："
-echo "   localData, backup, download, videoFile, configuration, logo, js, py, webviewJscode, epgCache, logs"
-echo "📋 日志文件位于 /sdcard/witv/logs/app.log 和 crash_*.txt"
-echo "💡 启动应用时会 Toast 显示日志目录路径"
+echo "📂 应用安装后会在外部存储（/sdcard/）或内部存储的 witv 目录下创建所需文件夹"
+echo "📋 日志文件位置会在应用启动时 Toast 显示"
+echo "💡 如果外部存储不可用，会自动回退到内部存储"
