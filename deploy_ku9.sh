@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG最终修复版 - 双缓存+精准匹配）"
+echo "🔥 部署 witv 播放器（单缓存+哈希对比版）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -21,183 +21,57 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== 所有 Java 源文件（使用 printf 或 heredoc） ====================
+# ==================== LogUtils.java（单缓存） ====================
+cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
+package com.whyun.witv.utils;
+import android.content.Context;
+import android.os.Environment;
+import android.util.Log;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+public class LogUtils {
+    private static final String APP_DIR = "witv";
+    private static final String LOG_DIR_NAME = "logs";
+    private static final String LOG_FILE = "app.log";
+    private static String sLogDirPath = null;
+    private static String sAppRoot = null;
+    public static void init(Context context) {
+        if (sLogDirPath != null) return;
+        File baseDir = null;
+        try {
+            if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
+                File extDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
+                if (extDir.exists() || extDir.mkdirs()) baseDir = extDir;
+            }
+        } catch (Exception e) { Log.e("LogUtils", "外部存储不可用", e); }
+        if (baseDir == null) {
+            File internalDir = new File(context.getFilesDir(), APP_DIR);
+            if (internalDir.exists() || internalDir.mkdirs()) baseDir = internalDir;
+        }
+        if (baseDir == null) { baseDir = new File(context.getCacheDir(), APP_DIR); baseDir.mkdirs(); }
+        createAppDirectories(baseDir);
+        File logDir = new File(baseDir, LOG_DIR_NAME);
+        if (!logDir.exists()) logDir.mkdirs();
+        sLogDirPath = logDir.getAbsolutePath();
+        sAppRoot = baseDir.getAbsolutePath();
+        writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
+    }
+    public static String getLogDir() { return sLogDirPath != null ? sLogDirPath : ""; }
+    public static String getAppRootDir() { return sAppRoot != null ? sAppRoot : ""; }
+    public static String getEpgCacheDir() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epgCache"; }
+    public static String getEpgHashFile() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epg_hash.txt"; }
+    public static void writeLog(String message) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); String log = time + " - " + message + "\n"; File logFile = new File(sLogDirPath, LOG_FILE); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile, true); fos.write(log.getBytes()); fos.close(); } catch (Exception e) { Log.e("LogUtils", "写入日志失败", e); } }
+    public static void writeCrashLog(Throwable t) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); StringWriter sw = new StringWriter(); PrintWriter pw = new PrintWriter(sw); t.printStackTrace(pw); String stack = sw.toString(); String log = "========== CRASH at " + time + " ==========\n" + stack + "\n\n"; String fileName = "crash_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt"; File logFile = new File(sLogDirPath, fileName); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile); fos.write(log.getBytes()); fos.close(); writeLog("CRASH: " + t.getMessage()); } catch (Exception e) { Log.e("LogUtils", "写入崩溃日志失败", e); } }
+    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }
+}
+EOF
 
-# 1. SourceManager.java (printf)
-printf '%s\n' \
-'package com.whyun.witv.source;' \
-'import android.content.Context;' \
-'import android.os.Handler;' \
-'import android.os.Looper;' \
-'import java.util.ArrayList;' \
-'import java.util.HashMap;' \
-'import java.util.List;' \
-'import java.util.Map;' \
-'import okhttp3.OkHttpClient;' \
-'import okhttp3.Request;' \
-'import okhttp3.Response;' \
-'public class SourceManager {' \
-'    private Context context;' \
-'    private Map<String, List<Channel>> groupMap = new HashMap<>();' \
-'    private List<String> groupNames = new ArrayList<>();' \
-'    private Handler mainHandler = new Handler(Looper.getMainLooper());' \
-'    public interface OnSourceLoadListener { void onLoaded(Map<String, List<Channel>> groupMap, List<String> groupNames); void onError(String error); }' \
-'    public SourceManager(Context context) { this.context = context; }' \
-'    public void loadFromUrl(String url, OnSourceLoadListener listener) {' \
-'        new Thread(() -> {' \
-'            try {' \
-'                OkHttpClient client = new OkHttpClient.Builder()' \
-'                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)' \
-'                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)' \
-'                    .build();' \
-'                Request request = new Request.Builder()' \
-'                    .url(url)' \
-'                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")' \
-'                    .build();' \
-'                Response response = client.newCall(request).execute();' \
-'                if (response.code() != 200) throw new Exception("HTTP " + response.code());' \
-'                String content = response.body().string();' \
-'                if (content == null || content.trim().isEmpty()) throw new Exception("内容为空");' \
-'                if (url.endsWith(".m3u") || url.endsWith(".m3u8") || content.contains("#EXTM3U")) {' \
-'                    parseM3U(content);' \
-'                } else {' \
-'                    parseTXT(content);' \
-'                }' \
-'                if (groupMap.isEmpty()) throw new Exception("未解析到任何频道");' \
-'                mainHandler.post(() -> listener.onLoaded(groupMap, groupNames));' \
-'            } catch (Exception e) {' \
-'                mainHandler.post(() -> listener.onError(e.getMessage()));' \
-'            }' \
-'        }).start();' \
-'    }' \
-'    private void parseTXT(String content) {' \
-'        groupMap.clear(); groupNames.clear();' \
-'        String currentGroup = "默认分组";' \
-'        for (String line : content.split("\n")) {' \
-'            line = line.trim();' \
-'            if (line.isEmpty()) continue;' \
-'            if (line.endsWith("#genre#")) {' \
-'                String groupName = line.substring(0, line.length() - "#genre#".length()).trim();' \
-'                if (groupName.endsWith(",")) groupName = groupName.substring(0, groupName.length()-1).trim();' \
-'                if (!groupName.isEmpty()) {' \
-'                    currentGroup = groupName;' \
-'                    if (!groupMap.containsKey(currentGroup)) {' \
-'                        groupMap.put(currentGroup, new ArrayList<>());' \
-'                        groupNames.add(currentGroup);' \
-'                    }' \
-'                }' \
-'                continue;' \
-'            }' \
-'            if (line.startsWith("#")) continue;' \
-'            String[] parts = line.split(",");' \
-'            if (parts.length >= 2) {' \
-'                String name = parts[0].trim();' \
-'                if (name.endsWith(",")) name = name.substring(0, name.length()-1).trim();' \
-'                String url = parts[1].trim();' \
-'                if (name.isEmpty() || url.isEmpty()) continue;' \
-'                Channel ch = new Channel(name, url, currentGroup);' \
-'                if (!groupMap.containsKey(currentGroup)) {' \
-'                    groupMap.put(currentGroup, new ArrayList<>());' \
-'                    groupNames.add(currentGroup);' \
-'                }' \
-'                groupMap.get(currentGroup).add(ch);' \
-'            }' \
-'        }' \
-'    }' \
-'    private void parseM3U(String content) {' \
-'        groupMap.clear(); groupNames.clear();' \
-'        String[] lines = content.split("\n");' \
-'        for (int i = 0; i < lines.length; i++) {' \
-'            String line = lines[i].trim();' \
-'            if (line.startsWith("#EXTM3U")) continue;' \
-'            if (line.startsWith("#EXTINF:")) {' \
-'                String group = "默认分组";' \
-'                String logo = null;' \
-'                int gidx = line.indexOf("group-title=\"");' \
-'                if (gidx != -1) {' \
-'                    int end = line.indexOf("\"", gidx + 13);' \
-'                    if (end != -1) group = line.substring(gidx + 13, end);' \
-'                }' \
-'                int lidx = line.indexOf("tvg-logo=\"");' \
-'                if (lidx != -1) {' \
-'                    int end = line.indexOf("\"", lidx + 10);' \
-'                    if (end != -1) logo = line.substring(lidx + 10, end);' \
-'                }' \
-'                int lastComma = line.lastIndexOf(",");' \
-'                String name = (lastComma != -1) ? line.substring(lastComma + 1).trim() : "未知频道";' \
-'                if (name.endsWith(",")) name = name.substring(0, name.length()-1).trim();' \
-'                if (i + 1 < lines.length) {' \
-'                    String url = lines[i + 1].trim();' \
-'                    if (!url.isEmpty() && !url.startsWith("#")) {' \
-'                        Channel ch = new Channel(name, url, group);' \
-'                        ch.logoUrl = logo;' \
-'                        if (!groupMap.containsKey(group)) {' \
-'                            groupMap.put(group, new ArrayList<>());' \
-'                            groupNames.add(group);' \
-'                        }' \
-'                        groupMap.get(group).add(ch);' \
-'                    }' \
-'                }' \
-'            }' \
-'        }' \
-'    }' \
-'    public static class Channel {' \
-'        public String name, url, group;' \
-'        public String logoUrl;' \
-'        public Channel(String n, String u, String g) { name=n; url=u; group=g; }' \
-'    }' \
-'}' > "$TEMPLATE_DIR/src/SourceManager.java"
-
-# 2. LogUtils.java (printf)
-printf '%s\n' \
-'package com.whyun.witv.utils;' \
-'import android.content.Context;' \
-'import android.os.Environment;' \
-'import android.util.Log;' \
-'import java.io.File;' \
-'import java.io.FileOutputStream;' \
-'import java.io.PrintWriter;' \
-'import java.io.StringWriter;' \
-'import java.text.SimpleDateFormat;' \
-'import java.util.Date;' \
-'import java.util.Locale;' \
-'public class LogUtils {' \
-'    private static final String APP_DIR = "witv";' \
-'    private static final String LOG_DIR_NAME = "logs";' \
-'    private static final String LOG_FILE = "app.log";' \
-'    private static String sLogDirPath = null;' \
-'    private static String sAppRoot = null;' \
-'    public static void init(Context context) {' \
-'        if (sLogDirPath != null) return;' \
-'        File baseDir = null;' \
-'        try {' \
-'            if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {' \
-'                File extDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);' \
-'                if (extDir.exists() || extDir.mkdirs()) baseDir = extDir;' \
-'            }' \
-'        } catch (Exception e) { Log.e("LogUtils", "外部存储不可用", e); }' \
-'        if (baseDir == null) {' \
-'            File internalDir = new File(context.getFilesDir(), APP_DIR);' \
-'            if (internalDir.exists() || internalDir.mkdirs()) baseDir = internalDir;' \
-'        }' \
-'        if (baseDir == null) { baseDir = new File(context.getCacheDir(), APP_DIR); baseDir.mkdirs(); }' \
-'        createAppDirectories(baseDir);' \
-'        File logDir = new File(baseDir, LOG_DIR_NAME);' \
-'        if (!logDir.exists()) logDir.mkdirs();' \
-'        sLogDirPath = logDir.getAbsolutePath();' \
-'        sAppRoot = baseDir.getAbsolutePath();' \
-'        writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");' \
-'    }' \
-'    public static String getLogDir() { return sLogDirPath != null ? sLogDirPath : ""; }' \
-'    public static String getAppRootDir() { return sAppRoot != null ? sAppRoot : ""; }' \
-'    public static String getEpgCacheDir1() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epgCache1"; }' \
-'    public static String getEpgCacheDir2() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epgCache2"; }' \
-'    public static void writeLog(String message) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); String log = time + " - " + message + "\n"; File logFile = new File(sLogDirPath, LOG_FILE); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile, true); fos.write(log.getBytes()); fos.close(); } catch (Exception e) { Log.e("LogUtils", "写入日志失败", e); } }' \
-'    public static void writeCrashLog(Throwable t) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); StringWriter sw = new StringWriter(); PrintWriter pw = new PrintWriter(sw); t.printStackTrace(pw); String stack = sw.toString(); String log = "========== CRASH at " + time + " ==========\n" + stack + "\n\n"; String fileName = "crash_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt"; File logFile = new File(sLogDirPath, fileName); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile); fos.write(log.getBytes()); fos.close(); writeLog("CRASH: " + t.getMessage()); } catch (Exception e) { Log.e("LogUtils", "写入崩溃日志失败", e); } }' \
-'    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache1", "epgCache2", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
-'}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
-
-# 3. EPGParser.java (修正 cacheFile 赋值)
+# ==================== EPGParser.java（单缓存+哈希对比） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGEOF'
 package com.whyun.witv.epg;
 
@@ -214,17 +88,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLDecoder;
 import java.security.MessageDigest;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -265,137 +140,98 @@ public class EPGParser {
         return sAliasMap;
     }
 
-    private static String getFileHash(File file) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            FileInputStream fis = new FileInputStream(file);
-            byte[] buffer = new byte[8192];
-            int len;
-            while ((len = fis.read(buffer)) != -1) md.update(buffer, 0, len);
-            fis.close();
-            byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) sb.append(String.format("%02x", b));
-            return sb.toString();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static String getActiveCacheDir() {
-        String dir1 = LogUtils.getEpgCacheDir1();
-        String dir2 = LogUtils.getEpgCacheDir2();
-        File d1 = new File(dir1);
-        File d2 = new File(dir2);
-        long latestTime = 0;
-        File latestFile = null;
-        if (d1.exists()) {
-            for (File f : d1.listFiles()) {
-                if (f.getName().endsWith(".xml")) {
-                    long t = f.lastModified();
-                    if (t > latestTime) { latestTime = t; latestFile = f; }
-                }
-            }
-        }
-        if (d2.exists()) {
-            for (File f : d2.listFiles()) {
-                if (f.getName().endsWith(".xml")) {
-                    long t = f.lastModified();
-                    if (t > latestTime) { latestTime = t; latestFile = f; }
-                }
-            }
-        }
-        if (latestFile != null) return latestFile.getParent();
-        // 若无缓存，返回 dir1（之后会创建）
-        return dir1;
-    }
-
     public static void loadEpg(Context context, String url, String channelName, OnEpgLoadListener listener) {
         LogUtils.writeLog("EPG加载开始: url=" + url + ", channel=" + channelName);
         new Thread(() -> {
             InputStream is = null;
             try {
-                String activeDir = getActiveCacheDir();
-                File activeDirFile = new File(activeDir);
-                if (!activeDirFile.exists()) activeDirFile.mkdirs();
-                String urlHash = getFileHashFromUrl(url);
-                if (urlHash == null) urlHash = String.valueOf(url.hashCode());
+                String cacheDir = LogUtils.getEpgCacheDir();
+                File cacheDirFile = new File(cacheDir);
+                if (!cacheDirFile.exists()) cacheDirFile.mkdirs();
+
+                String hashFile = LogUtils.getEpgHashFile();
+                File hashFileObj = new File(hashFile);
+
+                String remoteHash = null;
+                boolean useHash = true;
+                // 尝试获取远程哈希
+                try {
+                    String hashUrl = url + ".hash";
+                    OkHttpClient client = new OkHttpClient.Builder()
+                            .connectTimeout(10, TimeUnit.SECONDS)
+                            .readTimeout(10, TimeUnit.SECONDS)
+                            .build();
+                    Request request = new Request.Builder().url(hashUrl).header("User-Agent", "Mozilla/5.0").build();
+                    Response response = client.newCall(request).execute();
+                    if (response.isSuccessful()) {
+                        remoteHash = response.body().string().trim();
+                        LogUtils.writeLog("获取远程哈希成功: " + remoteHash);
+                    } else {
+                        useHash = false;
+                        LogUtils.writeLog("远程哈希不存在，将直接下载EPG");
+                    }
+                    response.close();
+                } catch (Exception e) {
+                    useHash = false;
+                    LogUtils.writeLog("获取远程哈希失败，将直接下载EPG: " + e.getMessage());
+                }
+
+                // 检查本地缓存是否有效
                 File cacheFile = null;
-                for (File f : activeDirFile.listFiles()) {
-                    if (f.getName().endsWith(".xml")) {
-                        File hashFile = new File(f.getParent(), "hash.txt");
-                        if (hashFile.exists()) {
-                            String storedHash = new String(java.nio.file.Files.readAllBytes(hashFile.toPath())).trim();
-                            if (storedHash.equals(urlHash)) { cacheFile = f; break; }
+                boolean needDownload = true;
+                if (useHash && remoteHash != null && hashFileObj.exists()) {
+                    String localHash = new String(java.nio.file.Files.readAllBytes(hashFileObj.toPath())).trim();
+                    if (localHash.equals(remoteHash)) {
+                        for (File f : cacheDirFile.listFiles()) {
+                            if (f.getName().endsWith(".xml")) {
+                                cacheFile = f;
+                                break;
+                            }
+                        }
+                        if (cacheFile != null && cacheFile.exists()) {
+                            needDownload = false;
+                            LogUtils.writeLog("哈希匹配，使用缓存: " + cacheFile.getAbsolutePath());
                         }
                     }
                 }
-                if (cacheFile == null || !cacheFile.exists()) {
-                    // 选择备用目录
-                    String dir1 = LogUtils.getEpgCacheDir1();
-                    String dir2 = LogUtils.getEpgCacheDir2();
-                    String backupDir = activeDir.equals(dir1) ? dir2 : dir1;
-                    File backupDirFile = new File(backupDir);
-                    if (!backupDirFile.exists()) backupDirFile.mkdirs();
-                    File tempFile = new File(backupDirFile, "epg_temp.xml");
+
+                if (needDownload) {
                     OkHttpClient client = new OkHttpClient.Builder()
                             .connectTimeout(30, TimeUnit.SECONDS)
                             .readTimeout(60, TimeUnit.SECONDS)
                             .build();
                     Request request = new Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build();
-                    LogUtils.writeLog("EPG 请求发送: " + url);
+                    LogUtils.writeLog("下载EPG: " + url);
                     Response response = client.newCall(request).execute();
                     if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
+
+                    for (File f : cacheDirFile.listFiles()) {
+                        if (f.getName().endsWith(".xml")) f.delete();
+                    }
+
+                    String fileName = "epg_" + System.currentTimeMillis() + ".xml";
+                    cacheFile = new File(cacheDirFile, fileName);
                     InputStream responseStream = response.body().byteStream();
-                    FileOutputStream fos = new FileOutputStream(tempFile);
+                    FileOutputStream fos = new FileOutputStream(cacheFile);
                     byte[] buffer = new byte[8192];
                     int len;
                     while ((len = responseStream.read(buffer)) != -1) fos.write(buffer, 0, len);
                     fos.close();
                     responseStream.close();
-                    String downloadedHash = getFileHash(tempFile);
-                    if (downloadedHash == null) downloadedHash = urlHash;
-                    File activeHashFile = new File(activeDir, "hash.txt");
-                    boolean needSwitch = true;
-                    if (activeHashFile.exists()) {
-                        String activeHash = new String(java.nio.file.Files.readAllBytes(activeHashFile.toPath())).trim();
-                        if (activeHash.equals(downloadedHash)) {
-                            needSwitch = false;
-                            tempFile.delete();
-                            // 使用 activeDir 中的旧文件
-                            for (File f : activeDirFile.listFiles()) {
-                                if (f.getName().endsWith(".xml")) { cacheFile = f; break; }
-                            }
-                        }
-                    }
-                    if (needSwitch) {
-                        // 清空备份目录（以防有残留）
-                        for (File f : backupDirFile.listFiles()) f.delete();
-                        String fileName = "epg_" + System.currentTimeMillis() + ".xml";
-                        File newFile = new File(backupDirFile, fileName);
-                        tempFile.renameTo(newFile);
-                        File hashFile = new File(backupDirFile, "hash.txt");
-                        FileOutputStream hfos = new FileOutputStream(hashFile);
-                        hfos.write(downloadedHash.getBytes());
+                    LogUtils.writeLog("EPG下载完成: " + cacheFile.getAbsolutePath());
+
+                    if (useHash && remoteHash != null) {
+                        FileOutputStream hfos = new FileOutputStream(hashFileObj);
+                        hfos.write(remoteHash.getBytes());
                         hfos.close();
-                        // 清空旧 active 目录（若存在）
-                        for (File f : activeDirFile.listFiles()) f.delete();
-                        // 切换 activeDir 为 backupDir
-                        activeDir = backupDir;
-                        activeDirFile = backupDirFile;
-                        cacheFile = newFile;
-                        LogUtils.writeLog("EPG缓存已更新，新目录: " + activeDir);
+                        LogUtils.writeLog("更新本地哈希: " + remoteHash);
                     }
                 }
+
                 if (cacheFile == null || !cacheFile.exists()) {
-                    // 如果仍然没有缓存文件，尝试直接使用 activeDir 中的文件
-                    for (File f : activeDirFile.listFiles()) {
-                        if (f.getName().endsWith(".xml")) { cacheFile = f; break; }
-                    }
-                    if (cacheFile == null) {
-                        throw new Exception("无法获取EPG缓存文件");
-                    }
+                    throw new Exception("无法获取EPG缓存文件");
                 }
+
                 LogUtils.writeLog("使用EPG缓存: " + cacheFile.getAbsolutePath());
                 is = new FileInputStream(cacheFile);
                 Map<String, String> aliasMap = loadAliasMap(context);
@@ -404,6 +240,7 @@ public class EPGParser {
                 LogUtils.writeLog("EPG 解析成功，节目数: " + (programs != null ? programs.size() : 0));
                 android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
                 mainHandler.post(() -> listener.onLoaded(programs));
+
             } catch (Exception e) {
                 LogUtils.writeCrashLog(e);
                 LogUtils.writeLog("EPG 加载异常: " + e.getMessage());
@@ -413,17 +250,6 @@ public class EPGParser {
                 try { if (is != null) is.close(); } catch (Exception ignored) {}
             }
         }).start();
-    }
-
-    private static String getFileHashFromUrl(String url) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            md.update(url.getBytes());
-            byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) sb.append(String.format("%02x", b));
-            return sb.toString();
-        } catch (Exception e) { return null; }
     }
 
     private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName, Map<String, String> aliasMap, String logoDir)
@@ -575,7 +401,7 @@ public class EPGParser {
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
         try {
             if (iconUrl == null || iconUrl.isEmpty()) return;
-            String decoded = java.net.URLDecoder.decode(iconUrl, "UTF-8");
+            String decoded = URLDecoder.decode(iconUrl, "UTF-8");
             File logoFolder = new File(logoDir);
             if (!logoFolder.exists()) logoFolder.mkdirs();
             String fileName = channelName.hashCode() + ".png";
@@ -636,76 +462,230 @@ public class EPGParser {
 }
 EPGEOF
 
-# 4. PlayerConfigManager.java (printf)
-printf '%s\n' \
-'package com.whyun.witv.player;' \
-'import android.content.Context;' \
-'import android.content.SharedPreferences;' \
-'import android.preference.PreferenceManager;' \
-'public class PlayerConfigManager {' \
-'    private static SharedPreferences prefs;' \
-'    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }' \
-'    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "默认"); }' \
-'    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }' \
-'    public static int getDecoder() { return prefs.getInt("decoder", 7); }' \
-'    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }' \
-'    public static boolean getShowTime() { return prefs.getBoolean("show_time", false); }' \
-'    public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }' \
-'    public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }' \
-'    public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }' \
-'}' > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java"
+# ==================== SourceManager.java ====================
+cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
+package com.whyun.witv.source;
+import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+public class SourceManager {
+    private Context context;
+    private Map<String, List<Channel>> groupMap = new HashMap<>();
+    private List<String> groupNames = new ArrayList<>();
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
+    public interface OnSourceLoadListener { void onLoaded(Map<String, List<Channel>> groupMap, List<String> groupNames); void onError(String error); }
+    public SourceManager(Context context) { this.context = context; }
+    public void loadFromUrl(String url, OnSourceLoadListener listener) {
+        new Thread(() -> {
+            try {
+                OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .build();
+                Request request = new Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .build();
+                Response response = client.newCall(request).execute();
+                if (response.code() != 200) throw new Exception("HTTP " + response.code());
+                String content = response.body().string();
+                if (content == null || content.trim().isEmpty()) throw new Exception("内容为空");
+                if (url.endsWith(".m3u") || url.endsWith(".m3u8") || content.contains("#EXTM3U")) {
+                    parseM3U(content);
+                } else {
+                    parseTXT(content);
+                }
+                if (groupMap.isEmpty()) throw new Exception("未解析到任何频道");
+                mainHandler.post(() -> listener.onLoaded(groupMap, groupNames));
+            } catch (Exception e) {
+                mainHandler.post(() -> listener.onError(e.getMessage()));
+            }
+        }).start();
+    }
+    private void parseTXT(String content) {
+        groupMap.clear(); groupNames.clear();
+        String currentGroup = "默认分组";
+        for (String line : content.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            if (line.endsWith("#genre#")) {
+                String groupName = line.substring(0, line.length() - "#genre#".length()).trim();
+                if (groupName.endsWith(",")) groupName = groupName.substring(0, groupName.length()-1).trim();
+                if (!groupName.isEmpty()) {
+                    currentGroup = groupName;
+                    if (!groupMap.containsKey(currentGroup)) {
+                        groupMap.put(currentGroup, new ArrayList<>());
+                        groupNames.add(currentGroup);
+                    }
+                }
+                continue;
+            }
+            if (line.startsWith("#")) continue;
+            String[] parts = line.split(",");
+            if (parts.length >= 2) {
+                String name = parts[0].trim();
+                if (name.endsWith(",")) name = name.substring(0, name.length()-1).trim();
+                String url = parts[1].trim();
+                if (name.isEmpty() || url.isEmpty()) continue;
+                Channel ch = new Channel(name, url, currentGroup);
+                if (!groupMap.containsKey(currentGroup)) {
+                    groupMap.put(currentGroup, new ArrayList<>());
+                    groupNames.add(currentGroup);
+                }
+                groupMap.get(currentGroup).add(ch);
+            }
+        }
+    }
+    private void parseM3U(String content) {
+        groupMap.clear(); groupNames.clear();
+        String[] lines = content.split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.startsWith("#EXTM3U")) continue;
+            if (line.startsWith("#EXTINF:")) {
+                String group = "默认分组";
+                String logo = null;
+                int gidx = line.indexOf("group-title=\"");
+                if (gidx != -1) {
+                    int end = line.indexOf("\"", gidx + 13);
+                    if (end != -1) group = line.substring(gidx + 13, end);
+                }
+                int lidx = line.indexOf("tvg-logo=\"");
+                if (lidx != -1) {
+                    int end = line.indexOf("\"", lidx + 10);
+                    if (end != -1) logo = line.substring(lidx + 10, end);
+                }
+                int lastComma = line.lastIndexOf(",");
+                String name = (lastComma != -1) ? line.substring(lastComma + 1).trim() : "未知频道";
+                if (name.endsWith(",")) name = name.substring(0, name.length()-1).trim();
+                if (i + 1 < lines.length) {
+                    String url = lines[i + 1].trim();
+                    if (!url.isEmpty() && !url.startsWith("#")) {
+                        Channel ch = new Channel(name, url, group);
+                        ch.logoUrl = logo;
+                        if (!groupMap.containsKey(group)) {
+                            groupMap.put(group, new ArrayList<>());
+                            groupNames.add(group);
+                        }
+                        groupMap.get(group).add(ch);
+                    }
+                }
+            }
+        }
+    }
+    public static class Channel {
+        public String name, url, group;
+        public String logoUrl;
+        public Channel(String n, String u, String g) { name=n; url=u; group=g; }
+    }
+}
+EOF
 
-# 5. FavoriteManager.java (printf)
-printf '%s\n' \
-'package com.whyun.witv.favorite;' \
-'import android.content.Context;' \
-'import android.content.SharedPreferences;' \
-'import android.preference.PreferenceManager;' \
-'import java.util.HashSet;' \
-'import java.util.Set;' \
-'public class FavoriteManager {' \
-'    private static SharedPreferences prefs;' \
-'    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }' \
-'    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }' \
-'    public static void toggleFavorite(String channelId) {' \
-'        boolean cur = isFavorite(channelId);' \
-'        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();' \
-'        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));' \
-'        if (!cur) favSet.add(channelId); else favSet.remove(channelId);' \
-'        prefs.edit().putStringSet("fav_list", favSet).apply();' \
-'    }' \
-'    public static Set<String> getAllFavorites() { return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>())); }' \
-'}' > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java"
+# ==================== PlayerConfigManager.java ====================
+cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
+package com.whyun.witv.player;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+public class PlayerConfigManager {
+    private static SharedPreferences prefs;
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "默认"); }
+    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }
+    public static int getDecoder() { return prefs.getInt("decoder", 7); }
+    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }
+    public static boolean getShowTime() { return prefs.getBoolean("show_time", false); }
+    public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }
+    public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }
+    public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }
+}
+EOF
 
-# 6. ConfigurationManager.java (printf)
-printf '%s\n' \
-'package com.whyun.witv;' \
-'import android.content.Context;' \
-'import android.content.SharedPreferences;' \
-'import android.preference.PreferenceManager;' \
-'import com.google.gson.Gson;' \
-'import com.google.gson.JsonObject;' \
-'import java.io.InputStream;' \
-'import java.io.InputStreamReader;' \
-'public class ConfigurationManager {' \
-'    private static ConfigurationManager instance;' \
-'    private JsonObject config;' \
-'    private SharedPreferences prefs;' \
-'    private ConfigurationManager(Context context) { prefs = PreferenceManager.getDefaultSharedPreferences(context); loadConfig(context); }' \
-'    public static synchronized ConfigurationManager getInstance(Context context) { if (instance == null) instance = new ConfigurationManager(context.getApplicationContext()); return instance; }' \
-'    private void loadConfig(Context context) { try { InputStream is = context.getAssets().open("configuration.json"); JsonObject root = new Gson().fromJson(new InputStreamReader(is), JsonObject.class); config = root.getAsJsonObject("Configuration"); is.close(); } catch (Exception e) { config = new JsonObject(); } }' \
-'    public String getString(String key, String def) { if (prefs.contains(key)) return prefs.getString(key, def); if (config.has(key)) return config.get(key).getAsString(); return def; }' \
-'    public int getInt(String key, int def) { if (prefs.contains(key)) return prefs.getInt(key, def); if (config.has(key)) return config.get(key).getAsInt(); return def; }' \
-'    public boolean getBoolean(String key, boolean def) { if (prefs.contains(key)) return prefs.getBoolean(key, def); if (config.has(key)) return config.get(key).getAsBoolean(); return def; }' \
-'    public void putInt(String key, int value) { prefs.edit().putInt(key, value).apply(); }' \
-'    public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }' \
-'    public void putString(String key, String value) { prefs.edit().putString(key, value).apply(); }' \
-'    public int getPlayType() { return getInt("PLAY_TYPE", 7); }' \
-'    public int getPlayScale() { return getInt("PLAY_SCALE", 3); }' \
-'    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
-'}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
+# ==================== FavoriteManager.java ====================
+cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
+package com.whyun.witv.favorite;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+import java.util.HashSet;
+import java.util.Set;
+public class FavoriteManager {
+    private static SharedPreferences prefs;
+    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }
+    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }
+    public static void toggleFavorite(String channelId) {
+        boolean cur = isFavorite(channelId);
+        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();
+        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));
+        if (!cur) favSet.add(channelId); else favSet.remove(channelId);
+        prefs.edit().putStringSet("fav_list", favSet).apply();
+    }
+    public static Set<String> getAllFavorites() { return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>())); }
+}
+EOF
 
-# 7. MainActivity.java (heredoc)
+# ==================== ConfigurationManager.java ====================
+cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
+package com.whyun.witv;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+public class ConfigurationManager {
+    private static ConfigurationManager instance;
+    private JsonObject config;
+    private SharedPreferences prefs;
+    private ConfigurationManager(Context context) {
+        prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        loadConfig(context);
+    }
+    public static synchronized ConfigurationManager getInstance(Context context) {
+        if (instance == null) instance = new ConfigurationManager(context.getApplicationContext());
+        return instance;
+    }
+    private void loadConfig(Context context) {
+        try {
+            InputStream is = context.getAssets().open("configuration.json");
+            JsonObject root = new Gson().fromJson(new InputStreamReader(is), JsonObject.class);
+            config = root.getAsJsonObject("Configuration");
+            is.close();
+        } catch (Exception e) { config = new JsonObject(); }
+    }
+    public String getString(String key, String def) {
+        if (prefs.contains(key)) return prefs.getString(key, def);
+        if (config.has(key)) return config.get(key).getAsString();
+        return def;
+    }
+    public int getInt(String key, int def) {
+        if (prefs.contains(key)) return prefs.getInt(key, def);
+        if (config.has(key)) return config.get(key).getAsInt();
+        return def;
+    }
+    public boolean getBoolean(String key, boolean def) {
+        if (prefs.contains(key)) return prefs.getBoolean(key, def);
+        if (config.has(key)) return config.get(key).getAsBoolean();
+        return def;
+    }
+    public void putInt(String key, int value) { prefs.edit().putInt(key, value).apply(); }
+    public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }
+    public void putString(String key, String value) { prefs.edit().putString(key, value).apply(); }
+    public int getPlayType() { return getInt("PLAY_TYPE", 7); }
+    public int getPlayScale() { return getInt("PLAY_SCALE", 3); }
+    public String getLiveUrls() { return getString("LIVE_URLS", null); }
+}
+EOF
+
+# ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1560,7 +1540,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAINEOF
 
-# 8. SettingsActivity.java (heredoc)
+# ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETEOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1929,7 +1909,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件（极紧凑） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2052,7 +2032,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# 其他布局文件（快速生成）
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2344,7 +2323,7 @@ cp "$TEMPLATE_DIR/assets/epg_data.json" app/src/main/assets/
 
 mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/assets/download \
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
-         app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache1 app/src/main/assets/epgCache2
+         app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
 echo "✅ 文件复制完成"
 
 # 修复 SettingsActivity import
@@ -2429,4 +2408,4 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 双缓存机制：epgCache1 和 epgCache2 轮换，哈希变化时自动切换"
+echo "💡 单缓存+哈希对比：epgCache 目录，epg_hash.txt 存储远程哈希"
