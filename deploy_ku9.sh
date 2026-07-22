@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== 日志工具类 LogUtils.java ====================
+# ==================== 日志工具类 LogUtils.java（修正版） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -167,21 +167,27 @@ public class LogUtils {
      */
     public static void init() {
         if (sLogDirPath != null) return;
-        try {
-            File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
-            if (!baseDir.exists()) {
-                baseDir.mkdirs();
-            }
-            File logDir = new File(baseDir, LOG_DIR_NAME);
-            if (!logDir.exists()) {
-                logDir.mkdirs();
-            }
-            sLogDirPath = logDir.getAbsolutePath();
-            writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
-        } catch (Exception e) {
-            sLogDirPath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR + "/" + LOG_DIR_NAME;
-            writeLog("日志目录初始化异常: " + e.getMessage());
+        // 优先使用外部存储
+        String basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
+        if (basePath == null) {
+            // 备选：使用应用私有目录
+            basePath = "/sdcard";
         }
+        File baseDir = new File(basePath, APP_DIR);
+        if (!baseDir.exists()) {
+            if (!baseDir.mkdirs()) {
+                Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
+            }
+        }
+        File logDir = new File(baseDir, LOG_DIR_NAME);
+        if (!logDir.exists()) {
+            if (!logDir.mkdirs()) {
+                Log.e("LogUtils", "创建日志目录失败: " + logDir.getAbsolutePath());
+            }
+        }
+        sLogDirPath = logDir.getAbsolutePath();
+        // 写入初始化日志
+        writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
     }
 
     /**
@@ -200,6 +206,11 @@ public class LogUtils {
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
             String log = time + " - " + message + "\n";
             File logFile = new File(getLogDir(), LOG_FILE);
+            // 确保目录存在
+            File parent = logFile.getParentFile();
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs();
+            }
             FileOutputStream fos = new FileOutputStream(logFile, true);
             fos.write(log.getBytes());
             fos.close();
@@ -221,6 +232,10 @@ public class LogUtils {
             String log = "========== CRASH at " + time + " ==========\n" + stack + "\n\n";
             String fileName = "crash_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt";
             File logFile = new File(getLogDir(), fileName);
+            File parent = logFile.getParentFile();
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs();
+            }
             FileOutputStream fos = new FileOutputStream(logFile);
             fos.write(log.getBytes());
             fos.close();
@@ -589,7 +604,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（完整版，含日志 + 目录创建） ====================
+# ==================== MainActivity.java（修正版 - 增加Toast提示和权限回调） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -691,12 +706,16 @@ public class MainActivity extends AppCompatActivity {
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
 
-        // 初始化日志和目录
+        // 初始化日志和目录（先尝试创建，若权限未授予则后续回调中再创建）
         LogUtils.init();
         LogUtils.createAppDirectories();
         LogUtils.writeLog("=== 应用启动 ===");
 
-        // 请求存储权限
+        // 显示日志目录提示
+        String logDir = LogUtils.getLogDir();
+        Toast.makeText(this, "日志目录: " + logDir, Toast.LENGTH_LONG).show();
+
+        // 请求存储权限（Android 6+）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -820,9 +839,12 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_PERMISSIONS) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 LogUtils.writeLog("存储权限已获取");
+                // 重新创建目录（之前可能因权限不足失败）
                 LogUtils.createAppDirectories();
+                Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_SHORT).show();
             } else {
-                LogUtils.writeLog("存储权限被拒绝");
+                LogUtils.writeLog("存储权限被拒绝，日志可能无法写入");
+                Toast.makeText(this, "存储权限被拒绝，日志可能无法保存", Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -2172,3 +2194,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在 /sdcard/witv/ 下创建以下目录："
 echo "   localData, backup, download, videoFile, configuration, logo, js, py, webviewJscode, epgCache, logs"
 echo "📋 日志文件位于 /sdcard/witv/logs/app.log 和 crash_*.txt"
+echo "💡 启动应用时会 Toast 显示日志目录路径"
