@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（全新架构，支持目录创建和 EPG 缓存）"
+echo "🔥 部署 witv 播放器（无默认源，无源时引导设置）"
 
 TEMPLATE_DIR="./config"
 
@@ -10,12 +10,12 @@ rm -rf "$TEMPLATE_DIR"
 mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
 mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite" "$TEMPLATE_DIR/src/utils"
 
-# ==================== configuration.json ====================
+# ==================== configuration.json（LIVE_URLS 为 null） ====================
 cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java（保持不变） ====================
+# ==================== SourceManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（增强版，确保目录创建） ====================
+# ==================== LogUtils.java（完整） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -162,9 +162,6 @@ public class LogUtils {
     private static final String LOG_FILE = "app.log";
     private static String sLogDirPath = null;
 
-    /**
-     * 初始化日志目录（在 Application 或 MainActivity 中调用）
-     */
     public static void init() {
         if (sLogDirPath != null) return;
         String basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
@@ -175,7 +172,6 @@ public class LogUtils {
                 Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
             }
         }
-        // 创建所有子目录
         createAppDirectories();
         File logDir = new File(baseDir, LOG_DIR_NAME);
         if (!logDir.exists()) {
@@ -187,17 +183,11 @@ public class LogUtils {
         writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
     }
 
-    /**
-     * 获取日志目录路径
-     */
     public static String getLogDir() {
         if (sLogDirPath == null) init();
         return sLogDirPath;
     }
 
-    /**
-     * 写入常规日志（自动创建目录）
-     */
     public static void writeLog(String message) {
         try {
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
@@ -215,9 +205,6 @@ public class LogUtils {
         }
     }
 
-    /**
-     * 写入崩溃日志（带堆栈）
-     */
     public static void writeCrashLog(Throwable t) {
         try {
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
@@ -241,9 +228,6 @@ public class LogUtils {
         }
     }
 
-    /**
-     * 创建所有应用目录（包括 epgCache, logo, download 等）
-     */
     public static void createAppDirectories() {
         try {
             File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
@@ -260,23 +244,17 @@ public class LogUtils {
         }
     }
 
-    /**
-     * 获取应用根目录
-     */
     public static String getAppRootDir() {
         return Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR;
     }
 
-    /**
-     * 获取 EPG 缓存目录
-     */
     public static String getEpgCacheDir() {
         return getAppRootDir() + "/epgCache";
     }
 }
 EOF
 
-# ==================== EPGParser.java（先下载到缓存，再解析） ====================
+# ==================== EPGParser.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -315,14 +293,12 @@ public class EPGParser {
         new Thread(() -> {
             InputStream is = null;
             try {
-                // 1. 先尝试从缓存读取
                 String cacheDir = LogUtils.getEpgCacheDir();
                 File cacheDirFile = new File(cacheDir);
                 if (!cacheDirFile.exists()) cacheDirFile.mkdirs();
                 String fileName = "epg_" + System.currentTimeMillis() + ".xml";
                 File cacheFile = new File(cacheDirFile, fileName);
 
-                // 2. 下载 EPG 到缓存文件
                 OkHttpClient client = new OkHttpClient.Builder()
                         .connectTimeout(30, TimeUnit.SECONDS)
                         .readTimeout(60, TimeUnit.SECONDS)
@@ -344,7 +320,6 @@ public class EPGParser {
                     throw new Exception("HTTP " + response.code());
                 }
 
-                // 写入缓存文件
                 InputStream responseStream = response.body().byteStream();
                 FileOutputStream fos = new FileOutputStream(cacheFile);
                 byte[] buffer = new byte[8192];
@@ -356,7 +331,6 @@ public class EPGParser {
                 responseStream.close();
                 LogUtils.writeLog("EPG 下载完成，缓存文件: " + cacheFile.getAbsolutePath());
 
-                // 3. 从缓存文件解析
                 is = new FileInputStream(cacheFile);
                 List<EpgProgram> programs = parseXmltvStream(is, channelName);
                 LogUtils.writeLog("EPG 解析成功，节目数: " + (programs != null ? programs.size() : 0));
@@ -527,7 +501,7 @@ public class EPGParser {
 }
 EOF
 
-# ==================== PlayerConfigManager.java（不变） ====================
+# ==================== PlayerConfigManager.java ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -547,7 +521,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-# ==================== FavoriteManager.java（不变） ====================
+# ==================== FavoriteManager.java ====================
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -572,7 +546,7 @@ public class FavoriteManager {
 }
 EOF
 
-# ==================== ConfigurationManager.java（不变） ====================
+# ==================== ConfigurationManager.java ====================
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -626,10 +600,11 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（完整，包含目录创建和Toast提示） ====================
+# ==================== MainActivity.java（修正：无默认源，无源时提示） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -651,6 +626,7 @@ import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -709,6 +685,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_SELECTED_SUB = "selected_sub";
     private static final String KEY_SUB_LIST = "sub_list";
     private static final String KEY_LAST_CHANNEL = "last_channel";
+    private static final String KEY_LAST_GROUP = "last_group";
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
     private Runnable hideOverlayRunnable;
@@ -728,16 +705,11 @@ public class MainActivity extends AppCompatActivity {
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
 
-        // 初始化日志和目录（先尝试创建）
         LogUtils.init();
         LogUtils.createAppDirectories();
         LogUtils.writeLog("=== 应用启动 ===");
+        Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_LONG).show();
 
-        // 显示日志目录提示
-        String logDir = LogUtils.getLogDir();
-        Toast.makeText(this, "日志目录: " + logDir, Toast.LENGTH_LONG).show();
-
-        // 请求存储权限（Android 6+）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -811,34 +783,36 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
+            // 加载订阅源：按优先级
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
+            boolean hasSub = false;
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
                 if (parts.length == 2) {
                     currentSubName = parts[0];
                     currentSubUrl = parts[1];
+                    hasSub = true;
                 }
             }
-
-            if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
-                loadSourceForUrl(currentSubUrl);
-            } else if (!subEntryList.isEmpty()) {
+            if (!hasSub) {
                 for (SubEntry se : subEntryList) {
                     if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
                         currentSubName = se.name;
                         currentSubUrl = se.url;
                         prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
-                        loadSourceForUrl(se.url);
+                        hasSub = true;
                         break;
                     }
                 }
+            }
+
+            // 如果没有订阅源，弹窗引导
+            if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
+                LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
+                showNoSourceDialog();
             } else {
-                String defaultUrl = config.getLiveUrls();
-                if (defaultUrl != null && !defaultUrl.isEmpty()) {
-                    currentSubName = "默认源";
-                    currentSubUrl = defaultUrl;
-                    loadSourceForUrl(defaultUrl);
-                }
+                LogUtils.writeLog("加载订阅源: " + currentSubUrl);
+                loadSourceForUrl(currentSubUrl);
             }
 
             hideOverlayRunnable = () -> {
@@ -855,17 +829,31 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void showNoSourceDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("提示");
+        builder.setMessage("当前没有可用的订阅源，请先添加订阅源。");
+        builder.setPositiveButton("去设置", (dialog, which) -> {
+            startActivity(new Intent(this, SettingsActivity.class));
+        });
+        builder.setNegativeButton("退出", (dialog, which) -> {
+            finish();
+        });
+        builder.setCancelable(false);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 LogUtils.writeLog("存储权限已获取");
-                // 重新创建目录（之前可能因权限不足失败）
                 LogUtils.createAppDirectories();
                 Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_SHORT).show();
             } else {
-                LogUtils.writeLog("存储权限被拒绝，日志可能无法写入");
+                LogUtils.writeLog("存储权限被拒绝");
                 Toast.makeText(this, "存储权限被拒绝，日志可能无法保存", Toast.LENGTH_SHORT).show();
             }
         }
@@ -874,20 +862,21 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        try {
+        // 重新加载订阅列表（可能用户在设置中修改了）
+        loadSubscriptions();
+        subAdapter.updateData(subEntryList);
+        // 如果当前没有加载任何源但已经有订阅，重新加载
+        if (groupMap.isEmpty() && !subEntryList.isEmpty()) {
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
                 if (parts.length == 2) {
                     currentSubName = parts[0];
                     currentSubUrl = parts[1];
+                    loadSourceForUrl(currentSubUrl);
                 }
-            }
-            loadSubscriptions();
-            subAdapter.updateData(subEntryList);
-            if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
-                loadSourceForUrl(currentSubUrl);
-            } else if (!subEntryList.isEmpty()) {
+            } else {
+                // 尝试第一个非收藏
                 for (SubEntry se : subEntryList) {
                     if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
                         currentSubName = se.name;
@@ -898,9 +887,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
             }
-        } catch (Exception e) {
-            LogUtils.writeCrashLog(e);
-            Toast.makeText(this, "恢复时出错: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -939,8 +925,14 @@ public class MainActivity extends AppCompatActivity {
                     groupMap = map;
                     groupNames = names;
                     groupAdapter.updateData(groupNames);
-                    if (!groupNames.isEmpty()) {
+                    // 尝试恢复上次分组
+                    String lastGroup = prefs.getString(KEY_LAST_GROUP, "");
+                    if (!lastGroup.isEmpty() && groupNames.contains(lastGroup)) {
+                        currentGroup = lastGroup;
+                    } else if (!groupNames.isEmpty()) {
                         currentGroup = groupNames.get(0);
+                    }
+                    if (!currentGroup.isEmpty()) {
                         groupAdapter.setSelectedGroup(currentGroup);
                         showChannelsForGroup(currentGroup);
                     } else {
@@ -984,23 +976,24 @@ public class MainActivity extends AppCompatActivity {
             }
             currentChannelList = list;
             channelAdapter.updateData(currentChannelList);
+            // 恢复上次播放的频道
             String lastChannel = prefs.getString(KEY_LAST_CHANNEL, "");
+            SourceManager.Channel target = null;
             if (!lastChannel.isEmpty()) {
-                for (int i = 0; i < currentChannelList.size(); i++) {
-                    if (currentChannelList.get(i).name.equals(lastChannel)) {
-                        SourceManager.Channel ch = currentChannelList.get(i);
-                        channelAdapter.setSelectedChannel(ch);
-                        playChannel(ch);
-                        loadEpgForChannel(ch);
-                        return;
+                for (SourceManager.Channel ch : currentChannelList) {
+                    if (ch.name.equals(lastChannel)) {
+                        target = ch;
+                        break;
                     }
                 }
             }
-            if (!currentChannelList.isEmpty()) {
-                SourceManager.Channel ch = currentChannelList.get(0);
-                channelAdapter.setSelectedChannel(ch);
-                playChannel(ch);
-                loadEpgForChannel(ch);
+            if (target == null && !currentChannelList.isEmpty()) {
+                target = currentChannelList.get(0); // 播放第一个
+            }
+            if (target != null) {
+                channelAdapter.setSelectedChannel(target);
+                playChannel(target);
+                loadEpgForChannel(target);
             }
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
@@ -1041,6 +1034,7 @@ public class MainActivity extends AppCompatActivity {
         if (channel == null) return;
         currentChannel = channel;
         prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
+        prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
         try {
             if (player == null) {
                 DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
