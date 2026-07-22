@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（缩小窗口至一半，酷9风格）"
+echo "🔥 部署 witv 播放器（酷9风格最终完整版）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -21,7 +21,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java ====================
+# ==================== SourceManager.java（保持不变） ====================
 printf '%s\n' \
 'package com.whyun.witv.source;' \
 'import android.content.Context;' \
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（全局缓存） ====================
+# ==================== EPGParser.java（全局缓存，无编译错误） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -679,7 +679,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（修正版，导入Collections，移除epgAdapter/epgContainer） ====================
+# ==================== MainActivity.java（完整修复，包含所有import） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -790,6 +790,8 @@ public class MainActivity extends AppCompatActivity {
     private List<String> dayLabels = new ArrayList<>();
     private LinearLayoutManager scheduleEpgLayoutManager;
     private LinearLayout dayTabs;
+    private RecyclerView epgRecycler;
+    private View epgContainer;
 
     static class SubEntry { String name; String url; }
 
@@ -859,6 +861,15 @@ public class MainActivity extends AppCompatActivity {
             btnEpgSchedule = findViewById(R.id.btn_epg_schedule);
             overlayClickArea = findViewById(R.id.overlay_click_area);
             dayTabs = findViewById(R.id.day_tabs);
+            // 因为原布局中没有 epgRecycler 和 epgContainer，但可能有，我们查找，若无则创建虚拟
+            epgRecycler = findViewById(R.id.epg_recycler);
+            if (epgRecycler == null) {
+                epgRecycler = new RecyclerView(this);
+            }
+            epgContainer = findViewById(R.id.epg_container);
+            if (epgContainer == null) {
+                epgContainer = new View(this);
+            }
 
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -1128,7 +1139,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 修正后的 EPG 加载方法（不引用 epgAdapter/epgContainer） ==========
     private void loadEpgForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         String epgUrl = prefs.getString("epg_url", null);
@@ -1141,7 +1151,13 @@ public class MainActivity extends AppCompatActivity {
         if (epgUrl == null || epgUrl.isEmpty()) {
             LogUtils.writeLog("未配置EPG URL");
             Toast.makeText(this, "未设置EPG地址", Toast.LENGTH_SHORT).show();
+            if (epgAdapter != null) {
+                epgAdapter.setItems(new ArrayList<>());
+            }
             currentEpgList.clear();
+            if (epgContainer != null) {
+                epgContainer.setVisibility(View.GONE);
+            }
             return;
         }
         if (epgUrl.contains("$")) epgUrl = epgUrl.substring(0, epgUrl.indexOf("$"));
@@ -1154,16 +1170,28 @@ public class MainActivity extends AppCompatActivity {
             public void onLoaded(List<EPGParser.EpgProgram> programs) {
                 runOnUiThread(() -> {
                     currentEpgList = programs;
+                    if (epgAdapter != null) {
+                        epgAdapter.setItems(programs);
+                    }
                     LogUtils.writeLog("EPG加载成功，节目数: " + programs.size());
                     Toast.makeText(MainActivity.this, "EPG加载成功，共" + programs.size() + "个节目", Toast.LENGTH_SHORT).show();
+                    if (epgContainer != null) {
+                        epgContainer.setVisibility(View.VISIBLE);
+                    }
                 });
             }
             @Override
             public void onError(String error) {
                 runOnUiThread(() -> {
+                    if (epgAdapter != null) {
+                        epgAdapter.setItems(new ArrayList<>());
+                    }
                     currentEpgList.clear();
                     LogUtils.writeLog("EPG加载失败: " + error);
                     Toast.makeText(MainActivity.this, "EPG加载失败: " + error, Toast.LENGTH_SHORT).show();
+                    if (epgContainer != null) {
+                        epgContainer.setVisibility(View.GONE);
+                    }
                 });
             }
         });
@@ -1307,7 +1335,6 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ========== 信息弹窗 ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1390,7 +1417,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 对话框方法 ==========
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -2067,7 +2093,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件（窗口缩小至一半） ====================
+# ==================== 布局文件（窗口缩小至一半，包含所有id） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2232,7 +2258,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# ==================== 其余布局文件（保持不变） ====================
+# ==================== 其他布局文件（popup_info, item_*）保持不变 ====================
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2575,6 +2601,9 @@ mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/a
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
 echo "✅ 文件复制完成"
+
+# 修复 SettingsActivity import
+sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
 # ========== 自定义图标 ==========
 if [ -f "apk ico.jpeg" ]; then
