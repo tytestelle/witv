@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（强制生成所有文件到 config/）"
+echo "🔥 部署 witv 播放器（全新架构，支持目录创建和 EPG 缓存）"
 
 TEMPLATE_DIR="./config"
 
-# 强制重新生成，删除旧目录
+# 强制重新生成
 rm -rf "$TEMPLATE_DIR"
 mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
 mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite" "$TEMPLATE_DIR/src/utils"
@@ -15,7 +15,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java ====================
+# ==================== SourceManager.java（保持不变） ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== 日志工具类 LogUtils.java（修正版） ====================
+# ==================== LogUtils.java（增强版，确保目录创建） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -167,18 +167,16 @@ public class LogUtils {
      */
     public static void init() {
         if (sLogDirPath != null) return;
-        // 优先使用外部存储
         String basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
-        if (basePath == null) {
-            // 备选：使用应用私有目录
-            basePath = "/sdcard";
-        }
+        if (basePath == null) basePath = "/sdcard";
         File baseDir = new File(basePath, APP_DIR);
         if (!baseDir.exists()) {
             if (!baseDir.mkdirs()) {
                 Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
             }
         }
+        // 创建所有子目录
+        createAppDirectories();
         File logDir = new File(baseDir, LOG_DIR_NAME);
         if (!logDir.exists()) {
             if (!logDir.mkdirs()) {
@@ -186,7 +184,6 @@ public class LogUtils {
             }
         }
         sLogDirPath = logDir.getAbsolutePath();
-        // 写入初始化日志
         writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
     }
 
@@ -199,14 +196,13 @@ public class LogUtils {
     }
 
     /**
-     * 写入常规日志
+     * 写入常规日志（自动创建目录）
      */
     public static void writeLog(String message) {
         try {
             String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
             String log = time + " - " + message + "\n";
             File logFile = new File(getLogDir(), LOG_FILE);
-            // 确保目录存在
             File parent = logFile.getParentFile();
             if (parent != null && !parent.exists()) {
                 parent.mkdirs();
@@ -246,7 +242,7 @@ public class LogUtils {
     }
 
     /**
-     * 创建所有应用目录（localData, backup, download, videoFile, configuration, logo, js, py, webviewJscode, epgCache）
+     * 创建所有应用目录（包括 epgCache, logo, download 等）
      */
     public static void createAppDirectories() {
         try {
@@ -270,10 +266,17 @@ public class LogUtils {
     public static String getAppRootDir() {
         return Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR;
     }
+
+    /**
+     * 获取 EPG 缓存目录
+     */
+    public static String getEpgCacheDir() {
+        return getAppRootDir() + "/epgCache";
+    }
 }
 EOF
 
-# ==================== EPGParser.java（增强版 + 日志） ====================
+# ==================== EPGParser.java（先下载到缓存，再解析） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -284,6 +287,9 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import com.whyun.witv.utils.LogUtils;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.text.ParseException;
@@ -307,11 +313,17 @@ public class EPGParser {
     public static void loadEpg(String url, String channelName, OnEpgLoadListener listener) {
         LogUtils.writeLog("EPG加载开始: url=" + url + ", channel=" + channelName);
         new Thread(() -> {
-            OkHttpClient client = null;
-            Response response = null;
             InputStream is = null;
             try {
-                client = new OkHttpClient.Builder()
+                // 1. 先尝试从缓存读取
+                String cacheDir = LogUtils.getEpgCacheDir();
+                File cacheDirFile = new File(cacheDir);
+                if (!cacheDirFile.exists()) cacheDirFile.mkdirs();
+                String fileName = "epg_" + System.currentTimeMillis() + ".xml";
+                File cacheFile = new File(cacheDirFile, fileName);
+
+                // 2. 下载 EPG 到缓存文件
+                OkHttpClient client = new OkHttpClient.Builder()
                         .connectTimeout(30, TimeUnit.SECONDS)
                         .readTimeout(60, TimeUnit.SECONDS)
                         .addInterceptor(chain -> {
@@ -322,19 +334,30 @@ public class EPGParser {
                             return chain.proceed(request);
                         })
                         .build();
-
                 Request request = new Request.Builder()
                         .url(url)
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                         .build();
-
                 LogUtils.writeLog("EPG 请求发送: " + url);
-                response = client.newCall(request).execute();
+                Response response = client.newCall(request).execute();
                 if (!response.isSuccessful()) {
                     throw new Exception("HTTP " + response.code());
                 }
 
-                is = response.body().byteStream();
+                // 写入缓存文件
+                InputStream responseStream = response.body().byteStream();
+                FileOutputStream fos = new FileOutputStream(cacheFile);
+                byte[] buffer = new byte[8192];
+                int len;
+                while ((len = responseStream.read(buffer)) != -1) {
+                    fos.write(buffer, 0, len);
+                }
+                fos.close();
+                responseStream.close();
+                LogUtils.writeLog("EPG 下载完成，缓存文件: " + cacheFile.getAbsolutePath());
+
+                // 3. 从缓存文件解析
+                is = new FileInputStream(cacheFile);
                 List<EpgProgram> programs = parseXmltvStream(is, channelName);
                 LogUtils.writeLog("EPG 解析成功，节目数: " + (programs != null ? programs.size() : 0));
 
@@ -348,7 +371,6 @@ public class EPGParser {
                 mainHandler.post(() -> listener.onError(e.getMessage()));
             } finally {
                 try { if (is != null) is.close(); } catch (Exception ignored) {}
-                try { if (response != null) response.close(); } catch (Exception ignored) {}
             }
         }).start();
     }
@@ -505,7 +527,7 @@ public class EPGParser {
 }
 EOF
 
-# ==================== PlayerConfigManager.java ====================
+# ==================== PlayerConfigManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -525,7 +547,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-# ==================== FavoriteManager.java ====================
+# ==================== FavoriteManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -550,7 +572,7 @@ public class FavoriteManager {
 }
 EOF
 
-# ==================== ConfigurationManager.java ====================
+# ==================== ConfigurationManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -604,7 +626,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（修正版 - 增加Toast提示和权限回调） ====================
+# ==================== MainActivity.java（完整，包含目录创建和Toast提示） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -706,7 +728,7 @@ public class MainActivity extends AppCompatActivity {
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
 
-        // 初始化日志和目录（先尝试创建，若权限未授予则后续回调中再创建）
+        // 初始化日志和目录（先尝试创建）
         LogUtils.init();
         LogUtils.createAppDirectories();
         LogUtils.writeLog("=== 应用启动 ===");
@@ -1334,7 +1356,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== SettingsActivity.java ====================
+# ==================== SettingsActivity.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1703,7 +1725,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件 ====================
+# ==================== 布局文件（保持不变） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
