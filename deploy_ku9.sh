@@ -25,7 +25,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java（不变） ====================
+# ==================== SourceManager.java ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -151,7 +151,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（不变） ====================
+# ==================== LogUtils.java ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -274,7 +274,8 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（增强匹配，支持别名映射） ====================
+# ==================== EPGParser.java（增强匹配，支持别名映射 + 包含匹配） ====================
+cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
 import android.content.Context;
@@ -615,8 +616,9 @@ public class EPGParser {
         }
     }
 }
+EOF
 
-# ==================== PlayerConfigManager.java（不变） ====================
+# ==================== PlayerConfigManager.java ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -636,7 +638,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-# ==================== FavoriteManager.java（不变） ====================
+# ==================== FavoriteManager.java ====================
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -661,7 +663,7 @@ public class FavoriteManager {
 }
 EOF
 
-# ==================== ConfigurationManager.java（不变） ====================
+# ==================== ConfigurationManager.java ====================
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -715,7 +717,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（修改调用，传入Context） ====================
+# ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -857,7 +859,7 @@ public class MainActivity extends AppCompatActivity {
             logoDir = new File(LogUtils.getAppRootDir(), "logo");
             if (!logoDir.exists()) logoDir.mkdirs();
 
-            // ---------- 自动保存 EPG_URL（关键修复） ----------
+            // ---------- 自动保存 EPG_URL ----------
             String epgUrlPref = prefs.getString("epg_url", null);
             if (epgUrlPref == null || epgUrlPref.isEmpty()) {
                 String configEpg = config.getString("EPG_URLS", null);
@@ -1280,7 +1282,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== 修复后的 loadEpgForChannel（传入 Context） ====================
     private void loadEpgForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         String epgUrl = prefs.getString("epg_url", null);
@@ -1303,7 +1304,6 @@ public class MainActivity extends AppCompatActivity {
         LogUtils.writeLog("开始加载EPG: " + finalEpgUrl + " for " + channel.name);
         Toast.makeText(this, "正在加载EPG...", Toast.LENGTH_SHORT).show();
 
-        // 传入 this (Context)
         EPGParser.loadEpg(this, finalEpgUrl, channel.name, new EPGParser.OnEpgLoadListener() {
             @Override
             public void onLoaded(List<EPGParser.EpgProgram> programs) {
@@ -1570,7 +1570,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== SettingsActivity.java（不变） ====================
+# ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1939,7 +1939,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件（同前，不变） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2382,12 +2382,12 @@ sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INT
 sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
 echo "✅ 权限和 cleartext 已添加"
 
-# ========== 设置应用图标 ==========
-python3 <<PYTHON_SCRIPT
+# ========== 设置应用图标（修复 heredoc 问题） ==========
+cat > /tmp/fix_manifest.py <<'PYEOF'
 import sys, xml.etree.ElementTree as ET
 from xml.dom import minidom
 ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
-manifest_file = "$MANIFEST"
+manifest_file = "app/src/main/AndroidManifest.xml"
 pkg = "com.whyun.witv"
 try:
     tree = ET.parse(manifest_file); root = tree.getroot()
@@ -2418,7 +2418,10 @@ pretty = dom.toprettyxml(indent="    ")
 pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
 with open(manifest_file, 'w') as f: f.write(pretty)
 print("✅ AndroidManifest 已更新")
-PYTHON_SCRIPT
+PYEOF
+
+python3 /tmp/fix_manifest.py
+rm -f /tmp/fix_manifest.py
 
 # ========== 构建 ==========
 echo "🧹 清理并构建..."
