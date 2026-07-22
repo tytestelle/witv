@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG完整节目单版 - 紧凑布局 + 直接匹配epgid）"
+echo "🔥 部署 witv 播放器（EPG修正版 - 正确匹配频道）"
 
 TEMPLATE_DIR="./config"
 
@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（修正：直接使用别名 epgid 匹配） ====================
+# ==================== EPGParser.java（修正匹配逻辑） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -535,39 +535,22 @@ public class EPGParser {
         String targetChannelId = null;
         String targetDisplayName = null;
 
-        // 1. 别名映射匹配（直接使用 epgid）
+        // 1. 通过别名映射获取 epgid，直接取节目
         String mappedEpgid = aliasMap.get(normalizedChannelName);
-        if (mappedEpgid != null) {
-            // 检查 programMap 中是否存在该 key（可能有节目）
-            if (programMap.containsKey(mappedEpgid)) {
-                targetChannelId = mappedEpgid;
-                ChannelInfo info = channelMap.get(mappedEpgid);
-                targetDisplayName = (info != null && info.displayName != null && !info.displayName.isEmpty()) 
-                        ? info.displayName : mappedEpgid;
-                LogUtils.writeLog("别名映射直接匹配: " + channelName + " -> " + mappedEpgid);
-            } else {
-                // 如果 programMap 中没有，尝试通过 displayName 匹配
-                String normMapped = normalizeChannelName(mappedEpgid);
-                for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
-                    String normDisp = normalizeChannelName(entry.getValue().displayName);
-                    if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
-                        targetChannelId = entry.getKey();
-                        targetDisplayName = entry.getValue().displayName;
-                        LogUtils.writeLog("别名映射通过 displayName 匹配: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 2. 若未命中，使用 displayName 包含匹配
-        if (targetChannelId == null) {
+        if (mappedEpgid != null && programMap.containsKey(mappedEpgid)) {
+            targetChannelId = mappedEpgid;
+            ChannelInfo info = channelMap.get(mappedEpgid);
+            targetDisplayName = (info != null && info.displayName != null && !info.displayName.isEmpty()) 
+                    ? info.displayName : mappedEpgid;
+            LogUtils.writeLog("直接别名映射匹配: " + channelName + " -> epgid=" + mappedEpgid);
+        } else {
+            // 2. 若别名映射未命中，遍历所有 channel 的 display-name 进行包含匹配
             for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
                 String normDisp = normalizeChannelName(entry.getValue().displayName);
                 if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
                     targetChannelId = entry.getKey();
                     targetDisplayName = entry.getValue().displayName;
-                    LogUtils.writeLog("包含匹配成功: " + channelName + " -> " + targetDisplayName);
+                    LogUtils.writeLog("display-name 包含匹配成功: " + channelName + " -> " + targetDisplayName);
                     break;
                 }
             }
@@ -2019,11 +2002,11 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:orientation="horizontal"
         android:background="#CC000000"
         android:visibility="gone">
-        <!-- 左侧：订阅源、分组、频道列表 (占比 0.4) -->
+        <!-- 左侧：订阅源、分组、频道列表 (占比 0.35) -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.4"
+            android:layout_weight="0.35"
             android:orientation="horizontal"
             android:background="#CC000000">
             <LinearLayout
@@ -2086,12 +2069,12 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 右侧：EPG 节目单 (占比 0.6) -->
+        <!-- 右侧：EPG 节目单 (占比 0.65) -->
         <LinearLayout
             android:id="@+id/epg_container"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.6"
+            android:layout_weight="0.65"
             android:orientation="vertical"
             android:background="#66000000"
             android:padding="2dp"
