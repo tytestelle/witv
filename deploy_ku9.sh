@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（酷9风格最终完整版 - 修复所有UI细节）"
+echo "🔥 部署 witv 播放器（酷9风格完整修正版 - 所有UI细节）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -679,7 +679,9 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（修正构造函数调用） ====================
+# ==================== 第一部分结束 ====================
+echo "第一部分完成，请继续粘贴第二部分"
+# ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -786,11 +788,10 @@ public class MainActivity extends AppCompatActivity {
     private String currentScheduleChannelName = "";
     private List<EPGParser.EpgProgram> currentScheduleEpg = new ArrayList<>();
     private int selectedDayIndex = 0;
-    private List<String> dayLabels = new ArrayList<>(); // "周一", "周二"...
+    private List<String> dayLabels = new ArrayList<>();
     private LinearLayoutManager scheduleEpgLayoutManager;
     private LinearLayout dayTabs;
     private View leftClickArea;
-    // 缓存每个频道的EPG列表，key为频道名
     private Map<String, List<EPGParser.EpgProgram>> epgCacheMap = new HashMap<>();
 
     static class SubEntry { String name; String url; }
@@ -891,15 +892,19 @@ public class MainActivity extends AppCompatActivity {
             });
             groupRecycler.setAdapter(groupAdapter);
 
-            // 修正：ChannelAdapter 构造参数补齐
-            channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
-                playChannel(channel);
-                loadEpgForChannel(channel);
-                channelAdapter.setSelectedChannel(channel);
-                if (isScheduleMode) {
-                    showScheduleForChannel(channel);
-                }
-            }, this::toggleFavorite, this, epgCacheMap);
+            channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir,
+                channel -> {
+                    playChannel(channel);
+                    loadEpgForChannel(channel);
+                    channelAdapter.setSelectedChannel(channel);
+                    if (isScheduleMode) {
+                        showScheduleForChannel(channel);
+                    }
+                },
+                this::toggleFavorite,
+                this,
+                epgCacheMap
+            );
             channelRecycler.setAdapter(channelAdapter);
 
             scheduleChannelAdapter = new ScheduleChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
@@ -1154,7 +1159,6 @@ public class MainActivity extends AppCompatActivity {
         LogUtils.writeLog("开始加载EPG: " + finalEpgUrl + " for " + channel.name);
         Toast.makeText(this, "正在加载EPG...", Toast.LENGTH_SHORT).show();
 
-        // 先从缓存取
         if (epgCacheMap.containsKey(channel.name)) {
             currentEpgList = epgCacheMap.get(channel.name);
             LogUtils.writeLog("从缓存加载EPG，节目数: " + currentEpgList.size());
@@ -1170,7 +1174,6 @@ public class MainActivity extends AppCompatActivity {
                     epgCacheMap.put(channel.name, programs);
                     LogUtils.writeLog("EPG加载成功，节目数: " + programs.size());
                     Toast.makeText(MainActivity.this, "EPG加载成功，共" + programs.size() + "个节目", Toast.LENGTH_SHORT).show();
-                    // 刷新频道列表显示节目预告
                     channelAdapter.notifyDataSetChanged();
                 });
             }
@@ -1203,7 +1206,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 显示/隐藏频道组 ==========
     private void showOverlay() {
         if (isScheduleMode) {
             scheduleLayout.setVisibility(View.GONE);
@@ -1231,7 +1233,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 节目单切换 ==========
     private void toggleScheduleMode() {
         if (isScheduleMode) {
             scheduleLayout.setVisibility(View.GONE);
@@ -1258,7 +1259,6 @@ public class MainActivity extends AppCompatActivity {
     private void showScheduleForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentScheduleChannelName = channel.name;
-        // 从缓存取
         if (epgCacheMap.containsKey(channel.name)) {
             currentScheduleEpg = epgCacheMap.get(channel.name);
             generateDayTabs(currentScheduleEpg);
@@ -1301,12 +1301,8 @@ public class MainActivity extends AppCompatActivity {
             dayTabs.removeAllViews();
             return;
         }
-        // 按开始时间排序
         Collections.sort(programs, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
-        // 获取今天日期
-        Calendar cal = Calendar.getInstance();
-        int today = cal.get(Calendar.DAY_OF_YEAR);
-        // 分组：按日期分组，只显示未来7天（包含今天）
+        // 按日期分组
         SimpleDateFormat sdfDate = new SimpleDateFormat("yyyyMMdd", Locale.getDefault());
         Map<String, List<EPGParser.EpgProgram>> dayMap = new HashMap<>();
         for (EPGParser.EpgProgram prog : programs) {
@@ -1316,36 +1312,30 @@ public class MainActivity extends AppCompatActivity {
             }
             dayMap.get(dateKey).add(prog);
         }
-        // 生成日期列表并排序
         List<String> dateKeys = new ArrayList<>(dayMap.keySet());
         Collections.sort(dateKeys);
-        // 只保留从今天开始的7天
+        // 只保留今天及未来6天（共7天）
         List<String> filteredKeys = new ArrayList<>();
+        Calendar cal = Calendar.getInstance();
+        String todayKey = sdfDate.format(new Date());
         for (String key : dateKeys) {
-            String[] parts = key.split("");
-            // 简单处理，取前7个
             if (filteredKeys.size() < 7) {
                 filteredKeys.add(key);
             } else {
                 break;
             }
         }
-        // 生成标签
         dayLabels.clear();
         dayTabs.removeAllViews();
         String[] weekDays = {"周日","周一","周二","周三","周四","周五","周六"};
         for (int i = 0; i < filteredKeys.size(); i++) {
             String dateKey = filteredKeys.get(i);
-            // 计算星期几
             try {
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd", Locale.getDefault());
-                Date d = sdf.parse(dateKey);
+                Date d = sdfDate.parse(dateKey);
                 Calendar c = Calendar.getInstance();
                 c.setTime(d);
-                int dayOfWeek = c.get(Calendar.DAY_OF_WEEK) - 1; // 1=周日
+                int dayOfWeek = c.get(Calendar.DAY_OF_WEEK) - 1;
                 String label = weekDays[dayOfWeek];
-                // 如果是今天，显示"今天"
-                String todayKey = sdfDate.format(new Date());
                 if (dateKey.equals(todayKey)) {
                     label = "今天";
                 }
@@ -1386,7 +1376,6 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ========== 信息弹窗 ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1674,16 +1663,20 @@ public class MainActivity extends AppCompatActivity {
         private OnFavoriteClickListener favListener;
         private Set<String> favoriteSet;
         private File logoDir;
-        private Map<String, List<EPGParser.EpgProgram>> epgCache; // 引用外部缓存
         private MainActivity activity;
+        private Map<String, List<EPGParser.EpgProgram>> epgCache;
 
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
+
         ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir,
                        OnChannelClickListener listener, OnFavoriteClickListener favListener,
                        MainActivity activity, Map<String, List<EPGParser.EpgProgram>> epgCache) {
-            this.data = data; this.favoriteSet = favorites; this.logoDir = logoDir;
-            this.listener = listener; this.favListener = favListener;
+            this.data = data;
+            this.favoriteSet = favorites;
+            this.logoDir = logoDir;
+            this.listener = listener;
+            this.favListener = favListener;
             this.activity = activity;
             this.epgCache = epgCache;
         }
@@ -1701,7 +1694,6 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
-            // 台标
             if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
                 String fileName = ch.name.hashCode() + ".png";
                 File logoFile = new File(logoDir, fileName);
@@ -1714,7 +1706,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 holder.logo.setVisibility(View.GONE);
             }
-            // 当前节目预告
+            // 显示当前节目预告
             if (epgCache != null && epgCache.containsKey(ch.name)) {
                 List<EPGParser.EpgProgram> epgList = epgCache.get(ch.name);
                 if (epgList != null && !epgList.isEmpty()) {
@@ -1725,7 +1717,6 @@ public class MainActivity extends AppCompatActivity {
                             holder.epgTitle.setVisibility(View.VISIBLE);
                             break;
                         }
-                        // 如果找不到当前节目，显示下一个节目
                         if (prog.startTime > now) {
                             holder.epgTitle.setText(prog.title);
                             holder.epgTitle.setVisibility(View.VISIBLE);
@@ -1739,7 +1730,7 @@ public class MainActivity extends AppCompatActivity {
         static class ViewHolder extends RecyclerView.ViewHolder {
             TextView name, favIcon, epgTitle;
             ImageView logo;
-            ViewHolder(View v) { super(v); 
+            ViewHolder(View v) { super(v);
                 name = v.findViewById(R.id.channel_name);
                 favIcon = v.findViewById(R.id.channel_fav);
                 logo = v.findViewById(R.id.channel_logo);
@@ -2191,7 +2182,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:id="@+id/player_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-    <!-- 左侧点击区域 -->
     <View
         android:id="@+id/left_click_area"
         android:layout_width="40dp"
@@ -2201,7 +2191,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:clickable="true"
         android:focusable="true" />
 
-    <!-- 覆盖层容器（左半屏） -->
     <LinearLayout
         android:id="@+id/overlay_container"
         android:layout_width="match_parent"
@@ -2209,14 +2198,10 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:orientation="horizontal"
         android:background="#00000000"
         android:visibility="gone">
-        
-        <!-- 左侧覆盖层内容（占一半宽度） -->
         <FrameLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="0.5">
-            
-            <!-- 频道组 -->
             <LinearLayout
                 android:id="@+id/overlay_layout"
                 android:layout_width="match_parent"
@@ -2299,8 +2284,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                         android:layout_weight="1" />
                 </LinearLayout>
             </LinearLayout>
-
-            <!-- 节目单 -->
             <LinearLayout
                 android:id="@+id/schedule_layout"
                 android:layout_width="match_parent"
@@ -2356,8 +2339,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                     android:clickable="true" />
             </LinearLayout>
         </FrameLayout>
-
-        <!-- 右侧透明占位 -->
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -2413,6 +2394,7 @@ cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 </LinearLayout>
 EOF
 
+# 其他布局文件（popup_info, item_sub, item_group, item_epg, activity_settings, item_menu, item_content）
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2763,4 +2745,31 @@ intent_filter = ET.SubElement(main_act, 'intent-filter')
 action = ET.SubElement(intent_filter, 'action')
 action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
 cat = ET.SubElement(intent_filter, 'category')
-cat.set('{http://schemas.android.com/apk/res/android}name', 'android
+cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
+app.append(main_act)
+settings_act = ET.Element('activity')
+settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
+settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+app.append(settings_act)
+xml_str = ET.tostring(root, encoding='unicode')
+dom = minidom.parseString(xml_str)
+pretty = dom.toprettyxml(indent="    ")
+pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
+with open(manifest_file, 'w') as f: f.write(pretty)
+print("✅ AndroidManifest 已更新")
+PYEOF
+
+python3 /tmp/fix_manifest.py
+rm -f /tmp/fix_manifest.py
+
+# ========== 构建 ==========
+echo "🧹 清理并构建..."
+./gradlew clean
+./gradlew assembleDebug
+
+echo ""
+echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
+echo "📌 模板已生成到 ./config/ 目录"
+echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
+echo "📋 日志文件位置会在应用启动时 Toast 显示"
+echo "💡 修复：频道列表显示当前节目预告，节目单按周几分组，台标显示，蓝色高亮当前频道。"
