@@ -600,7 +600,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（修正：无默认源，无源时提示） ====================
+# ==================== MainActivity.java（增强错误处理与提示） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -783,12 +783,12 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // 加载订阅源：按优先级
-            String selected = prefs.getString(KEY_SELECTED_SUB, "");
+            // ----- 加载订阅源 -----
             boolean hasSub = false;
+            String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
-                if (parts.length == 2) {
+                if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
                     currentSubName = parts[0];
                     currentSubUrl = parts[1];
                     hasSub = true;
@@ -806,12 +806,12 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            // 如果没有订阅源，弹窗引导
             if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
                 LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
                 showNoSourceDialog();
             } else {
                 LogUtils.writeLog("加载订阅源: " + currentSubUrl);
+                Toast.makeText(this, "正在加载订阅源...", Toast.LENGTH_SHORT).show();
                 loadSourceForUrl(currentSubUrl);
             }
 
@@ -825,7 +825,7 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeLog("应用启动成功");
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
-            Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            showFatalErrorDialog("初始化失败: " + e.getMessage());
         }
     }
 
@@ -837,6 +837,37 @@ public class MainActivity extends AppCompatActivity {
             startActivity(new Intent(this, SettingsActivity.class));
         });
         builder.setNegativeButton("退出", (dialog, which) -> {
+            finish();
+        });
+        builder.setCancelable(false);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    private void showLoadErrorDialog(String errorMsg) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("加载失败");
+        builder.setMessage("订阅源加载失败：\n" + errorMsg + "\n\n请检查网络或源地址是否正确。");
+        builder.setPositiveButton("去设置", (dialog, which) -> {
+            startActivity(new Intent(this, SettingsActivity.class));
+        });
+        builder.setNegativeButton("重试", (dialog, which) -> {
+            if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
+                loadSourceForUrl(currentSubUrl);
+            } else {
+                showNoSourceDialog();
+            }
+        });
+        builder.setCancelable(false);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    private void showFatalErrorDialog(String errorMsg) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("严重错误");
+        builder.setMessage("应用初始化失败：\n" + errorMsg + "\n\n请查看日志文件：\n" + LogUtils.getLogDir());
+        builder.setPositiveButton("退出", (dialog, which) -> {
             finish();
         });
         builder.setCancelable(false);
@@ -870,7 +901,7 @@ public class MainActivity extends AppCompatActivity {
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
-                if (parts.length == 2) {
+                if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
                     currentSubName = parts[0];
                     currentSubUrl = parts[1];
                     loadSourceForUrl(currentSubUrl);
@@ -911,7 +942,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadSourceForUrl(String url) {
-        if (isLoading || url == null || url.isEmpty()) return;
+        if (isLoading || url == null || url.isEmpty()) {
+            if (url == null || url.isEmpty()) {
+                showNoSourceDialog();
+            }
+            return;
+        }
         isLoading = true;
         if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
         final String finalUrl = url;
@@ -938,20 +974,21 @@ public class MainActivity extends AppCompatActivity {
                     } else {
                         currentChannelList.clear();
                         channelAdapter.updateData(currentChannelList);
+                        Toast.makeText(MainActivity.this, "解析成功但无频道数据", Toast.LENGTH_LONG).show();
                     }
                     showOverlay();
                     resetAutoHideTimer();
                     LogUtils.writeLog("源加载成功，分组数: " + (map != null ? map.size() : 0));
                 } catch (Exception e) {
                     LogUtils.writeCrashLog(e);
-                    Toast.makeText(MainActivity.this, "加载数据异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    showLoadErrorDialog("数据处理异常: " + e.getMessage());
                 }
             }
             @Override
             public void onError(String error) {
                 isLoading = false;
                 LogUtils.writeLog("加载源失败: " + error);
-                Toast.makeText(MainActivity.this, "加载失败: " + error, Toast.LENGTH_LONG).show();
+                showLoadErrorDialog(error);
             }
         });
     }
@@ -994,6 +1031,8 @@ public class MainActivity extends AppCompatActivity {
                 channelAdapter.setSelectedChannel(target);
                 playChannel(target);
                 loadEpgForChannel(target);
+            } else {
+                Toast.makeText(this, "该分组无频道", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
