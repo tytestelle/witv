@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（酷9风格EPG优化版）"
+echo "🔥 部署 witv 播放器（酷9风格最终版）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（已包含当前时间排序） ====================
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -218,7 +218,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -669,7 +668,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（优化 showInfoPopup 布局） ====================
+# ==================== MainActivity.java（含酷9风格 showInfoPopup） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1315,7 +1314,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 优化后的 showInfoPopup（酷9风格） ==========
+    // ========== 酷9风格 showInfoPopup ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1329,11 +1328,13 @@ public class MainActivity extends AppCompatActivity {
             TextView tvLine = popupView.findViewById(R.id.popup_line);
             TextView tvDuration = popupView.findViewById(R.id.popup_duration);
             TextView tvCurrentEpg = popupView.findViewById(R.id.popup_current_epg);
+            TextView tvCurrentDesc = popupView.findViewById(R.id.popup_current_desc);
             TextView tvNextEpg = popupView.findViewById(R.id.popup_next_epg);
-            
+            TextView tvExtra = popupView.findViewById(R.id.popup_extra);
+
             // 频道名
             tvName.setText(currentChannel.name);
-            
+
             // 台标
             File logoFile = null;
             if (currentChannel.logoUrl != null && !currentChannel.logoUrl.isEmpty()) {
@@ -1346,14 +1347,14 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 ivLogo.setVisibility(View.GONE);
             }
-            
-            // 分辨率、帧率、音频等（固定值或从播放器获取，简化处理）
-            tvResolution.setText("720x576");
-            tvFps.setText("25FPS");
+
+            // 分辨率、帧率等（可从播放器获取，这里固定示例）
+            tvResolution.setText("FHD");
+            tvFps.setText("29FPS");
             tvAudio.setText("立体声");
             tvIp.setText("IPV4");
             tvLine.setText("线路1/1");
-            
+
             long now = System.currentTimeMillis();
             if (!currentEpgList.isEmpty()) {
                 EPGParser.EpgProgram currentProg = currentEpgList.get(0);
@@ -1362,27 +1363,29 @@ public class MainActivity extends AppCompatActivity {
                 if (duration < 0) duration = 0;
                 long minutes = duration / 60000;
                 tvDuration.setText("距结束：" + minutes + "分钟");
-                
+
                 SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
                 String currentTime = sdf.format(new Date(currentProg.startTime)) + "-" + sdf.format(new Date(currentProg.endTime));
                 String desc = (currentProg.desc != null && !currentProg.desc.isEmpty()) ? currentProg.desc : "暂无描述信息";
-                tvCurrentEpg.setText("正在播放：" + currentTime + " " + currentProg.title + " " + desc);
-                
+                tvCurrentEpg.setText("正在播放：" + currentTime + " " + currentProg.title);
+                tvCurrentDesc.setText(desc);
+
                 if (currentEpgList.size() > 1) {
                     EPGParser.EpgProgram next = currentEpgList.get(1);
                     String nextTime = sdf.format(new Date(next.startTime)) + "-" + sdf.format(new Date(next.endTime));
-                    String nextTitle = next.title;
-                    String nextDesc = (next.desc != null && !next.desc.isEmpty()) ? next.desc : "";
-                    tvNextEpg.setText("下一节目：" + nextTime + " " + nextTitle + (nextDesc.isEmpty() ? "" : " " + nextDesc));
+                    tvNextEpg.setText("下一节目：" + nextTime + " " + next.title);
                 } else {
                     tvNextEpg.setText("下一节目：暂无");
                 }
             } else {
                 tvDuration.setText("距结束：--");
                 tvCurrentEpg.setText("正在播放：暂无EPG");
+                tvCurrentDesc.setText("暂无描述信息");
                 tvNextEpg.setText("下一节目：暂无");
             }
-            
+
+            tvExtra.setText("");
+
             PopupWindow popup = new PopupWindow(popupView,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1907,7 +1910,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 优化后的 popup_info.xml（酷9风格） ====================
+# ==================== 酷9风格 popup_info.xml ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -1916,21 +1919,22 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="#DD000000"
-    android:padding="12dp">
-    
+    android:padding="12dp"
+    android:minHeight="120dp">
+
     <!-- 第一行：台标 + 频道名 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="6dp">
+        android:layout_marginBottom="4dp">
         <ImageView
             android:id="@+id/popup_logo"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:scaleType="fitCenter"
-            android:visibility="gone" />
+            android:visibility="visible" />
         <TextView
             android:id="@+id/popup_channel_name"
             android:layout_width="wrap_content"
@@ -1938,32 +1942,32 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
             android:layout_marginStart="10dp"
             android:text="频道名"
             android:textColor="#FFFFFF"
-            android:textSize="18sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
     </LinearLayout>
-    
+
     <!-- 第二行：分辨率、帧率、音频、IP、线路 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="6dp">
+        android:layout_marginBottom="4dp">
         <TextView
             android:id="@+id/popup_resolution"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="720x576"
+            android:text="FHD"
             android:textColor="#AAAAAA"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
         <TextView
             android:id="@+id/popup_fps"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="25FPS"
+            android:text="29FPS"
             android:textColor="#AAAAAA"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
         <TextView
             android:id="@+id/popup_audio"
             android:layout_width="0dp"
@@ -1971,7 +1975,7 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
             android:layout_weight="1"
             android:text="立体声"
             android:textColor="#AAAAAA"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
         <TextView
             android:id="@+id/popup_ip"
             android:layout_width="0dp"
@@ -1979,7 +1983,7 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
             android:layout_weight="1"
             android:text="IPV4"
             android:textColor="#AAAAAA"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
         <TextView
             android:id="@+id/popup_line"
             android:layout_width="0dp"
@@ -1987,9 +1991,9 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
             android:layout_weight="1"
             android:text="线路1/1"
             android:textColor="#AAAAAA"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
     </LinearLayout>
-    
+
     <!-- 第三行：距结束时间 -->
     <TextView
         android:id="@+id/popup_duration"
@@ -1997,34 +2001,55 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
         android:layout_height="wrap_content"
         android:text="距结束：--分钟"
         android:textColor="#AAAAAA"
-        android:textSize="11sp"
+        android:textSize="12sp"
         android:layout_marginBottom="4dp" />
-    
-    <!-- 第四行：当前节目 -->
+
+    <!-- 第四行：当前节目（时间+标题） -->
     <TextView
         android:id="@+id/popup_current_epg"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="正在播放："
         android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:layout_marginBottom="2dp" />
-    
-    <!-- 第五行：下一节目 -->
+        android:textSize="14sp"
+        android:layout_marginBottom="2dp"
+        android:textStyle="bold" />
+
+    <!-- 第五行：当前节目描述 -->
+    <TextView
+        android:id="@+id/popup_current_desc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="暂无描述信息"
+        android:textColor="#CCCCCC"
+        android:textSize="12sp"
+        android:layout_marginBottom="6dp"
+        android:maxLines="4"
+        android:ellipsize="end" />
+
+    <!-- 第六行：下一节目 -->
     <TextView
         android:id="@+id/popup_next_epg"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="下一节目："
-        android:textColor="#AAAAAA"
-        android:textSize="12sp" />
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <!-- 底部额外信息 -->
+    <TextView
+        android:id="@+id/popup_extra"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp" />
 </LinearLayout>
 EOF
 
-# 其余布局文件（item_*.xml, activity_main.xml 等）与之前相同，不再重复生成，使用之前的版本。
-# 但为确保完整性，我们继续生成 activity_main.xml 等（已有）
-
-# ==================== activity_main.xml（布局紧凑） ====================
+# ==================== activity_main.xml（紧凑布局） ====================
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2146,8 +2171,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# ==================== 其他布局文件（item_sub, item_group, item_channel, item_epg, activity_settings, item_menu, item_content） ====================
-# 这些与之前相同，不再重复，但为确保完整性，我们快速生成
+# ==================== 其他布局文件（item_*.xml） ====================
 cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
