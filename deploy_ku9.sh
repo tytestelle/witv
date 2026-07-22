@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（最终修正版 - 隐藏分组名 + 自定义图标）"
+echo "🔥 部署酷9播放器（最终修正版 - 窄覆盖层 + 自定义图标）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -1322,29 +1322,29 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件 ====================
+    # ==================== 布局文件（覆盖层宽度缩至70%） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
+
+    <!-- 播放器 -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <!-- 左侧点击区域（显示覆盖层） -->
     <View
         android:id="@+id/left_click_area"
         android:layout_width="48dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:background="#00000000" />
-    <View
-        android:id="@+id/right_click_area"
-        android:layout_width="80dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="end"
-        android:background="#00000000" />
+
+    <!-- 底部信息栏 -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
@@ -1400,6 +1400,8 @@ EOF
             android:background="#00000000"
             android:tint="#FFFFFF" />
     </LinearLayout>
+
+    <!-- 覆盖层（宽度仅占70%，靠左） -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -1407,88 +1409,105 @@ EOF
         android:orientation="horizontal"
         android:background="#CC000000"
         android:visibility="gone">
+
+        <!-- 内容容器：宽度70%，包含三列 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:background="#33000000"
-            android:padding="4dp">
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="订阅源"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp"
-                android:paddingBottom="2dp" />
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/sub_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent" />
-        </LinearLayout>
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:background="#44000000"
-            android:padding="4dp">
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="分组"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp"
-                android:paddingBottom="2dp" />
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/group_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent" />
-        </LinearLayout>
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1.8"
-            android:orientation="vertical"
-            android:background="#55000000"
-            android:padding="4dp">
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="频道列表"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp"
-                android:paddingBottom="2dp" />
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/channel_recycler"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
+            android:layout_weight="0.7"
+            android:orientation="horizontal"
+            android:background="#CC000000">
+
+            <!-- 订阅源列 -->
             <LinearLayout
-                android:id="@+id/epg_container"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="0.6"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
                 android:orientation="vertical"
-                android:background="#66000000"
-                android:visibility="gone">
+                android:background="#33000000"
+                android:padding="4dp">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="节目单"
+                    android:text="订阅源"
                     android:textColor="#FFFFFF"
                     android:textSize="11sp"
-                    android:padding="2dp" />
+                    android:paddingBottom="2dp" />
                 <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/epg_recycler"
+                    android:id="@+id/sub_recycler"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent" />
             </LinearLayout>
+
+            <!-- 分组列 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:background="#44000000"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="分组"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:paddingBottom="2dp" />
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/group_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+            </LinearLayout>
+
+            <!-- 频道列（含EPG） -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1.8"
+                android:orientation="vertical"
+                android:background="#55000000"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="频道列表"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:paddingBottom="2dp" />
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/channel_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+                <LinearLayout
+                    android:id="@+id/epg_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#66000000"
+                    android:visibility="gone">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="节目单"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:padding="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/epg_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
+
+        <!-- 右侧空白区域（30%）点击关闭 -->
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.2"
+            android:layout_weight="0.3"
             android:background="#00000000"
             android:clickable="true"
             android:onClick="hideOverlay" />
@@ -1496,6 +1515,7 @@ EOF
 </FrameLayout>
 EOF
 
+    # ==================== 其他布局文件 ====================
     cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1640,7 +1660,7 @@ EOF
 </LinearLayout>
 EOF
 
-    # ==================== 图标资源（默认矢量，但会被自定义图标覆盖） ====================
+    # ==================== 默认矢量图标（备用） ====================
     cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
@@ -1686,10 +1706,10 @@ echo "✅ 文件复制完成"
 # 为 SettingsActivity 添加缺失的 import
 sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
-# ========== 处理自定义图标（若存在） ==========
-if [ -f "apk ico.jpeg" ]; then
-    echo "📁 找到自定义图标 apk ico.jpeg，将作为应用图标..."
-    cp "apk ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
+# ========== 处理自定义图标 ==========
+if [ -f "apk ico.png" ]; then
+    echo "📁 找到自定义图标 apk ico.png，将作为应用图标..."
+    cp "apk ico.png" "app/src/main/res/drawable/ic_launcher.png"
     # 删除默认矢量图标，避免冲突
     rm -f app/src/main/res/drawable/ic_launcher.xml
 elif [ -f "apk_ico.jpeg" ]; then
@@ -1719,7 +1739,7 @@ sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 echo "✅ 权限已添加"
 
-# ========== 设置应用图标（确保使用 ic_launcher） ==========
+# ========== 设置应用图标 ==========
 echo "🛠️ 设置应用图标..."
 python3 <<PYTHON_SCRIPT
 import sys, xml.etree.ElementTree as ET
@@ -1781,7 +1801,7 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 修正内容："
-echo "   ✅ 移除了对 tv_group_name 的引用，解决编译错误"
-echo "   ✅ 自定义图标（若存在）已自动设置为应用图标，并删除冲突的 XML 文件"
-echo "   ✅ 频道列表宽度缩窄，布局紧凑"
-echo "   ✅ 记忆播放、EPG 切换等功能已保留"
+echo "   ✅ 覆盖层宽度缩至屏幕 70%，右侧留有透明区域点击关闭"
+echo "   ✅ 三列比例调整为 1:1:1.8，更加紧凑"
+echo "   ✅ 自定义图标自动设置（若存在）"
+echo "   ✅ 所有功能（记忆播放、EPG、收藏）保留"
