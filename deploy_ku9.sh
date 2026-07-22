@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG修正版 - 正确匹配频道）"
+echo "🔥 部署 witv 播放器（EPG最终修正版 - 精准匹配）"
 
 TEMPLATE_DIR="./config"
 
@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（修正匹配逻辑） ====================
+# ==================== EPGParser.java（精准匹配，忽略空display-name） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -482,7 +482,7 @@ public class EPGParser {
                 case XmlPullParser.END_TAG:
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
-                        if (currentChannelId != null && currentDisplayName != null) {
+                        if (currentChannelId != null && currentDisplayName != null && !currentDisplayName.isEmpty()) {
                             ChannelInfo info = new ChannelInfo();
                             info.id = currentChannelId;
                             info.displayName = currentDisplayName;
@@ -529,30 +529,65 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        LogUtils.writeLog("共找到 " + channelMap.size() + " 个频道, " + programMap.size() + " 个有节目");
+        LogUtils.writeLog("共找到 " + channelMap.size() + " 个有效频道, " + programMap.size() + " 个有节目");
 
         String normalizedChannelName = normalizeChannelName(channelName);
         String targetChannelId = null;
         String targetDisplayName = null;
 
-        // 1. 通过别名映射获取 epgid，直接取节目
+        // 1. 别名映射匹配
         String mappedEpgid = aliasMap.get(normalizedChannelName);
-        if (mappedEpgid != null && programMap.containsKey(mappedEpgid)) {
-            targetChannelId = mappedEpgid;
-            ChannelInfo info = channelMap.get(mappedEpgid);
-            targetDisplayName = (info != null && info.displayName != null && !info.displayName.isEmpty()) 
-                    ? info.displayName : mappedEpgid;
-            LogUtils.writeLog("直接别名映射匹配: " + channelName + " -> epgid=" + mappedEpgid);
-        } else {
-            // 2. 若别名映射未命中，遍历所有 channel 的 display-name 进行包含匹配
+        if (mappedEpgid != null) {
+            // 直接检查 programMap 是否包含该 ID
+            if (programMap.containsKey(mappedEpgid)) {
+                targetChannelId = mappedEpgid;
+                ChannelInfo info = channelMap.get(mappedEpgid);
+                targetDisplayName = (info != null && info.displayName != null && !info.displayName.isEmpty()) 
+                        ? info.displayName : mappedEpgid;
+                LogUtils.writeLog("别名映射直接匹配: " + channelName + " -> epgid=" + mappedEpgid);
+            } else {
+                // 若 programMap 没有，尝试用 display-name 匹配
+                String normMapped = normalizeChannelName(mappedEpgid);
+                for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
+                    String normDisp = normalizeChannelName(entry.getValue().displayName);
+                    if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
+                        targetChannelId = entry.getKey();
+                        targetDisplayName = entry.getValue().displayName;
+                        LogUtils.writeLog("别名映射通过 displayName 匹配: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 2. 若别名未命中，使用 display-name 包含匹配（忽略空 display-name）
+        if (targetChannelId == null) {
+            // 收集所有匹配的候选 (id, displayName, 匹配度)
+            List<MatchCandidate> candidates = new ArrayList<>();
             for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
                 String normDisp = normalizeChannelName(entry.getValue().displayName);
+                if (normDisp.isEmpty()) continue; // 忽略空 display-name
                 if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
-                    targetChannelId = entry.getKey();
-                    targetDisplayName = entry.getValue().displayName;
-                    LogUtils.writeLog("display-name 包含匹配成功: " + channelName + " -> " + targetDisplayName);
-                    break;
+                    // 计算匹配度：包含关系越深越好
+                    int score = 0;
+                    if (normDisp.equals(normalizedChannelName)) score = 100;
+                    else if (normDisp.contains(normalizedChannelName)) score = 50 + normalizedChannelName.length();
+                    else if (normalizedChannelName.contains(normDisp)) score = 30 + normDisp.length();
+                    candidates.add(new MatchCandidate(entry.getKey(), entry.getValue().displayName, score));
                 }
+            }
+            // 按分数降序排序，取第一个
+            if (!candidates.isEmpty()) {
+                Collections.sort(candidates, new Comparator<MatchCandidate>() {
+                    @Override
+                    public int compare(MatchCandidate o1, MatchCandidate o2) {
+                        return Integer.compare(o2.score, o1.score);
+                    }
+                });
+                MatchCandidate best = candidates.get(0);
+                targetChannelId = best.id;
+                targetDisplayName = best.displayName;
+                LogUtils.writeLog("display-name 包含匹配成功: " + channelName + " -> " + targetDisplayName + " (分数 " + best.score + ")");
             }
         }
 
@@ -579,6 +614,17 @@ public class EPGParser {
 
         LogUtils.writeLog("最终返回节目数: " + result.size());
         return result;
+    }
+
+    private static class MatchCandidate {
+        String id;
+        String displayName;
+        int score;
+        MatchCandidate(String id, String displayName, int score) {
+            this.id = id;
+            this.displayName = displayName;
+            this.score = score;
+        }
     }
 
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
