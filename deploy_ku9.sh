@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java ====================
+# ==================== EPGParser.java（完整） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -668,7 +668,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# ==================== MainActivity.java（含酷9风格 showInfoPopup） ====================
+# ==================== MainActivity.java（含酷9风格showInfoPopup） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1348,7 +1348,7 @@ public class MainActivity extends AppCompatActivity {
                 ivLogo.setVisibility(View.GONE);
             }
 
-            // 分辨率、帧率等（可从播放器获取，这里固定示例）
+            // 分辨率、帧率等（可从播放器获取，此处固定示例）
             tvResolution.setText("FHD");
             tvFps.setText("29FPS");
             tvAudio.setText("立体声");
@@ -1910,7 +1910,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 酷9风格 popup_info.xml ====================
+# ==================== popup_info.xml（酷9风格精确复刻） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -1918,11 +1918,12 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#DD000000"
-    android:padding="12dp"
-    android:minHeight="120dp">
+    android:background="#CC000000"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
 
-    <!-- 第一行：台标 + 频道名 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -1931,10 +1932,10 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
         android:layout_marginBottom="4dp">
         <ImageView
             android:id="@+id/popup_logo"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
             android:scaleType="fitCenter"
-            android:visibility="visible" />
+            android:visibility="gone" />
         <TextView
             android:id="@+id/popup_channel_name"
             android:layout_width="wrap_content"
@@ -1942,59 +1943,76 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
             android:layout_marginStart="10dp"
             android:text="频道名"
             android:textColor="#FFFFFF"
-            android:textSize="20sp"
+            android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 第二行：分辨率、帧率、音频、IP、线路 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="4dp">
+        android:layout_marginBottom="2dp">
         <TextView
             android:id="@+id/popup_resolution"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:text="FHD"
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
         <TextView
-            android:id="@+id/popup_fps"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_fps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="29FPS"
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
         <TextView
-            android:id="@+id/popup_audio"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_audio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="立体声"
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
         <TextView
-            android:id="@+id/popup_ip"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_ip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="IPV4"
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
         <TextView
-            android:id="@+id/popup_line"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_line"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="线路1/1"
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
     </LinearLayout>
 
-    <!-- 第三行：距结束时间 -->
     <TextView
         android:id="@+id/popup_duration"
         android:layout_width="match_parent"
@@ -2002,9 +2020,8 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
         android:text="距结束：--分钟"
         android:textColor="#AAAAAA"
         android:textSize="12sp"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="2dp" />
 
-    <!-- 第四行：当前节目（时间+标题） -->
     <TextView
         android:id="@+id/popup_current_epg"
         android:layout_width="match_parent"
@@ -2015,7 +2032,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
         android:layout_marginBottom="2dp"
         android:textStyle="bold" />
 
-    <!-- 第五行：当前节目描述 -->
     <TextView
         android:id="@+id/popup_current_desc"
         android:layout_width="match_parent"
@@ -2027,7 +2043,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
         android:maxLines="4"
         android:ellipsize="end" />
 
-    <!-- 第六行：下一节目 -->
     <TextView
         android:id="@+id/popup_next_epg"
         android:layout_width="match_parent"
@@ -2037,7 +2052,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
         android:textSize="13sp"
         android:textStyle="bold" />
 
-    <!-- 底部额外信息 -->
     <TextView
         android:id="@+id/popup_extra"
         android:layout_width="match_parent"
@@ -2049,7 +2063,7 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# ==================== activity_main.xml（紧凑布局） ====================
+# ==================== 其他布局文件 ====================
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2171,7 +2185,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# ==================== 其他布局文件（item_*.xml） ====================
 cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
