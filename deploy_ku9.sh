@@ -339,7 +339,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java（移除 tv_group_name 引用） ====================
+    # ==================== MainActivity.java ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -444,8 +444,6 @@ public class MainActivity extends AppCompatActivity {
             channelRecycler = findViewById(R.id.channel_recycler);
             epgRecycler = findViewById(R.id.epg_recycler);
             epgContainer = findViewById(R.id.epg_container);
-
-            // 不再使用 tvGroupName，已从布局移除
 
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -1324,7 +1322,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件（无 tv_group_name） ====================
+    # ==================== 布局文件 ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1642,7 +1640,7 @@ EOF
 </LinearLayout>
 EOF
 
-    # ==================== 图标资源（默认矢量） ====================
+    # ==================== 图标资源（默认矢量，但会被自定义图标覆盖） ====================
     cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
@@ -1691,14 +1689,17 @@ sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigMan
 # ========== 处理自定义图标（若存在） ==========
 if [ -f "apk ico.jpeg" ]; then
     echo "📁 找到自定义图标 apk ico.jpeg，将作为应用图标..."
-    # 复制并重命名为 ic_launcher.png
     cp "apk ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
+    # 删除默认矢量图标，避免冲突
+    rm -f app/src/main/res/drawable/ic_launcher.xml
 elif [ -f "apk_ico.jpeg" ]; then
     echo "📁 找到自定义图标 apk_ico.jpeg，将作为应用图标..."
     cp "apk_ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
+    rm -f app/src/main/res/drawable/ic_launcher.xml
 elif [ -f "apk ico.png" ]; then
     echo "📁 找到自定义图标 apk ico.png，将作为应用图标..."
     cp "apk ico.png" "app/src/main/res/drawable/ic_launcher.png"
+    rm -f app/src/main/res/drawable/ic_launcher.xml
 else
     echo "⚠️ 未找到自定义图标文件，使用默认矢量图标"
 fi
@@ -1781,6 +1782,6 @@ echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 修正内容："
 echo "   ✅ 移除了对 tv_group_name 的引用，解决编译错误"
-echo "   ✅ 自定义图标（若存在）已自动设置为应用图标"
+echo "   ✅ 自定义图标（若存在）已自动设置为应用图标，并删除冲突的 XML 文件"
 echo "   ✅ 频道列表宽度缩窄，布局紧凑"
 echo "   ✅ 记忆播放、EPG 切换等功能已保留"
