@@ -267,7 +267,6 @@ public class LogUtils {
 EOF
 
 # ==================== EPGParser.java（双缓存+精准匹配） ====================
-cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
 import android.content.Context;
@@ -310,8 +309,6 @@ public class EPGParser {
     }
 
     private static Map<String, String> sAliasMap = null;
-    private static String sCurrentCacheDir = null; // 当前使用的缓存目录
-    private static String sUrlHash = null;
 
     private static synchronized Map<String, String> loadAliasMap(Context context) {
         if (sAliasMap != null) return sAliasMap;
@@ -362,7 +359,6 @@ public class EPGParser {
     }
 
     private static String getActiveCacheDir(Context context) {
-        // 检查两个目录，选择最新的文件（按修改时间）
         String dir1 = LogUtils.getEpgCacheDir1();
         String dir2 = LogUtils.getEpgCacheDir2();
         File d1 = new File(dir1);
@@ -388,7 +384,6 @@ public class EPGParser {
         if (latestFile != null) {
             return latestFile.getParent();
         }
-        // 若没有，返回dir1
         return dir1;
     }
 
@@ -410,7 +405,7 @@ public class EPGParser {
                 File cacheFile = null;
                 for (File f : activeDirFile.listFiles()) {
                     if (f.getName().endsWith(".xml")) {
-                        String hashFile = new File(f.getParent(), "hash.txt");
+                        File hashFile = new File(f.getParent(), "hash.txt");
                         if (hashFile.exists()) {
                             String storedHash = new String(java.nio.file.Files.readAllBytes(hashFile.toPath())).trim();
                             if (storedHash.equals(urlHash)) {
@@ -423,8 +418,7 @@ public class EPGParser {
 
                 // 4. 若缓存无效，下载到备用目录
                 if (cacheFile == null || !cacheFile.exists()) {
-                    // 选择备用目录（与当前active不同的那个）
-                    String activeParent = new File(activeDir).getParent();
+                    // 选择备用目录
                     String dir1 = LogUtils.getEpgCacheDir1();
                     String dir2 = LogUtils.getEpgCacheDir2();
                     String backupDir = activeDir.equals(dir1) ? dir2 : dir1;
@@ -453,13 +447,13 @@ public class EPGParser {
                     String downloadedHash = getFileHash(tempFile);
                     if (downloadedHash == null) downloadedHash = urlHash;
 
-                    // 与现有缓存比较（使用activeDir中的hash.txt）
+                    // 比较哈希
                     File activeHashFile = new File(activeDir, "hash.txt");
                     boolean needSwitch = true;
                     if (activeHashFile.exists()) {
                         String activeHash = new String(java.nio.file.Files.readAllBytes(activeHashFile.toPath())).trim();
                         if (activeHash.equals(downloadedHash)) {
-                            needSwitch = false; // 相同，无需切换
+                            needSwitch = false;
                             tempFile.delete();
                             // 使用activeDir中的旧文件
                             for (File f : activeDirFile.listFiles()) {
@@ -472,7 +466,7 @@ public class EPGParser {
                     }
 
                     if (needSwitch) {
-                        // 清空备用目录（备份目录）
+                        // 清空备用目录
                         for (File f : backupDirFile.listFiles()) f.delete();
 
                         // 将临时文件重命名为正式文件
@@ -486,10 +480,10 @@ public class EPGParser {
                         hfos.write(downloadedHash.getBytes());
                         hfos.close();
 
-                        // 清空active目录（旧目录）
+                        // 清空active目录
                         for (File f : activeDirFile.listFiles()) f.delete();
 
-                        // 切换当前缓存目录为backupDir
+                        // 切换当前缓存目录
                         activeDir = backupDir;
                         activeDirFile = backupDirFile;
                         cacheFile = newFile;
@@ -646,7 +640,7 @@ public class EPGParser {
             LogUtils.writeLog("别名直接匹配: " + channelName + " -> epgid=" + mappedEpgid);
         }
 
-        // 2. 若未命中，用 display-name 包含匹配（允许空display-name跳过）
+        // 2. 若未命中，用 display-name 包含匹配
         if (targetChannelId == null) {
             List<MatchCandidate> candidates = new ArrayList<>();
             for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
@@ -759,7 +753,6 @@ public class EPGParser {
         }
     }
 }
-EOF
 
 # ==================== PlayerConfigManager.java ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
