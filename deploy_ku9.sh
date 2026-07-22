@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG完整显示版 - 时间排序+描述）"
+echo "🔥 部署 witv 播放器（EPG完整一周合并版）"
 
 TEMPLATE_DIR="./config"
 
@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（修复时间解析、排序、显示描述） ====================
+# ==================== EPGParser.java（合并所有匹配频道，取全部节目） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -300,9 +300,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -438,7 +440,6 @@ public class EPGParser {
         String progTitle = null;
         String progDesc = null;
 
-        // 支持带时区的格式，如 yyyyMMddHHmmss Z 或不带时区 yyyyMMddHHmmss
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
 
@@ -452,7 +453,6 @@ public class EPGParser {
                         currentDisplayName = null;
                         currentIconUrl = null;
                     } else if (inChannel && "display-name".equals(currentTag)) {
-                        // 读取文本
                     } else if (inChannel && "icon".equals(currentTag)) {
                         currentIconUrl = parser.getAttributeValue(null, "src");
                     } else if ("programme".equals(currentTag)) {
@@ -499,28 +499,22 @@ public class EPGParser {
                             prog.title = progTitle;
                             prog.desc = (progDesc != null) ? progDesc : "";
 
-                            // 解析开始时间（优先带时区）
                             if (progStart != null && !progStart.isEmpty()) {
                                 try {
                                     prog.startTime = sdfWithZone.parse(progStart).getTime();
                                 } catch (ParseException e) {
                                     try {
                                         prog.startTime = sdfNoZone.parse(progStart).getTime();
-                                    } catch (ParseException ignored) {
-                                        LogUtils.writeLog("解析开始时间失败: " + progStart);
-                                    }
+                                    } catch (ParseException ignored) {}
                                 }
                             }
-                            // 解析结束时间
                             if (progStop != null && !progStop.isEmpty()) {
                                 try {
                                     prog.endTime = sdfWithZone.parse(progStop).getTime();
                                 } catch (ParseException e) {
                                     try {
                                         prog.endTime = sdfNoZone.parse(progStop).getTime();
-                                    } catch (ParseException ignored) {
-                                        LogUtils.writeLog("解析结束时间失败: " + progStop);
-                                    }
+                                    } catch (ParseException ignored) {}
                                 }
                             }
 
@@ -540,61 +534,74 @@ public class EPGParser {
         LogUtils.writeLog("共找到 " + channelMap.size() + " 个频道, " + programMap.size() + " 个有节目");
 
         String normalizedChannelName = normalizeChannelName(channelName);
-        String targetChannelId = null;
-        String targetDisplayName = null;
+        Set<String> targetChannelIds = new HashSet<>();
 
-        // 1. 别名映射匹配
+        // 1. 通过别名映射得到 epgid，然后找出所有 displayName 匹配该 epgid 的频道
         String mappedEpgid = aliasMap.get(normalizedChannelName);
         if (mappedEpgid != null) {
             String normMapped = normalizeChannelName(mappedEpgid);
             for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
                 String normDisp = normalizeChannelName(entry.getValue().displayName);
                 if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
-                    targetChannelId = entry.getKey();
-                    targetDisplayName = entry.getValue().displayName;
-                    LogUtils.writeLog("别名映射匹配成功: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
-                    break;
+                    targetChannelIds.add(entry.getKey());
+                    LogUtils.writeLog("别名匹配添加频道: " + entry.getValue().displayName + " (" + entry.getKey() + ")");
                 }
             }
         }
 
-        // 2. 包含匹配
-        if (targetChannelId == null) {
-            for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
-                String normDisp = normalizeChannelName(entry.getValue().displayName);
-                if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
-                    targetChannelId = entry.getKey();
-                    targetDisplayName = entry.getValue().displayName;
-                    LogUtils.writeLog("包含匹配成功: " + channelName + " -> " + targetDisplayName);
-                    break;
-                }
+        // 2. 包含匹配：所有 displayName 包含频道名的频道
+        for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
+            String normDisp = normalizeChannelName(entry.getValue().displayName);
+            if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
+                targetChannelIds.add(entry.getKey());
+                LogUtils.writeLog("包含匹配添加频道: " + entry.getValue().displayName + " (" + entry.getKey() + ")");
             }
         }
 
-        if (targetChannelId == null) {
-            LogUtils.writeLog("未找到匹配的频道，节目数为0");
+        if (targetChannelIds.isEmpty()) {
+            LogUtils.writeLog("未找到任何匹配的频道，节目数为0");
             return new ArrayList<>();
         }
 
-        // 下载图标
-        ChannelInfo targetInfo = channelMap.get(targetChannelId);
-        if (targetInfo != null && targetInfo.iconUrl != null && !targetInfo.iconUrl.isEmpty()) {
-            downloadIcon(targetInfo.iconUrl, channelName, logoDir);
+        // 下载图标（取第一个匹配的频道的图标）
+        for (String id : targetChannelIds) {
+            ChannelInfo info = channelMap.get(id);
+            if (info != null && info.iconUrl != null && !info.iconUrl.isEmpty()) {
+                downloadIcon(info.iconUrl, channelName, logoDir);
+                break;
+            }
         }
 
-        List<EpgProgram> result = programMap.get(targetChannelId);
-        if (result == null) result = new ArrayList<>();
+        // 合并所有匹配频道的节目
+        List<EpgProgram> merged = new ArrayList<>();
+        for (String id : targetChannelIds) {
+            List<EpgProgram> list = programMap.get(id);
+            if (list != null) {
+                merged.addAll(list);
+                LogUtils.writeLog("合并频道 " + id + " 的节目 " + list.size() + " 条");
+            }
+        }
 
-        // 按开始时间排序
-        Collections.sort(result, new Comparator<EpgProgram>() {
+        // 按开始时间排序并去重（相同时间只保留一个）
+        Collections.sort(merged, new Comparator<EpgProgram>() {
             @Override
             public int compare(EpgProgram o1, EpgProgram o2) {
                 return Long.compare(o1.startTime, o2.startTime);
             }
         });
 
-        LogUtils.writeLog("最终返回节目数: " + result.size());
-        return result;
+        // 去重：如果开始时间相同，保留第一个
+        List<EpgProgram> unique = new ArrayList<>();
+        long lastStart = -1;
+        for (EpgProgram p : merged) {
+            if (p.startTime != lastStart) {
+                unique.add(p);
+                lastStart = p.startTime;
+            }
+        }
+
+        LogUtils.writeLog("最终返回节目数: " + unique.size());
+        return unique;
     }
 
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
@@ -769,7 +776,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（调整 EpgAdapter 显示描述） ====================
+# ==================== MainActivity.java（与之前一致，显示描述） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1599,7 +1606,6 @@ public class MainActivity extends AppCompatActivity {
             ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); logo = v.findViewById(R.id.channel_logo); }
         }
     }
-    // ========== 修改 EpgAdapter 显示描述 ==========
     static class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
         private List<EPGParser.EpgProgram> data = new ArrayList<>();
         EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
@@ -1613,7 +1619,6 @@ public class MainActivity extends AppCompatActivity {
             String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
             holder.time.setText(time);
             holder.title.setText(prog.title);
-            // 显示描述
             if (prog.desc != null && !prog.desc.isEmpty()) {
                 holder.desc.setText(prog.desc);
                 holder.desc.setVisibility(View.VISIBLE);
@@ -2287,7 +2292,6 @@ cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# ========== 修改 item_epg.xml 增加描述 ==========
 cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
