@@ -339,7 +339,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java ====================
+    # ==================== MainActivity.java（移除 right_click_area） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -413,7 +413,6 @@ public class MainActivity extends AppCompatActivity {
     private File logoDir;
     private TextView tvChannelName, tvEpgInfo, tvTime;
     private Runnable hideOverlayRunnable;
-    private View rightClickArea;
     private boolean isLoading = false;
     private List<SubEntry> subEntryList = new ArrayList<>();
     private View epgContainer;
@@ -482,13 +481,8 @@ public class MainActivity extends AppCompatActivity {
             tvChannelName = findViewById(R.id.tv_channel_name);
             tvEpgInfo = findViewById(R.id.tv_epg_info);
             tvTime = findViewById(R.id.tv_time);
-            rightClickArea = findViewById(R.id.right_click_area);
 
             updateTime();
-
-            rightClickArea.setOnClickListener(v -> {
-                if (isOverlayVisible) hideOverlay();
-            });
 
             playerView.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_UP) {
@@ -552,6 +546,8 @@ public class MainActivity extends AppCompatActivity {
             findViewById(R.id.left_click_area).setOnClickListener(v -> {
                 if (!isOverlayVisible) showOverlay();
             });
+
+            // 覆盖层右侧30%区域点击关闭（已在布局中设置 android:onClick="hideOverlay"）
 
         } catch (Exception e) {
             Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -1322,7 +1318,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件（覆盖层宽度缩至70%） ====================
+    # ==================== 布局文件（无 right_click_area） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1515,7 +1511,7 @@ EOF
 </FrameLayout>
 EOF
 
-    # ==================== 其他布局文件 ====================
+    # ==================== 其他布局文件（同前） ====================
     cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1707,10 +1703,9 @@ echo "✅ 文件复制完成"
 sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
 # ========== 处理自定义图标 ==========
-if [ -f "apk ico.png" ]; then
-    echo "📁 找到自定义图标 apk ico.png，将作为应用图标..."
-    cp "apk ico.png" "app/src/main/res/drawable/ic_launcher.png"
-    # 删除默认矢量图标，避免冲突
+if [ -f "apk ico.jpeg" ]; then
+    echo "📁 找到自定义图标 apk ico.jpeg，将作为应用图标..."
+    cp "apk ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
     rm -f app/src/main/res/drawable/ic_launcher.xml
 elif [ -f "apk_ico.jpeg" ]; then
     echo "📁 找到自定义图标 apk_ico.jpeg，将作为应用图标..."
@@ -1801,7 +1796,7 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 修正内容："
-echo "   ✅ 覆盖层宽度缩至屏幕 70%，右侧留有透明区域点击关闭"
-echo "   ✅ 三列比例调整为 1:1:1.8，更加紧凑"
-echo "   ✅ 自定义图标自动设置（若存在）"
-echo "   ✅ 所有功能（记忆播放、EPG、收藏）保留"
+echo "   ✅ 移除了 right_click_area 引用，使用右侧透明区域点击关闭"
+echo "   ✅ 覆盖层宽度缩至屏幕 70%，三列比例 1:1:1.8"
+echo "   ✅ 自定义图标自动设置"
+echo "   ✅ 所有功能正常"
