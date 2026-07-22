@@ -9,12 +9,11 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
     mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
 
-    # ==================== configuration.json ====================
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== SourceManager.java（修复分组解析） ====================
+    # ==================== SourceManager.java ====================
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -340,7 +339,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java（修正布局宽度 + 记忆播放） ====================
+    # ==================== MainActivity.java ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -497,7 +496,6 @@ public class MainActivity extends AppCompatActivity {
                     float y = event.getY();
                     float height = v.getHeight();
                     if (y > height * 0.5 && y < height * 0.85) {
-                        // 弹出信息窗口（暂略）
                         Toast.makeText(this, "信息窗口（模拟）", Toast.LENGTH_SHORT).show();
                         return true;
                     }
@@ -505,7 +503,6 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // 节目单按钮：切换 EPG 显示
             findViewById(R.id.btn_epg).setOnClickListener(v -> {
                 if (currentChannel != null) {
                     if (epgContainer.getVisibility() == View.VISIBLE) {
@@ -520,7 +517,6 @@ public class MainActivity extends AppCompatActivity {
             });
             findViewById(R.id.btn_announce).setOnClickListener(v -> Toast.makeText(this, "使用公告", Toast.LENGTH_SHORT).show());
 
-            // 读取选中的订阅
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
@@ -666,7 +662,6 @@ public class MainActivity extends AppCompatActivity {
         channelAdapter.updateData(currentChannelList);
         tvGroupName.setText(group);
 
-        // 恢复上次播放的频道
         String lastChannel = prefs.getString(KEY_LAST_CHANNEL, "");
         if (!lastChannel.isEmpty()) {
             for (int i = 0; i < currentChannelList.size(); i++) {
@@ -679,7 +674,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         }
-        // 无记忆则播放第一个
         if (!currentChannelList.isEmpty()) {
             SourceManager.Channel ch = currentChannelList.get(0);
             channelAdapter.setSelectedChannel(ch);
@@ -720,7 +714,6 @@ public class MainActivity extends AppCompatActivity {
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
-        // 保存记忆
         prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
         try {
             if (player == null) {
@@ -738,7 +731,6 @@ public class MainActivity extends AppCompatActivity {
             player.prepare();
             player.play();
             tvChannelName.setText(channel.name);
-            // 加载 EPG 并显示
             loadEpgForChannel(channel);
         } catch (Exception e) {
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -843,7 +835,6 @@ public class MainActivity extends AppCompatActivity {
         mainHandler.removeCallbacks(hideOverlayRunnable);
     }
 
-    // ===== Adapters =====
     static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
         private List<SubEntry> data;
         private OnSubClickListener listener;
@@ -963,7 +954,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== SettingsActivity.java（完整） ====================
+    # ==================== SettingsActivity.java ====================
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1333,37 +1324,29 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件（窄列 + 标题） ====================
+    # ==================== 布局文件 ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
-
-    <!-- 播放器 -->
     <androidx.media3.ui.PlayerView
         android:id="@+id/player_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-
-    <!-- 左侧点击区域 -->
     <View
         android:id="@+id/left_click_area"
         android:layout_width="48dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:background="#00000000" />
-
-    <!-- 右侧点击区域 -->
     <View
         android:id="@+id/right_click_area"
         android:layout_width="80dp"
         android:layout_height="match_parent"
         android:layout_gravity="end"
         android:background="#00000000" />
-
-    <!-- 顶部：分组名称 -->
     <TextView
         android:id="@+id/tv_group_name"
         android:layout_width="wrap_content"
@@ -1375,8 +1358,6 @@ EOF
         android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:textStyle="bold" />
-
-    <!-- 底部信息栏 -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
@@ -1387,7 +1368,6 @@ EOF
         android:orientation="horizontal"
         android:paddingStart="12dp"
         android:paddingEnd="12dp">
-
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -1409,7 +1389,6 @@ EOF
                 android:textColor="#AAAAAA"
                 android:textSize="11sp" />
         </LinearLayout>
-
         <TextView
             android:id="@+id/tv_time"
             android:layout_width="wrap_content"
@@ -1418,7 +1397,6 @@ EOF
             android:text="00:00 周一"
             android:textColor="#FFFFFF"
             android:textSize="12sp" />
-
         <ImageButton
             android:id="@+id/btn_epg"
             android:layout_width="32dp"
@@ -1426,7 +1404,6 @@ EOF
             android:src="@drawable/ic_epg"
             android:background="#00000000"
             android:tint="#FFFFFF" />
-
         <ImageButton
             android:id="@+id/btn_announce"
             android:layout_width="32dp"
@@ -1436,8 +1413,6 @@ EOF
             android:background="#00000000"
             android:tint="#FFFFFF" />
     </LinearLayout>
-
-    <!-- 覆盖层（窄列布局） -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -1445,8 +1420,6 @@ EOF
         android:orientation="horizontal"
         android:background="#CC000000"
         android:visibility="gone">
-
-        <!-- 订阅源列 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1454,7 +1427,6 @@ EOF
             android:orientation="vertical"
             android:background="#33000000"
             android:padding="4dp">
-
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -1462,14 +1434,11 @@ EOF
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
                 android:paddingBottom="2dp" />
-
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/sub_recycler"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
         </LinearLayout>
-
-        <!-- 分组列 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1477,7 +1446,6 @@ EOF
             android:orientation="vertical"
             android:background="#44000000"
             android:padding="4dp">
-
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -1485,14 +1453,11 @@ EOF
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
                 android:paddingBottom="2dp" />
-
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/group_recycler"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
         </LinearLayout>
-
-        <!-- 频道 + EPG 列 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1500,7 +1465,6 @@ EOF
             android:orientation="vertical"
             android:background="#55000000"
             android:padding="4dp">
-
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -1508,15 +1472,11 @@ EOF
                 android:textColor="#FFFFFF"
                 android:textSize="11sp"
                 android:paddingBottom="2dp" />
-
-            <!-- 频道列表 -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/channel_recycler"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1" />
-
-            <!-- EPG 容器（初始隐藏） -->
             <LinearLayout
                 android:id="@+id/epg_container"
                 android:layout_width="match_parent"
@@ -1525,7 +1485,6 @@ EOF
                 android:orientation="vertical"
                 android:background="#66000000"
                 android:visibility="gone">
-
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -1533,15 +1492,12 @@ EOF
                     android:textColor="#FFFFFF"
                     android:textSize="11sp"
                     android:padding="2dp" />
-
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/epg_recycler"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent" />
             </LinearLayout>
         </LinearLayout>
-
-        <!-- 右侧关闭区域 -->
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1553,7 +1509,6 @@ EOF
 </FrameLayout>
 EOF
 
-    # ==================== 其他布局文件 ====================
     cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1698,7 +1653,7 @@ EOF
 </LinearLayout>
 EOF
 
-    # ==================== 图标资源（播放按钮图标） ====================
+    # ==================== 图标资源 ====================
     cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
@@ -1741,11 +1696,7 @@ mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/a
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
 echo "✅ 文件复制完成"
 
-# ========== 修改 AndroidManifest.xml 设置图标 ==========
-sed -i '/<application /a \        android:icon="@drawable/ic_launcher"' app/src/main/AndroidManifest.xml
-# 确保 application 标签内有 icon 属性，如果没有则添加，已有则替换
-sed -i 's/\(<application[^>]*\)/\1 android:icon="@drawable\/ic_launcher"/' app/src/main/AndroidManifest.xml
-
+# 为 SettingsActivity 添加缺失的 import
 sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
 # ========== 添加依赖和权限 ==========
@@ -1763,7 +1714,8 @@ sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 echo "✅ 权限已添加"
 
-# 注册 Activity
+# ========== 修改 AndroidManifest.xml 设置图标（使用 Python 统一处理） ==========
+echo "🛠️ 设置应用图标..."
 python3 <<PYTHON_SCRIPT
 import sys, xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -1771,13 +1723,29 @@ ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
 manifest_file = "$MANIFEST"
 pkg = "com.whyun.witv"
 try:
-    tree = ET.parse(manifest_file); root = tree.getroot()
+    tree = ET.parse(manifest_file)
+    root = tree.getroot()
 except Exception as e:
-    print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
+    print(f"解析失败: {e}", file=sys.stderr)
+    sys.exit(1)
+
 app = root.find('application')
 if app is None:
-    print("未找到 application", file=sys.stderr); sys.exit(1)
-for act in app.findall('activity'): app.remove(act)
+    print("未找到 application", file=sys.stderr)
+    sys.exit(1)
+
+# 设置图标属性（如果已存在则更新，否则添加）
+icon_attr = '{http://schemas.android.com/apk/res/android}icon'
+if icon_attr in app.attrib:
+    app.set(icon_attr, '@drawable/ic_launcher')
+else:
+    app.set(icon_attr, '@drawable/ic_launcher')
+
+# 清除所有旧 activity，重新创建
+for act in app.findall('activity'):
+    app.remove(act)
+
+# 主 Activity
 main_act = ET.Element('activity')
 main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
 main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
@@ -1787,16 +1755,20 @@ action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.a
 cat = ET.SubElement(intent_filter, 'category')
 cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
 app.append(main_act)
+
+# Settings Activity
 settings_act = ET.Element('activity')
 settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
 settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
 app.append(settings_act)
+
 xml_str = ET.tostring(root, encoding='unicode')
 dom = minidom.parseString(xml_str)
 pretty = dom.toprettyxml(indent="    ")
 pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f: f.write(pretty)
-print("✅ AndroidManifest 注册完成")
+with open(manifest_file, 'w') as f:
+    f.write(pretty)
+print("✅ AndroidManifest 已更新（图标 + Activity）")
 PYTHON_SCRIPT
 
 # ========== 构建 ==========
@@ -1807,8 +1779,9 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 修正内容："
-echo "   ✅ 三列宽度大幅缩窄，更加紧凑"
-echo "   ✅ 频道列表仅显示频道名，分组名显示在分组列"
-echo "   ✅ 添加了播放按钮图标（图四风格）"
-echo "   ✅ 记忆播放功能已实现（自动恢复上次频道）"
-echo "   ✅ 节目单按钮可切换显示 EPG 列表"
+echo "   ✅ 修复了 AndroidManifest 重复属性错误"
+echo "   ✅ 三列宽度缩窄，布局紧凑"
+echo "   ✅ 频道列表只显示频道名，分组显示在分组列"
+echo "   ✅ 播放按钮图标已设置"
+echo "   ✅ 记忆播放功能已实现"
+echo "   ✅ 节目单按钮切换 EPG 显示"
