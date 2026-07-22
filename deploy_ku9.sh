@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG最终版 - 双缓存+精准匹配）"
+echo "🔥 部署 witv 播放器（EPG最终修复版 - 双缓存+精准匹配）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -21,7 +21,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== 所有 Java 源文件 ====================
+# ==================== 所有 Java 源文件（使用 printf 或 heredoc） ====================
 
 # 1. SourceManager.java (printf)
 printf '%s\n' \
@@ -197,7 +197,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache1", "epgCache2", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# 3. EPGParser.java (使用 heredoc，修复 toString 错误)
+# 3. EPGParser.java (修正 cacheFile 赋值)
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGEOF'
 package com.whyun.witv.epg;
 
@@ -306,6 +306,7 @@ public class EPGParser {
             }
         }
         if (latestFile != null) return latestFile.getParent();
+        // 若无缓存，返回 dir1（之后会创建）
         return dir1;
     }
 
@@ -330,7 +331,7 @@ public class EPGParser {
                     }
                 }
                 if (cacheFile == null || !cacheFile.exists()) {
-                    String activeParent = new File(activeDir).getParent();
+                    // 选择备用目录
                     String dir1 = LogUtils.getEpgCacheDir1();
                     String dir2 = LogUtils.getEpgCacheDir2();
                     String backupDir = activeDir.equals(dir1) ? dir2 : dir1;
@@ -361,12 +362,14 @@ public class EPGParser {
                         if (activeHash.equals(downloadedHash)) {
                             needSwitch = false;
                             tempFile.delete();
+                            // 使用 activeDir 中的旧文件
                             for (File f : activeDirFile.listFiles()) {
                                 if (f.getName().endsWith(".xml")) { cacheFile = f; break; }
                             }
                         }
                     }
                     if (needSwitch) {
+                        // 清空备份目录（以防有残留）
                         for (File f : backupDirFile.listFiles()) f.delete();
                         String fileName = "epg_" + System.currentTimeMillis() + ".xml";
                         File newFile = new File(backupDirFile, fileName);
@@ -375,7 +378,9 @@ public class EPGParser {
                         FileOutputStream hfos = new FileOutputStream(hashFile);
                         hfos.write(downloadedHash.getBytes());
                         hfos.close();
+                        // 清空旧 active 目录（若存在）
                         for (File f : activeDirFile.listFiles()) f.delete();
+                        // 切换 activeDir 为 backupDir
                         activeDir = backupDir;
                         activeDirFile = backupDirFile;
                         cacheFile = newFile;
@@ -383,7 +388,13 @@ public class EPGParser {
                     }
                 }
                 if (cacheFile == null || !cacheFile.exists()) {
-                    throw new Exception("无法获取EPG缓存文件");
+                    // 如果仍然没有缓存文件，尝试直接使用 activeDir 中的文件
+                    for (File f : activeDirFile.listFiles()) {
+                        if (f.getName().endsWith(".xml")) { cacheFile = f; break; }
+                    }
+                    if (cacheFile == null) {
+                        throw new Exception("无法获取EPG缓存文件");
+                    }
                 }
                 LogUtils.writeLog("使用EPG缓存: " + cacheFile.getAbsolutePath());
                 is = new FileInputStream(cacheFile);
@@ -694,7 +705,7 @@ printf '%s\n' \
 '    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
 '}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
 
-# 7. MainActivity.java (heredoc, 已正确)
+# 7. MainActivity.java (heredoc)
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1920,7 +1931,6 @@ SETEOF
 
 # ==================== 布局文件（极紧凑） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
-# activity_main.xml
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
