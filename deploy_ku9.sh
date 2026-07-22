@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（修正分组名逗号问题）"
+echo "🔥 部署酷9播放器（最终修正版 - 布局+记忆+EPG）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -14,7 +14,7 @@ if [ ! -d "$TEMPLATE_DIR" ]; then
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== SourceManager.java（修正分组名逗号） ====================
+    # ==================== SourceManager.java ====================
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -69,10 +69,7 @@ public class SourceManager {
             if (line.isEmpty()) continue;
             if (line.endsWith("#genre#")) {
                 String groupName = line.substring(0, line.length() - "#genre#".length()).trim();
-                // 去掉末尾的逗号
-                if (groupName.endsWith(",")) {
-                    groupName = groupName.substring(0, groupName.length() - 1).trim();
-                }
+                if (groupName.endsWith(",")) groupName = groupName.substring(0, groupName.length()-1).trim();
                 if (!groupName.isEmpty()) {
                     currentGroup = groupName;
                     if (!groupMap.containsKey(currentGroup)) {
@@ -343,7 +340,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java（完整） ====================
+    # ==================== MainActivity.java（布局+记忆+EPG） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -399,10 +396,11 @@ public class MainActivity extends AppCompatActivity {
     private String currentGroup = "";
     private String currentSubUrl = "";
     private String currentSubName = "";
-    private RecyclerView subRecycler, groupRecycler, channelRecycler;
+    private RecyclerView subRecycler, groupRecycler, channelRecycler, epgRecycler;
     private SubAdapter subAdapter;
     private GroupAdapter groupAdapter;
     private ChannelAdapter channelAdapter;
+    private EpgAdapter epgAdapter;
     private View overlayLayout;
     private SharedPreferences prefs;
     private ConfigurationManager config;
@@ -411,6 +409,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_FAVORITES = "favorites";
     private static final String KEY_SELECTED_SUB = "selected_sub";
     private static final String KEY_SUB_LIST = "sub_list";
+    private static final String KEY_LAST_CHANNEL = "last_channel";
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
     private TextView tvGroupName, tvChannelName, tvEpgInfo, tvTime;
@@ -418,6 +417,7 @@ public class MainActivity extends AppCompatActivity {
     private View rightClickArea;
     private boolean isLoading = false;
     private List<SubEntry> subEntryList = new ArrayList<>();
+    private View epgContainer;
 
     static class SubEntry { String name, url; }
 
@@ -443,10 +443,13 @@ public class MainActivity extends AppCompatActivity {
             subRecycler = findViewById(R.id.sub_recycler);
             groupRecycler = findViewById(R.id.group_recycler);
             channelRecycler = findViewById(R.id.channel_recycler);
+            epgRecycler = findViewById(R.id.epg_recycler);
+            epgContainer = findViewById(R.id.epg_container);
 
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
             channelRecycler.setLayoutManager(new LinearLayoutManager(this));
+            epgRecycler.setLayoutManager(new LinearLayoutManager(this));
 
             loadSubscriptions();
 
@@ -474,6 +477,9 @@ public class MainActivity extends AppCompatActivity {
             }, this::toggleFavorite);
             channelRecycler.setAdapter(channelAdapter);
 
+            epgAdapter = new EpgAdapter(new ArrayList<>());
+            epgRecycler.setAdapter(epgAdapter);
+
             tvGroupName = findViewById(R.id.tv_group_name);
             tvChannelName = findViewById(R.id.tv_channel_name);
             tvEpgInfo = findViewById(R.id.tv_epg_info);
@@ -491,6 +497,7 @@ public class MainActivity extends AppCompatActivity {
                     float y = event.getY();
                     float height = v.getHeight();
                     if (y > height * 0.5 && y < height * 0.85) {
+                        // 弹出信息窗口（暂略）
                         Toast.makeText(this, "信息窗口（模拟）", Toast.LENGTH_SHORT).show();
                         return true;
                     }
@@ -498,10 +505,17 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
+            // 节目单按钮：切换 EPG 显示
             findViewById(R.id.btn_epg).setOnClickListener(v -> {
                 if (currentChannel != null) {
-                    loadEpgForChannel(currentChannel);
-                    Toast.makeText(this, "加载EPG节目单", Toast.LENGTH_SHORT).show();
+                    if (epgContainer.getVisibility() == View.VISIBLE) {
+                        epgContainer.setVisibility(View.GONE);
+                    } else {
+                        epgContainer.setVisibility(View.VISIBLE);
+                        loadEpgForChannel(currentChannel);
+                    }
+                } else {
+                    Toast.makeText(this, "请先选择一个频道", Toast.LENGTH_SHORT).show();
                 }
             });
             findViewById(R.id.btn_announce).setOnClickListener(v -> Toast.makeText(this, "使用公告", Toast.LENGTH_SHORT).show());
@@ -651,6 +665,27 @@ public class MainActivity extends AppCompatActivity {
         currentChannelList = list;
         channelAdapter.updateData(currentChannelList);
         tvGroupName.setText(group);
+
+        // 恢复上次播放的频道
+        String lastChannel = prefs.getString(KEY_LAST_CHANNEL, "");
+        if (!lastChannel.isEmpty()) {
+            for (int i = 0; i < currentChannelList.size(); i++) {
+                if (currentChannelList.get(i).name.equals(lastChannel)) {
+                    SourceManager.Channel ch = currentChannelList.get(i);
+                    channelAdapter.setSelectedChannel(ch);
+                    playChannel(ch);
+                    loadEpgForChannel(ch);
+                    return;
+                }
+            }
+        }
+        // 无记忆则播放第一个
+        if (!currentChannelList.isEmpty()) {
+            SourceManager.Channel ch = currentChannelList.get(0);
+            channelAdapter.setSelectedChannel(ch);
+            playChannel(ch);
+            loadEpgForChannel(ch);
+        }
     }
 
     private void downloadLogo(String logoUrl, String channelName) {
@@ -685,6 +720,8 @@ public class MainActivity extends AppCompatActivity {
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
+        // 保存记忆
+        prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
         try {
             if (player == null) {
                 DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
@@ -701,6 +738,8 @@ public class MainActivity extends AppCompatActivity {
             player.prepare();
             player.play();
             tvChannelName.setText(channel.name);
+            // 加载 EPG 并显示
+            loadEpgForChannel(channel);
         } catch (Exception e) {
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -713,6 +752,7 @@ public class MainActivity extends AppCompatActivity {
                 epgUrl = config.getString("EPG_URLS", null);
                 if (epgUrl == null || epgUrl.isEmpty()) {
                     tvEpgInfo.setText("暂无EPG");
+                    epgAdapter.setItems(new ArrayList<>());
                     return;
                 }
             }
@@ -722,6 +762,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onLoaded(List<EPGParser.EpgProgram> programs) {
                     runOnUiThread(() -> {
+                        epgAdapter.setItems(programs);
                         if (!programs.isEmpty()) {
                             EPGParser.EpgProgram first = programs.get(0);
                             SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
@@ -734,7 +775,10 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onError(String error) {
-                    runOnUiThread(() -> tvEpgInfo.setText("EPG加载失败"));
+                    runOnUiThread(() -> {
+                        tvEpgInfo.setText("EPG加载失败");
+                        epgAdapter.setItems(new ArrayList<>());
+                    });
                 }
             });
         } catch (Exception e) {
@@ -758,6 +802,8 @@ public class MainActivity extends AppCompatActivity {
         isOverlayVisible = true;
         overlayLayout.setVisibility(View.VISIBLE);
         resetAutoHideTimer();
+        // 显示覆盖层时隐藏 EPG 容器
+        epgContainer.setVisibility(View.GONE);
     }
 
     private void hideOverlay() {
@@ -811,11 +857,8 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SubEntry entry = data.get(position);
             holder.name.setText(entry.name);
-            if ("我的收藏".equals(entry.name)) {
-                holder.name.setTextColor(0xFFFFD700);
-            } else {
-                holder.name.setTextColor(0xFFFFFFFF);
-            }
+            if ("我的收藏".equals(entry.name)) holder.name.setTextColor(0xFFFFD700);
+            else holder.name.setTextColor(0xFFFFFFFF);
             holder.itemView.setOnClickListener(v -> listener.onClick(entry));
         }
         @Override public int getItemCount() { return data.size(); }
@@ -895,6 +938,27 @@ public class MainActivity extends AppCompatActivity {
             TextView name, favIcon;
             ImageView logo;
             ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); logo = v.findViewById(R.id.channel_logo); }
+        }
+    }
+
+    static class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
+        private List<EPGParser.EpgProgram> data = new ArrayList<>();
+        EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
+        void setItems(List<EPGParser.EpgProgram> newData) { this.data = newData; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_epg, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            EPGParser.EpgProgram prog = data.get(position);
+            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
+            holder.time.setText(time);
+            holder.title.setText(prog.title);
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView time, title;
+            ViewHolder(View v) { super(v); time = v.findViewById(R.id.epg_time); title = v.findViewById(R.id.epg_title); }
         }
     }
 }
@@ -1270,7 +1334,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件 ====================
+    # ==================== 布局文件（修正布局） ====================
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1374,7 +1438,7 @@ EOF
             android:tint="#FFFFFF" />
     </LinearLayout>
 
-    <!-- 覆盖层 -->
+    <!-- 覆盖层（四列：订阅源 | 分组 | 频道+EPG） -->
     <LinearLayout
         android:id="@+id/overlay_layout"
         android:layout_width="match_parent"
@@ -1383,39 +1447,102 @@ EOF
         android:background="#CC000000"
         android:visibility="gone">
 
+        <!-- 订阅源列 -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.8"
-            android:orientation="horizontal"
-            android:background="#CC000000">
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:background="#33000000"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="订阅源"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:paddingBottom="4dp" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/sub_recycler"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="#33000000"
-                android:padding="8dp" />
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </LinearLayout>
+
+        <!-- 分组列 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.2"
+            android:orientation="vertical"
+            android:background="#44000000"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="分组"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:paddingBottom="4dp" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/group_recycler"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="#44000000"
-                android:padding="8dp" />
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/channel_recycler"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="2"
-                android:background="#55000000"
-                android:padding="8dp" />
-
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
         </LinearLayout>
 
+        <!-- 频道 + EPG 列 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="2.5"
+            android:orientation="vertical"
+            android:background="#55000000"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="频道列表"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:paddingBottom="4dp" />
+
+            <!-- 频道列表 -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/channel_recycler"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- EPG 容器（初始隐藏） -->
+            <LinearLayout
+                android:id="@+id/epg_container"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="0.8"
+                android:orientation="vertical"
+                android:background="#66000000"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="节目单"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:padding="4dp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/epg_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 右侧关闭区域 -->
         <View
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -1427,6 +1554,7 @@ EOF
 </FrameLayout>
 EOF
 
+    # ==================== 其他布局文件 ====================
     cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1665,7 +1793,8 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 修正内容："
-echo "   ✅ 分组名 '墙大18' 现在正确显示（不再带逗号）"
-echo "   ✅ 点击分组名，右侧显示该分组的频道列表"
-echo "   ✅ 频道名称不再带有逗号"
-echo "   ✅ 从设置选中订阅后返回主界面自动加载"
+echo "   ✅ 布局调整为四列（订阅源 | 分组 | 频道+EPG），宽度适中"
+echo "   ✅ 记忆上次播放的频道（自动恢复）"
+echo "   ✅ 若无记忆则播放分组第一个频道"
+echo "   ✅ 分组名正确解析（去掉逗号）"
+echo "   ✅ 节目单按钮显示/隐藏 EPG 列表"
