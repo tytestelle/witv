@@ -196,7 +196,6 @@ printf '%s\n' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
 # ==================== EPGParser.java（全局缓存，已修复 lambda final 问题） ====================
-cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
 import android.content.Context;
@@ -233,8 +232,11 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
 
     private static Map<String, String> sAliasMap = null;
+    // 全局缓存：channelId -> 该频道所有节目（未排序）
     private static Map<String, List<EpgProgram>> sAllPrograms = null;
+    // 归一化频道名 -> channelId
     private static Map<String, String> sChannelNameToId = null;
+    // 是否正在加载中
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
 
@@ -269,6 +271,7 @@ public class EPGParser {
         return sAliasMap;
     }
 
+    // 初始化全局缓存（只执行一次）
     private static void initAllPrograms(Context context, String url) {
         if (sLoaded) return;
         if (!sLoading.compareAndSet(false, true)) {
@@ -472,6 +475,7 @@ public class EPGParser {
             eventType = parser.next();
         }
 
+        // 结合别名映射补充映射关系
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
@@ -487,10 +491,12 @@ public class EPGParser {
         LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
     }
 
-    // 对外接口：加载某个频道的EPG（从缓存获取）
+    // ==================== 修正后的 loadEpg 方法 ====================
     public static void loadEpg(Context context, String url, String channelName, OnEpgLoadListener listener) {
+        // 先加载别名映射
         loadAliasMap(context);
 
+        // 初始化全局缓存（首次调用时执行）
         if (!sLoaded) {
             initAllPrograms(context, url);
         }
@@ -503,6 +509,7 @@ public class EPGParser {
             return;
         }
 
+        // 查找频道ID
         String normalizedChannelName = normalizeChannelName(channelName);
         String channelId = null;
 
@@ -523,32 +530,32 @@ public class EPGParser {
             }
         }
 
-        if (channelId == null) {
-            LogUtils.writeLog("未找到频道ID: " + channelName);
-            android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-            mainHandler.post(() -> finalListener.onLoaded(new ArrayList<>()));
-            return;
+        List<EpgProgram> temp = null;
+        if (channelId != null) {
+            temp = sAllPrograms.get(channelId);
         }
+        if (temp == null) temp = new ArrayList<>();
 
-        List<EpgProgram> result = sAllPrograms.get(channelId);
-        if (result == null) result = new ArrayList<>();
-
-        long currentTime = System.currentTimeMillis();
-        Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
-        int currentIndex = 0;
-        for (int i = 0; i < result.size(); i++) {
-            if (result.get(i).endTime > currentTime) {
-                currentIndex = i;
-                break;
+        // 排序：从当前时间开始
+        if (!temp.isEmpty()) {
+            long currentTime = System.currentTimeMillis();
+            Collections.sort(temp, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
+            int currentIndex = 0;
+            for (int i = 0; i < temp.size(); i++) {
+                if (temp.get(i).endTime > currentTime) {
+                    currentIndex = i;
+                    break;
+                }
+            }
+            if (currentIndex > 0 && currentIndex < temp.size()) {
+                List<EpgProgram> sortedList = new ArrayList<>();
+                for (int i = currentIndex; i < temp.size(); i++) sortedList.add(temp.get(i));
+                for (int i = 0; i < currentIndex; i++) sortedList.add(temp.get(i));
+                temp = sortedList;
             }
         }
-        if (currentIndex > 0 && currentIndex < result.size()) {
-            List<EpgProgram> sortedList = new ArrayList<>();
-            for (int i = currentIndex; i < result.size(); i++) sortedList.add(result.get(i));
-            for (int i = 0; i < currentIndex; i++) sortedList.add(result.get(i));
-            result = sortedList;
-        }
 
+        final List<EpgProgram> result = temp;
         LogUtils.writeLog("返回频道 " + channelName + " 的节目数: " + result.size());
         android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         mainHandler.post(() -> finalListener.onLoaded(result));
@@ -610,7 +617,6 @@ public class EPGParser {
         }
     }
 }
-EPGFULL
 
 # ==================== PlayerConfigManager.java ====================
 printf '%s\n' \
