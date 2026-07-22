@@ -601,9 +601,11 @@ public class ConfigurationManager {
 EOF
 
 # ==================== MainActivity.java（全新强化版） ====================
+# ==================== MainActivity.java（最终稳定版） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
+import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -693,11 +695,12 @@ public class MainActivity extends AppCompatActivity {
     private List<SubEntry> subEntryList = new ArrayList<>();
     private View epgContainer;
     private List<EPGParser.EpgProgram> currentEpgList = new ArrayList<>();
+    private ProgressDialog progressDialog;
+    private boolean loadFinished = false;
     static class SubEntry { String name, url; }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // 异常捕获
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             LogUtils.writeCrashLog(throwable);
             android.os.Process.killProcess(android.os.Process.myPid());
@@ -706,20 +709,11 @@ public class MainActivity extends AppCompatActivity {
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
 
-        // 初始化日志（即使权限未授予，也尝试创建目录）
-        try {
-            LogUtils.init();
-            LogUtils.createAppDirectories();
-            LogUtils.writeLog("=== 应用启动 ===");
-        } catch (Exception e) {
-            // 如果日志初始化失败，至少使用 Toast 提示
-            Toast.makeText(this, "日志初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
+        LogUtils.init();
+        LogUtils.createAppDirectories();
+        LogUtils.writeLog("=== 应用启动 ===");
+        Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_LONG).show();
 
-        // 立即显示一个 Toast 提示，表示应用已启动
-        Toast.makeText(this, "应用初始化中...", Toast.LENGTH_SHORT).show();
-
-        // 请求存储权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -732,7 +726,6 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             setContentView(R.layout.activity_main);
-            // 再次显示 Toast 表示界面加载完成
             Toast.makeText(this, "界面加载完成", Toast.LENGTH_SHORT).show();
 
             config = ConfigurationManager.getInstance(this);
@@ -743,7 +736,6 @@ public class MainActivity extends AppCompatActivity {
             logoDir = new File(LogUtils.getAppRootDir(), "logo");
             if (!logoDir.exists()) logoDir.mkdirs();
 
-            // 初始化控件
             playerView = findViewById(R.id.player_container);
             overlayLayout = findViewById(R.id.overlay_layout);
             subRecycler = findViewById(R.id.sub_recycler);
@@ -797,38 +789,39 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // 加载订阅源
-            boolean hasSub = false;
-            String selected = prefs.getString(KEY_SELECTED_SUB, "");
-            if (!selected.isEmpty()) {
-                String[] parts = selected.split("\\|\\|");
-                if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
-                    currentSubName = parts[0];
-                    currentSubUrl = parts[1];
-                    hasSub = true;
-                }
-            }
-            if (!hasSub) {
-                for (SubEntry se : subEntryList) {
-                    if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
-                        currentSubName = se.name;
-                        currentSubUrl = se.url;
-                        prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+            // 加载订阅源（延迟500ms，确保界面完全渲染）
+            mainHandler.postDelayed(() -> {
+                boolean hasSub = false;
+                String selected = prefs.getString(KEY_SELECTED_SUB, "");
+                if (!selected.isEmpty()) {
+                    String[] parts = selected.split("\\|\\|");
+                    if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
+                        currentSubName = parts[0];
+                        currentSubUrl = parts[1];
                         hasSub = true;
-                        break;
                     }
                 }
-            }
+                if (!hasSub) {
+                    for (SubEntry se : subEntryList) {
+                        if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                            currentSubName = se.name;
+                            currentSubUrl = se.url;
+                            prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                            hasSub = true;
+                            break;
+                        }
+                    }
+                }
 
-            if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
-                LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
-                // 延迟显示对话框，确保界面已渲染
-                mainHandler.postDelayed(() -> showNoSourceDialog(), 500);
-            } else {
-                LogUtils.writeLog("加载订阅源: " + currentSubUrl);
-                Toast.makeText(this, "正在加载订阅源...", Toast.LENGTH_SHORT).show();
-                loadSourceForUrl(currentSubUrl);
-            }
+                if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
+                    LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
+                    showNoSourceDialog();
+                } else {
+                    LogUtils.writeLog("加载订阅源: " + currentSubUrl);
+                    showLoadingDialog("正在加载订阅源...");
+                    loadSourceForUrl(currentSubUrl);
+                }
+            }, 500);
 
             hideOverlayRunnable = () -> {
                 if (isOverlayVisible) hideOverlay();
@@ -840,12 +833,27 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeLog("应用启动成功");
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
-            // 显示错误对话框
-            mainHandler.post(() -> showFatalErrorDialog("初始化失败: " + e.getMessage()));
+            showFatalErrorDialog("初始化失败: " + e.getMessage());
+        }
+    }
+
+    private void showLoadingDialog(String message) {
+        if (progressDialog == null) {
+            progressDialog = new ProgressDialog(this);
+            progressDialog.setCancelable(false);
+        }
+        progressDialog.setMessage(message);
+        progressDialog.show();
+    }
+
+    private void dismissLoadingDialog() {
+        if (progressDialog != null && progressDialog.isShowing()) {
+            progressDialog.dismiss();
         }
     }
 
     private void showNoSourceDialog() {
+        dismissLoadingDialog();
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("提示");
         builder.setMessage("当前没有可用的订阅源，请先添加订阅源。");
@@ -861,6 +869,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showLoadErrorDialog(String errorMsg) {
+        dismissLoadingDialog();
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("加载失败");
         builder.setMessage("订阅源加载失败：\n" + errorMsg + "\n\n请检查网络或源地址是否正确。");
@@ -869,6 +878,7 @@ public class MainActivity extends AppCompatActivity {
         });
         builder.setNegativeButton("重试", (dialog, which) -> {
             if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
+                showLoadingDialog("正在重试...");
                 loadSourceForUrl(currentSubUrl);
             } else {
                 showNoSourceDialog();
@@ -880,6 +890,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showFatalErrorDialog(String errorMsg) {
+        dismissLoadingDialog();
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("严重错误");
         builder.setMessage("应用初始化失败：\n" + errorMsg + "\n\n请查看日志文件：\n" + LogUtils.getLogDir());
@@ -913,22 +924,23 @@ public class MainActivity extends AppCompatActivity {
         loadSubscriptions();
         subAdapter.updateData(subEntryList);
         // 如果当前没有加载任何源但已经有订阅，重新加载
-        if (groupMap.isEmpty() && !subEntryList.isEmpty()) {
+        if (groupMap.isEmpty() && !subEntryList.isEmpty() && !isLoading) {
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
                 if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
                     currentSubName = parts[0];
                     currentSubUrl = parts[1];
+                    showLoadingDialog("正在加载订阅源...");
                     loadSourceForUrl(currentSubUrl);
                 }
             } else {
-                // 尝试第一个非收藏
                 for (SubEntry se : subEntryList) {
                     if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
                         currentSubName = se.name;
                         currentSubUrl = se.url;
                         prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                        showLoadingDialog("正在加载订阅源...");
                         loadSourceForUrl(se.url);
                         break;
                     }
@@ -965,19 +977,32 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         isLoading = true;
+        loadFinished = false;
         if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
         final String finalUrl = url;
         LogUtils.writeLog("开始加载源: " + finalUrl);
         Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
+
+        // 设置超时检测（20秒后如果还没完成，弹出超时对话框）
+        mainHandler.postDelayed(() -> {
+            if (!loadFinished) {
+                isLoading = false;
+                dismissLoadingDialog();
+                LogUtils.writeLog("加载源超时");
+                showLoadErrorDialog("加载超时，请检查网络或源地址是否有效。");
+            }
+        }, 20000);
+
         new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
             @Override
             public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
+                loadFinished = true;
                 isLoading = false;
+                dismissLoadingDialog();
                 try {
                     groupMap = map;
                     groupNames = names;
                     groupAdapter.updateData(groupNames);
-                    // 尝试恢复上次分组
                     String lastGroup = prefs.getString(KEY_LAST_GROUP, "");
                     if (!lastGroup.isEmpty() && groupNames.contains(lastGroup)) {
                         currentGroup = lastGroup;
@@ -1002,7 +1027,9 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override
             public void onError(String error) {
+                loadFinished = true;
                 isLoading = false;
+                dismissLoadingDialog();
                 LogUtils.writeLog("加载源失败: " + error);
                 showLoadErrorDialog(error);
             }
@@ -1029,7 +1056,6 @@ public class MainActivity extends AppCompatActivity {
             }
             currentChannelList = list;
             channelAdapter.updateData(currentChannelList);
-            // 恢复上次播放的频道
             String lastChannel = prefs.getString(KEY_LAST_CHANNEL, "");
             SourceManager.Channel target = null;
             if (!lastChannel.isEmpty()) {
@@ -1041,7 +1067,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             if (target == null && !currentChannelList.isEmpty()) {
-                target = currentChannelList.get(0); // 播放第一个
+                target = currentChannelList.get(0);
             }
             if (target != null) {
                 channelAdapter.setSelectedChannel(target);
@@ -1285,6 +1311,7 @@ public class MainActivity extends AppCompatActivity {
             player = null;
         }
         mainHandler.removeCallbacks(hideOverlayRunnable);
+        dismissLoadingDialog();
         LogUtils.writeLog("=== 应用退出 ===");
     }
 
@@ -2212,9 +2239,13 @@ sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:
 echo "✅ 依赖已添加"
 
 # 添加存储权限
+# 添加网络和存储权限
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-echo "✅ 权限已添加"
+
+# 增加 cleartext 支持（允许 HTTP 明文传输）
+sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
+echo "✅ 权限和 cleartext 已添加"
 
 # ========== 设置应用图标 ==========
 python3 <<PYTHON_SCRIPT
