@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG完整节目单版 - 右侧显示全部节目）"
+echo "🔥 部署 witv 播放器（EPG完整节目单版 - 紧凑布局 + 直接匹配epgid）"
 
 TEMPLATE_DIR="./config"
 
@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java ====================
+# ==================== EPGParser.java（修正：直接使用别名 epgid 匹配） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -535,22 +535,32 @@ public class EPGParser {
         String targetChannelId = null;
         String targetDisplayName = null;
 
-        // 1. 别名映射匹配
+        // 1. 别名映射匹配（直接使用 epgid）
         String mappedEpgid = aliasMap.get(normalizedChannelName);
         if (mappedEpgid != null) {
-            String normMapped = normalizeChannelName(mappedEpgid);
-            for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
-                String normDisp = normalizeChannelName(entry.getValue().displayName);
-                if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
-                    targetChannelId = entry.getKey();
-                    targetDisplayName = entry.getValue().displayName;
-                    LogUtils.writeLog("别名映射匹配成功: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
-                    break;
+            // 检查 programMap 中是否存在该 key（可能有节目）
+            if (programMap.containsKey(mappedEpgid)) {
+                targetChannelId = mappedEpgid;
+                ChannelInfo info = channelMap.get(mappedEpgid);
+                targetDisplayName = (info != null && info.displayName != null && !info.displayName.isEmpty()) 
+                        ? info.displayName : mappedEpgid;
+                LogUtils.writeLog("别名映射直接匹配: " + channelName + " -> " + mappedEpgid);
+            } else {
+                // 如果 programMap 中没有，尝试通过 displayName 匹配
+                String normMapped = normalizeChannelName(mappedEpgid);
+                for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
+                    String normDisp = normalizeChannelName(entry.getValue().displayName);
+                    if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
+                        targetChannelId = entry.getKey();
+                        targetDisplayName = entry.getValue().displayName;
+                        LogUtils.writeLog("别名映射通过 displayName 匹配: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
+                        break;
+                    }
                 }
             }
         }
 
-        // 2. 若未命中，取第一个 displayName 包含频道名的
+        // 2. 若未命中，使用 displayName 包含匹配
         if (targetChannelId == null) {
             for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
                 String normDisp = normalizeChannelName(entry.getValue().displayName);
@@ -1984,7 +1994,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件 ====================
+# ==================== 布局文件（紧凑版） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2009,11 +2019,11 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
         android:orientation="horizontal"
         android:background="#CC000000"
         android:visibility="gone">
-        <!-- 左侧：订阅源、分组、频道列表 -->
+        <!-- 左侧：订阅源、分组、频道列表 (占比 0.4) -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.35"
+            android:layout_weight="0.4"
             android:orientation="horizontal"
             android:background="#CC000000">
             <LinearLayout
@@ -2022,13 +2032,13 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                 android:layout_weight="1"
                 android:orientation="vertical"
                 android:background="#33000000"
-                android:padding="4dp">
+                android:padding="2dp">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="订阅源"
                     android:textColor="#FFFFFF"
-                    android:textSize="11sp"
+                    android:textSize="10sp"
                     android:paddingBottom="2dp" />
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/sub_recycler"
@@ -2041,13 +2051,13 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                 android:layout_weight="0.8"
                 android:orientation="vertical"
                 android:background="#44000000"
-                android:padding="4dp">
+                android:padding="2dp">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="分组"
                     android:textColor="#FFFFFF"
-                    android:textSize="11sp"
+                    android:textSize="10sp"
                     android:paddingBottom="2dp" />
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/group_recycler"
@@ -2060,13 +2070,13 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                 android:layout_weight="1.2"
                 android:orientation="vertical"
                 android:background="#55000000"
-                android:padding="4dp">
+                android:padding="2dp">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="频道列表"
                     android:textColor="#FFFFFF"
-                    android:textSize="11sp"
+                    android:textSize="10sp"
                     android:paddingBottom="2dp" />
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/channel_recycler"
@@ -2075,15 +2085,16 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                     android:layout_weight="1" />
             </LinearLayout>
         </LinearLayout>
-        <!-- 右侧：EPG 节目单 -->
+
+        <!-- 右侧：EPG 节目单 (占比 0.6) -->
         <LinearLayout
             android:id="@+id/epg_container"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.65"
+            android:layout_weight="0.6"
             android:orientation="vertical"
             android:background="#66000000"
-            android:padding="4dp"
+            android:padding="2dp"
             android:visibility="gone">
             <TextView
                 android:layout_width="match_parent"
@@ -2098,6 +2109,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
         </LinearLayout>
+
         <View
             android:id="@+id/overlay_click_area"
             android:layout_width="0dp"
