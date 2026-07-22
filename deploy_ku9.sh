@@ -2,19 +2,20 @@
 set -e
 
 echo "🔥 部署酷9播放器（完整模板生成版 - 生成所有文件到 template/）"
+echo "当前工作目录: $(pwd)"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
-    echo "📁 首次运行，生成模板文件到 $TEMPLATE_DIR ..."
+    echo "📁 首次运行，创建模板目录并写入所有文件..."
     mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
     mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
 
-    # ==================== configuration.json ====================
+    # ========== configuration.json ==========
     cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-    # ==================== SourceManager.java ====================
+    # ========== SourceManager.java ==========
     cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -140,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-    # ==================== EPGParser.java ====================
+    # ========== EPGParser.java ==========
     cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 import android.util.Xml;
@@ -241,7 +242,7 @@ public class EPGParser {
 }
 EOF
 
-    # ==================== PlayerConfigManager.java ====================
+    # ========== PlayerConfigManager.java ==========
     cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -261,7 +262,7 @@ public class PlayerConfigManager {
 }
 EOF
 
-    # ==================== FavoriteManager.java ====================
+    # ========== FavoriteManager.java ==========
     cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'EOF'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -286,7 +287,7 @@ public class FavoriteManager {
 }
 EOF
 
-    # ==================== ConfigurationManager.java ====================
+    # ========== ConfigurationManager.java ==========
     cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Context;
@@ -340,7 +341,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java（含日志） ====================
+    # ========== MainActivity.java ==========
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -945,7 +946,7 @@ public class MainActivity extends AppCompatActivity {
             writeLog("CRASH: " + t.getMessage());
         } catch (Exception e) {}
     }
-    // ---------- Adapters ----------
+    // ========== Adapters ==========
     static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
         private List<SubEntry> data;
         private OnSubClickListener listener;
@@ -1062,7 +1063,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== SettingsActivity.java ====================
+    # ========== SettingsActivity.java ==========
     cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1431,8 +1432,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件（所有 XML） ====================
-    mkdir -p "$TEMPLATE_DIR/res/layout"
+    # ========== 布局文件 ==========
     cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1851,8 +1851,7 @@ EOF
 </LinearLayout>
 EOF
 
-    # ==================== 图标资源 ====================
-    mkdir -p "$TEMPLATE_DIR/res/drawable"
+    # ========== 图标资源 ==========
     cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
@@ -1879,98 +1878,13 @@ EOF
 </vector>
 EOF
 
-    echo "✅ 模板生成完毕"
+    echo "✅ 所有模板文件已生成到 $TEMPLATE_DIR"
+    echo "📂 模板目录位置: $(pwd)/$TEMPLATE_DIR"
+    echo ""
+    echo "📋 生成的文件列表："
+    find "$TEMPLATE_DIR" -type f | sort
 else
     echo "📂 模板目录已存在，跳过生成"
 fi
 
-# ========== 复制模板到项目 ==========
-echo "📂 复制模板文件到项目..."
-rm -rf app/src/main/java/com/whyun/witv/ui
-rm -f app/src/main/java/com/whyun/witv/SettingsActivity.java
-rm -rf app/build
-cp -r "$TEMPLATE_DIR/src/." app/src/main/java/com/whyun/witv/
-cp -r "$TEMPLATE_DIR/res/." app/src/main/res/
-cp "$TEMPLATE_DIR/configuration.json" app/src/main/assets/
-
-mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/assets/download \
-         app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
-         app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
-echo "✅ 文件复制完成"
-
-# 修复 SettingsActivity import
-sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
-
-# ========== 自定义图标 ==========
-if [ -f "apk ico.jpeg" ]; then
-    cp "apk ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
-    rm -f app/src/main/res/drawable/ic_launcher.xml
-elif [ -f "apk_ico.jpeg" ]; then
-    cp "apk_ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
-    rm -f app/src/main/res/drawable/ic_launcher.xml
-elif [ -f "apk ico.png" ]; then
-    cp "apk ico.png" "app/src/main/res/drawable/ic_launcher.png"
-    rm -f app/src/main/res/drawable/ic_launcher.xml
-fi
-
-# ========== 添加依赖和权限 ==========
-APP_GRADLE="app/build.gradle"
-MANIFEST="app/src/main/AndroidManifest.xml"
-cp "$APP_GRADLE" "$APP_GRADLE.bak"
-sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
-sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
-sed -i '/implementation.*gson/d' "$APP_GRADLE"
-sed -i '/implementation.*preference/d' "$APP_GRADLE"
-sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
-echo "✅ 依赖已添加"
-
-sed -i '/android.permission.INTERNET/d' "$MANIFEST"
-sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-echo "✅ 权限已添加"
-
-# ========== 设置应用图标 ==========
-python3 <<PYTHON_SCRIPT
-import sys, xml.etree.ElementTree as ET
-from xml.dom import minidom
-ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
-manifest_file = "$MANIFEST"
-pkg = "com.whyun.witv"
-try:
-    tree = ET.parse(manifest_file); root = tree.getroot()
-except Exception as e:
-    print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
-app = root.find('application')
-if app is None:
-    print("未找到 application", file=sys.stderr); sys.exit(1)
-icon_attr = '{http://schemas.android.com/apk/res/android}icon'
-app.set(icon_attr, '@drawable/ic_launcher')
-for act in app.findall('activity'): app.remove(act)
-main_act = ET.Element('activity')
-main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
-main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-intent_filter = ET.SubElement(main_act, 'intent-filter')
-action = ET.SubElement(intent_filter, 'action')
-action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
-cat = ET.SubElement(intent_filter, 'category')
-cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
-app.append(main_act)
-settings_act = ET.Element('activity')
-settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
-settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-app.append(settings_act)
-xml_str = ET.tostring(root, encoding='unicode')
-dom = minidom.parseString(xml_str)
-pretty = dom.toprettyxml(indent="    ")
-pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f: f.write(pretty)
-print("✅ AndroidManifest 已更新")
-PYTHON_SCRIPT
-
-# ========== 构建 ==========
-echo "🧹 清理并构建..."
-./gradlew clean
-./gradlew assembleDebug
-
-echo ""
-echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 模板已生成到 ./template/ 目录，下次可大幅精简脚本"
+echo "✅ 脚本执行完成"
