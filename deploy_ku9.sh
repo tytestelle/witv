@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终修正版 - 修复编译错误）"
+echo "🔥 部署 witv 播放器（增强错误提示）"
 
 TEMPLATE_DIR="./config"
 
@@ -15,7 +15,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":null,"PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":1,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java（不变） ====================
+# ==================== SourceManager.java ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'EOF'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（修正，提供无参版本） ====================
+# ==================== LogUtils.java（使用外部存储） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -162,33 +162,26 @@ public class LogUtils {
     private static final String LOG_FILE = "app.log";
     private static String sLogDirPath = null;
 
-    // 无参初始化，自动使用外部存储
     public static void init() {
         if (sLogDirPath != null) return;
-        String basePath = null;
-        try {
-            if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-                basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
-            }
-        } catch (Exception e) {
-            Log.e("LogUtils", "获取外部存储失败", e);
+        // 使用外部存储
+        File externalDir = Environment.getExternalStorageDirectory();
+        if (externalDir == null) {
+            // 备选：使用内部存储的 files 目录（但推荐外部）
+            externalDir = new File("/sdcard");
         }
-        if (basePath == null) {
-            basePath = "/sdcard";
-        }
-        File baseDir = new File(basePath, APP_DIR);
+        File baseDir = new File(externalDir, APP_DIR);
         if (!baseDir.exists()) {
             if (!baseDir.mkdirs()) {
-                // 如果外部存储创建失败，使用内部存储 files 目录
-                baseDir = new File(Environment.getDataDirectory(), "data/com.whyun.witv/files/" + APP_DIR);
-                baseDir.mkdirs();
+                Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
             }
         }
-        // 创建所有子目录（无参调用）
         createAppDirectories();
         File logDir = new File(baseDir, LOG_DIR_NAME);
         if (!logDir.exists()) {
-            logDir.mkdirs();
+            if (!logDir.mkdirs()) {
+                Log.e("LogUtils", "创建日志目录失败: " + logDir.getAbsolutePath());
+            }
         }
         sLogDirPath = logDir.getAbsolutePath();
         writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
@@ -239,26 +232,9 @@ public class LogUtils {
         }
     }
 
-    // 无参版本，自动获取外部存储根目录
     public static void createAppDirectories() {
-        String basePath = null;
         try {
-            if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-                basePath = Environment.getExternalStorageDirectory().getAbsolutePath();
-            }
-        } catch (Exception e) {
-            Log.e("LogUtils", "获取外部存储失败", e);
-        }
-        if (basePath == null) {
-            basePath = "/sdcard";
-        }
-        File baseDir = new File(basePath, APP_DIR);
-        createAppDirectories(baseDir);
-    }
-
-    // 带参版本，创建指定目录下的子目录
-    public static void createAppDirectories(File baseDir) {
-        try {
+            File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
             String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"};
             for (String sub : subDirs) {
                 File dir = new File(baseDir, sub);
@@ -273,9 +249,7 @@ public class LogUtils {
     }
 
     public static String getAppRootDir() {
-        if (sLogDirPath == null) init();
-        File baseDir = new File(sLogDirPath).getParentFile();
-        return baseDir != null ? baseDir.getAbsolutePath() : "/sdcard/witv";
+        return Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR;
     }
 
     public static String getEpgCacheDir() {
@@ -283,8 +257,10 @@ public class LogUtils {
     }
 }
 EOF
-
-# ==================== EPGParser.java（不变） ====================
+     
+          
+            
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -630,7 +606,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（修正，调用无参 createAppDirectories） ====================
+# ==================== MainActivity.java（修复 hideOverlay 和目录） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -726,7 +702,6 @@ public class MainActivity extends AppCompatActivity {
     private List<EPGParser.EpgProgram> currentEpgList = new ArrayList<>();
     private ProgressDialog progressDialog;
     private boolean loadFinished = false;
-    private View overlayClickArea;
     static class SubEntry { String name, url; }
 
     @Override
@@ -740,7 +715,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         LogUtils.init();
-        LogUtils.createAppDirectories();  // 无参版本
+        LogUtils.createAppDirectories();
         LogUtils.writeLog("=== 应用启动 ===");
         Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_LONG).show();
 
@@ -819,45 +794,37 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
 
-            // 设置 overlay 点击区域（原 android:onClick 改为代码设置）
-            overlayClickArea = findViewById(R.id.overlay_click_area);
-            if (overlayClickArea != null) {
-                overlayClickArea.setOnClickListener(v -> hideOverlay());
+            // 加载订阅源
+            boolean hasSub = false;
+            String selected = prefs.getString(KEY_SELECTED_SUB, "");
+            if (!selected.isEmpty()) {
+                String[] parts = selected.split("\\|\\|");
+                if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
+                    currentSubName = parts[0];
+                    currentSubUrl = parts[1];
+                    hasSub = true;
+                }
+            }
+            if (!hasSub) {
+                for (SubEntry se : subEntryList) {
+                    if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                        currentSubName = se.name;
+                        currentSubUrl = se.url;
+                        prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                        hasSub = true;
+                        break;
+                    }
+                }
             }
 
-            // 加载订阅源（延迟500ms，确保界面完全渲染）
-            mainHandler.postDelayed(() -> {
-                boolean hasSub = false;
-                String selected = prefs.getString(KEY_SELECTED_SUB, "");
-                if (!selected.isEmpty()) {
-                    String[] parts = selected.split("\\|\\|");
-                    if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
-                        currentSubName = parts[0];
-                        currentSubUrl = parts[1];
-                        hasSub = true;
-                    }
-                }
-                if (!hasSub) {
-                    for (SubEntry se : subEntryList) {
-                        if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
-                            currentSubName = se.name;
-                            currentSubUrl = se.url;
-                            prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
-                            hasSub = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
-                    LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
-                    showNoSourceDialog();
-                } else {
-                    LogUtils.writeLog("加载订阅源: " + currentSubUrl);
-                    showLoadingDialog("正在加载订阅源...");
-                    loadSourceForUrl(currentSubUrl);
-                }
-            }, 500);
+            if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
+                LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
+                showNoSourceDialog();
+            } else {
+                LogUtils.writeLog("加载订阅源: " + currentSubUrl);
+                showLoadingDialog("正在加载订阅源...");
+                loadSourceForUrl(currentSubUrl);
+            }
 
             hideOverlayRunnable = () -> {
                 if (isOverlayVisible) hideOverlay();
@@ -871,6 +838,11 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeCrashLog(e);
             showFatalErrorDialog("初始化失败: " + e.getMessage());
         }
+    }
+
+    // 必须为 public，否则 xml 中的 onClick 找不到
+    public void hideOverlay(View v) {
+        hideOverlay();
     }
 
     private void showLoadingDialog(String message) {
@@ -944,7 +916,7 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_PERMISSIONS) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 LogUtils.writeLog("存储权限已获取");
-                LogUtils.createAppDirectories(); // 无参版本
+                LogUtils.createAppDirectories();
                 Toast.makeText(this, "日志目录: " + LogUtils.getLogDir(), Toast.LENGTH_SHORT).show();
             } else {
                 LogUtils.writeLog("存储权限被拒绝");
@@ -1465,6 +1437,7 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
+
 # ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
@@ -1834,7 +1807,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件 activity_main.xml（移除 android:onClick） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -1945,17 +1918,16 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
             </LinearLayout>
         </LinearLayout>
         <View
-            android:id="@+id/overlay_click_area"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="0.65"
             android:background="#00000000"
-            android:clickable="true" />
+            android:clickable="true"
+            android:onClick="hideOverlay" />
     </LinearLayout>
 </FrameLayout>
 EOF
 
-# 其余布局文件不变（popup_info, item_*, activity_settings）
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2272,9 +2244,12 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
-# 添加存储权限和 cleartext
+# 添加存储权限
+# 添加网络和存储权限
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+
+# 增加 cleartext 支持（允许 HTTP 明文传输）
 sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
 echo "✅ 权限和 cleartext 已添加"
 
@@ -2324,6 +2299,7 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储（/sdcard/）或内部存储的 witv 目录下创建所需文件夹"
-echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 如果外部存储不可用，会自动回退到内部存储"
+echo "📂 应用安装后会在 /sdcard/witv/ 下创建以下目录："
+echo "   localData, backup, download, videoFile, configuration, logo, js, py, webviewJscode, epgCache, logs"
+echo "📋 日志文件位于 /sdcard/witv/logs/app.log 和 crash_*.txt"
+echo "💡 启动应用时会 Toast 显示日志目录路径"
