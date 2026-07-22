@@ -714,7 +714,7 @@ public class MainActivity extends AppCompatActivity {
     private ProgressDialog progressDialog;
     private boolean loadFinished = false;
     private View overlayClickArea;
-    static class SubEntry { String name; url; }
+    static class SubEntry { String name; String url; }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
