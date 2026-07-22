@@ -275,7 +275,6 @@ public class LogUtils {
 EOF
 
 # ==================== EPGParser.java（增强匹配 + 图标下载） ====================
-cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
 import android.content.Context;
@@ -418,23 +417,28 @@ public class EPGParser {
     private static List<EpgProgram> parseXmltvStream(InputStream is, String channelName, Map<String, String> aliasMap, String logoDir)
             throws XmlPullParserException, IOException, ParseException {
 
-        List<EpgProgram> result = new ArrayList<>();
+        // 用于存储所有频道信息
+        Map<String, ChannelInfo> channelMap = new HashMap<>();
+        // 用于存储所有节目，按 channel id 分组
+        Map<String, List<EpgProgram>> programMap = new HashMap<>();
+
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
-
-        String normalizedChannelName = normalizeChannelName(channelName);
-        LogUtils.writeLog("归一化频道名: " + normalizedChannelName);
-
-        // 第一步：收集所有频道信息
-        Map<String, ChannelInfo> channelMap = new HashMap<>(); // id -> ChannelInfo
-        Map<String, String> displayNameToId = new HashMap<>(); // 归一化displayName -> id
 
         int eventType = parser.getEventType();
         String currentTag = null;
         boolean inChannel = false;
+        boolean inProgramme = false;
         String currentChannelId = null;
         String currentDisplayName = null;
         String currentIconUrl = null;
+        String progChannelId = null;
+        String progStart = null;
+        String progStop = null;
+        String progTitle = null;
+        String progDesc = null;
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
@@ -446,9 +450,16 @@ public class EPGParser {
                         currentDisplayName = null;
                         currentIconUrl = null;
                     } else if (inChannel && "display-name".equals(currentTag)) {
-                        // 读取display-name
+                        // 读取 display-name 文本
                     } else if (inChannel && "icon".equals(currentTag)) {
                         currentIconUrl = parser.getAttributeValue(null, "src");
+                    } else if ("programme".equals(currentTag)) {
+                        inProgramme = true;
+                        progChannelId = parser.getAttributeValue(null, "channel");
+                        progStart = parser.getAttributeValue(null, "start");
+                        progStop = parser.getAttributeValue(null, "stop");
+                        progTitle = null;
+                        progDesc = null;
                     }
                     break;
 
@@ -456,102 +467,6 @@ public class EPGParser {
                     if (inChannel && "display-name".equals(currentTag) && parser.getText() != null) {
                         currentDisplayName = parser.getText().trim();
                     }
-                    break;
-
-                case XmlPullParser.END_TAG:
-                    if ("channel".equals(parser.getName())) {
-                        inChannel = false;
-                        if (currentChannelId != null && currentDisplayName != null) {
-                            ChannelInfo info = new ChannelInfo();
-                            info.id = currentChannelId;
-                            info.displayName = currentDisplayName;
-                            info.iconUrl = currentIconUrl;
-                            channelMap.put(currentChannelId, info);
-                            String norm = normalizeChannelName(currentDisplayName);
-                            displayNameToId.put(norm, currentChannelId);
-                            LogUtils.writeLog("找到频道: " + currentDisplayName + " (" + currentChannelId + ")");
-                        }
-                    }
-                    break;
-            }
-            eventType = parser.next();
-        }
-
-        LogUtils.writeLog("共找到 " + channelMap.size() + " 个频道");
-
-        // 第二步：匹配目标频道
-        String targetChannelId = null;
-        String targetDisplayName = null;
-
-        // 2.1 先尝试通过别名映射匹配
-        String mappedEpgid = aliasMap.get(normalizedChannelName);
-        if (mappedEpgid != null) {
-            String normMapped = normalizeChannelName(mappedEpgid);
-            for (String normDisp : displayNameToId.keySet()) {
-                if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
-                    targetChannelId = displayNameToId.get(normDisp);
-                    targetDisplayName = channelMap.get(targetChannelId).displayName;
-                    LogUtils.writeLog("别名映射匹配成功: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
-                    break;
-                }
-            }
-        }
-
-        // 2.2 如果别名映射未匹配，直接尝试 displayName 包含匹配
-        if (targetChannelId == null) {
-            for (Map.Entry<String, String> entry : displayNameToId.entrySet()) {
-                String normDisp = entry.getKey();
-                if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
-                    targetChannelId = entry.getValue();
-                    targetDisplayName = channelMap.get(targetChannelId).displayName;
-                    LogUtils.writeLog("包含匹配成功: " + channelName + " -> " + targetDisplayName);
-                    break;
-                }
-            }
-        }
-
-        if (targetChannelId == null) {
-            LogUtils.writeLog("未找到匹配的频道，节目数为0");
-            return new ArrayList<>();
-        }
-
-        // 下载图标
-        ChannelInfo targetInfo = channelMap.get(targetChannelId);
-        if (targetInfo.iconUrl != null && !targetInfo.iconUrl.isEmpty()) {
-            downloadIcon(targetInfo.iconUrl, channelName, logoDir);
-        }
-
-        // 第三步：只解析目标频道的节目
-        // 重置解析器到开头
-        is.reset();
-        parser.setInput(is, "UTF-8");
-        eventType = parser.getEventType();
-        currentTag = null;
-        boolean inProgramme = false;
-        String progChannelId = null;
-        String progStart = null;
-        String progStop = null;
-        String progTitle = null;
-        String progDesc = null;
-        int programCount = 0;
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
-
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            switch (eventType) {
-                case XmlPullParser.START_TAG:
-                    currentTag = parser.getName();
-                    if ("programme".equals(currentTag)) {
-                        inProgramme = true;
-                        progChannelId = parser.getAttributeValue(null, "channel");
-                        progStart = parser.getAttributeValue(null, "start");
-                        progStop = parser.getAttributeValue(null, "stop");
-                        progTitle = null;
-                        progDesc = null;
-                        programCount++;
-                    }
-                    break;
-
-                case XmlPullParser.TEXT:
                     if (inProgramme && parser.getText() != null) {
                         String text = parser.getText().trim();
                         if ("title".equals(currentTag)) {
@@ -565,9 +480,19 @@ public class EPGParser {
                     break;
 
                 case XmlPullParser.END_TAG:
-                    if ("programme".equals(parser.getName())) {
+                    if ("channel".equals(parser.getName())) {
+                        inChannel = false;
+                        if (currentChannelId != null && currentDisplayName != null) {
+                            ChannelInfo info = new ChannelInfo();
+                            info.id = currentChannelId;
+                            info.displayName = currentDisplayName;
+                            info.iconUrl = currentIconUrl;
+                            channelMap.put(currentChannelId, info);
+                            LogUtils.writeLog("找到频道: " + currentDisplayName + " (" + currentChannelId + ")");
+                        }
+                    } else if ("programme".equals(parser.getName())) {
                         inProgramme = false;
-                        if (progChannelId != null && progChannelId.equals(targetChannelId) && progTitle != null) {
+                        if (progChannelId != null && progTitle != null && !progTitle.isEmpty()) {
                             EpgProgram prog = new EpgProgram();
                             prog.title = progTitle;
                             prog.desc = (progDesc != null) ? progDesc : "";
@@ -592,7 +517,13 @@ public class EPGParser {
                                     } catch (ParseException ignored) {}
                                 }
                             }
-                            result.add(prog);
+
+                            List<EpgProgram> list = programMap.get(progChannelId);
+                            if (list == null) {
+                                list = new ArrayList<>();
+                                programMap.put(progChannelId, list);
+                            }
+                            list.add(prog);
                         }
                     }
                     break;
@@ -600,16 +531,62 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        LogUtils.writeLog("解析完成，总节目数: " + programCount + ", 匹配结果数: " + result.size());
+        LogUtils.writeLog("共找到 " + channelMap.size() + " 个频道, " + programMap.size() + " 个有节目");
+
+        // 匹配目标频道
+        String normalizedChannelName = normalizeChannelName(channelName);
+        String targetChannelId = null;
+        String targetDisplayName = null;
+
+        // 1. 通过别名映射匹配
+        String mappedEpgid = aliasMap.get(normalizedChannelName);
+        if (mappedEpgid != null) {
+            String normMapped = normalizeChannelName(mappedEpgid);
+            for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
+                String normDisp = normalizeChannelName(entry.getValue().displayName);
+                if (normDisp.equals(normMapped) || normDisp.contains(normMapped) || normMapped.contains(normDisp)) {
+                    targetChannelId = entry.getKey();
+                    targetDisplayName = entry.getValue().displayName;
+                    LogUtils.writeLog("别名映射匹配成功: " + channelName + " -> " + mappedEpgid + " -> " + targetDisplayName);
+                    break;
+                }
+            }
+        }
+
+        // 2. 如果别名未匹配，直接 displayName 包含匹配
+        if (targetChannelId == null) {
+            for (Map.Entry<String, ChannelInfo> entry : channelMap.entrySet()) {
+                String normDisp = normalizeChannelName(entry.getValue().displayName);
+                if (normDisp.contains(normalizedChannelName) || normalizedChannelName.contains(normDisp)) {
+                    targetChannelId = entry.getKey();
+                    targetDisplayName = entry.getValue().displayName;
+                    LogUtils.writeLog("包含匹配成功: " + channelName + " -> " + targetDisplayName);
+                    break;
+                }
+            }
+        }
+
+        if (targetChannelId == null) {
+            LogUtils.writeLog("未找到匹配的频道，节目数为0");
+            return new ArrayList<>();
+        }
+
+        // 下载图标
+        ChannelInfo targetInfo = channelMap.get(targetChannelId);
+        if (targetInfo != null && targetInfo.iconUrl != null && !targetInfo.iconUrl.isEmpty()) {
+            downloadIcon(targetInfo.iconUrl, channelName, logoDir);
+        }
+
+        List<EpgProgram> result = programMap.get(targetChannelId);
+        if (result == null) result = new ArrayList<>();
+        LogUtils.writeLog("最终返回节目数: " + result.size());
         return result;
     }
 
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
         try {
             if (iconUrl == null || iconUrl.isEmpty()) return;
-            // 解码URL（可能包含%编码）
             String decoded = java.net.URLDecoder.decode(iconUrl, "UTF-8");
-            // 如果URL是相对路径，补全（但通常是完整URL）
             File logoFolder = new File(logoDir);
             if (!logoFolder.exists()) logoFolder.mkdirs();
             String fileName = channelName.hashCode() + ".png";
@@ -677,7 +654,6 @@ public class EPGParser {
         }
     }
 }
-EOF
 
 # ==================== PlayerConfigManager.java（不变） ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'EOF'
