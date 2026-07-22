@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（增强错误提示）"
+echo "🔥 部署 witv 播放器（修复崩溃 + 外部存储）"
 
 TEMPLATE_DIR="./config"
 
@@ -141,7 +141,7 @@ public class SourceManager {
 }
 EOF
 
-# ==================== LogUtils.java（使用外部存储） ====================
+# ==================== LogUtils.java（修正为公共外部存储） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
 package com.whyun.witv.utils;
 
@@ -164,13 +164,8 @@ public class LogUtils {
 
     public static void init() {
         if (sLogDirPath != null) return;
-        // 使用外部存储
-        File externalDir = Environment.getExternalStorageDirectory();
-        if (externalDir == null) {
-            // 备选：使用内部存储的 files 目录（但推荐外部）
-            externalDir = new File("/sdcard");
-        }
-        File baseDir = new File(externalDir, APP_DIR);
+        // 使用公共外部存储（/sdcard/witv/）
+        File baseDir = new File("/sdcard", APP_DIR);
         if (!baseDir.exists()) {
             if (!baseDir.mkdirs()) {
                 Log.e("LogUtils", "创建根目录失败: " + baseDir.getAbsolutePath());
@@ -234,7 +229,7 @@ public class LogUtils {
 
     public static void createAppDirectories() {
         try {
-            File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
+            File baseDir = new File("/sdcard", APP_DIR);
             String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"};
             for (String sub : subDirs) {
                 File dir = new File(baseDir, sub);
@@ -249,7 +244,7 @@ public class LogUtils {
     }
 
     public static String getAppRootDir() {
-        return Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR;
+        return "/sdcard/" + APP_DIR;
     }
 
     public static String getEpgCacheDir() {
@@ -257,9 +252,7 @@ public class LogUtils {
     }
 }
 EOF
-     
-          
-            
+
 # ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
@@ -606,7 +599,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（修复 hideOverlay 和目录） ====================
+# ==================== MainActivity.java（修复崩溃 + 外部存储） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -749,6 +742,12 @@ public class MainActivity extends AppCompatActivity {
             epgRecycler = findViewById(R.id.epg_recycler);
             epgContainer = findViewById(R.id.epg_container);
 
+            // 修复崩溃：移除 onClick 属性，改用代码设置
+            View overlayClickArea = overlayLayout.findViewById(R.id.overlay_click_area);
+            if (overlayClickArea != null) {
+                overlayClickArea.setOnClickListener(v -> hideOverlay());
+            }
+
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
             channelRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -795,36 +794,38 @@ public class MainActivity extends AppCompatActivity {
             });
 
             // 加载订阅源
-            boolean hasSub = false;
-            String selected = prefs.getString(KEY_SELECTED_SUB, "");
-            if (!selected.isEmpty()) {
-                String[] parts = selected.split("\\|\\|");
-                if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
-                    currentSubName = parts[0];
-                    currentSubUrl = parts[1];
-                    hasSub = true;
-                }
-            }
-            if (!hasSub) {
-                for (SubEntry se : subEntryList) {
-                    if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
-                        currentSubName = se.name;
-                        currentSubUrl = se.url;
-                        prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+            mainHandler.postDelayed(() -> {
+                boolean hasSub = false;
+                String selected = prefs.getString(KEY_SELECTED_SUB, "");
+                if (!selected.isEmpty()) {
+                    String[] parts = selected.split("\\|\\|");
+                    if (parts.length == 2 && parts[1] != null && !parts[1].isEmpty()) {
+                        currentSubName = parts[0];
+                        currentSubUrl = parts[1];
                         hasSub = true;
-                        break;
                     }
                 }
-            }
+                if (!hasSub) {
+                    for (SubEntry se : subEntryList) {
+                        if (!"我的收藏".equals(se.name) && se.url != null && !se.url.isEmpty()) {
+                            currentSubName = se.name;
+                            currentSubUrl = se.url;
+                            prefs.edit().putString(KEY_SELECTED_SUB, se.name + "||" + se.url).apply();
+                            hasSub = true;
+                            break;
+                        }
+                    }
+                }
 
-            if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
-                LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
-                showNoSourceDialog();
-            } else {
-                LogUtils.writeLog("加载订阅源: " + currentSubUrl);
-                showLoadingDialog("正在加载订阅源...");
-                loadSourceForUrl(currentSubUrl);
-            }
+                if (!hasSub || currentSubUrl == null || currentSubUrl.isEmpty()) {
+                    LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
+                    showNoSourceDialog();
+                } else {
+                    LogUtils.writeLog("加载订阅源: " + currentSubUrl);
+                    showLoadingDialog("正在加载订阅源...");
+                    loadSourceForUrl(currentSubUrl);
+                }
+            }, 500);
 
             hideOverlayRunnable = () -> {
                 if (isOverlayVisible) hideOverlay();
@@ -838,11 +839,6 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeCrashLog(e);
             showFatalErrorDialog("初始化失败: " + e.getMessage());
         }
-    }
-
-    // 必须为 public，否则 xml 中的 onClick 找不到
-    public void hideOverlay(View v) {
-        hideOverlay();
     }
 
     private void showLoadingDialog(String message) {
@@ -1437,7 +1433,6 @@ public class MainActivity extends AppCompatActivity {
 }
 EOF
 
-
 # ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'EOF'
 package com.whyun.witv;
@@ -1807,7 +1802,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件 ====================
+# ==================== 布局文件（修改：移除 onClick） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -1918,12 +1913,12 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
             </LinearLayout>
         </LinearLayout>
         <View
+            android:id="@+id/overlay_click_area"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="0.65"
             android:background="#00000000"
-            android:clickable="true"
-            android:onClick="hideOverlay" />
+            android:clickable="true" />
     </LinearLayout>
 </FrameLayout>
 EOF
@@ -2244,13 +2239,10 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
-# 添加存储权限
-# 添加网络和存储权限
+# 添加存储权限和 cleartext
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-
-# 增加 cleartext 支持（允许 HTTP 明文传输）
-sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
+sed -i '/<application /a \        android:usesCleartextTraffic="true"\n        android:requestLegacyExternalStorage="true"' "$MANIFEST"
 echo "✅ 权限和 cleartext 已添加"
 
 # ========== 设置应用图标 ==========
