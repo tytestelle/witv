@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（完整模板生成版）"
+echo "🔥 部署酷9播放器（完整模板生成版 - 生成所有文件到 template/）"
 
 TEMPLATE_DIR="./template"
 if [ ! -d "$TEMPLATE_DIR" ]; then
@@ -340,7 +340,7 @@ public class ConfigurationManager {
 }
 EOF
 
-    # ==================== MainActivity.java（带日志功能） ====================
+    # ==================== MainActivity.java（含日志） ====================
     cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.content.Intent;
@@ -945,7 +945,120 @@ public class MainActivity extends AppCompatActivity {
             writeLog("CRASH: " + t.getMessage());
         } catch (Exception e) {}
     }
-    // Adapters 省略（与之前相同，但为完整脚本需包含）
+    // ---------- Adapters ----------
+    static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
+        private List<SubEntry> data;
+        private OnSubClickListener listener;
+        interface OnSubClickListener { void onClick(SubEntry entry); }
+        SubAdapter(List<SubEntry> data, OnSubClickListener listener) { this.data = data; this.listener = listener; }
+        void updateData(List<SubEntry> newData) { this.data = newData; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_sub, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            SubEntry entry = data.get(position);
+            holder.name.setText(entry.name);
+            if ("我的收藏".equals(entry.name)) holder.name.setTextColor(0xFFFFD700);
+            else holder.name.setTextColor(0xFFFFFFFF);
+            holder.itemView.setOnClickListener(v -> listener.onClick(entry));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.sub_name); }
+        }
+    }
+    static class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
+        private List<String> data;
+        private String selectedGroup;
+        private OnGroupClickListener listener;
+        interface OnGroupClickListener { void onClick(String group); }
+        GroupAdapter(List<String> data, OnGroupClickListener listener) { this.data = data; this.listener = listener; }
+        void updateData(List<String> newData) { this.data = newData; notifyDataSetChanged(); }
+        void setSelectedGroup(String group) { this.selectedGroup = group; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_group, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            String group = data.get(position);
+            holder.name.setText(group);
+            holder.itemView.setBackgroundColor(group.equals(selectedGroup) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(group));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); }
+        }
+    }
+    static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
+        private List<SourceManager.Channel> data;
+        private SourceManager.Channel selectedChannel;
+        private OnChannelClickListener listener;
+        private OnFavoriteClickListener favListener;
+        private Set<String> favoriteSet;
+        private File logoDir;
+        interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
+        interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
+        ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir,
+                       OnChannelClickListener listener, OnFavoriteClickListener favListener) {
+            this.data = data; this.favoriteSet = favorites; this.logoDir = logoDir;
+            this.listener = listener; this.favListener = favListener;
+        }
+        void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
+        void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
+        void setSelectedChannel(SourceManager.Channel ch) { this.selectedChannel = ch; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            SourceManager.Channel ch = data.get(position);
+            holder.name.setText(ch.name);
+            boolean isFav = favoriteSet.contains(ch.name);
+            holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
+            holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(ch));
+            holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
+            if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
+                String fileName = ch.name.hashCode() + ".png";
+                File logoFile = new File(logoDir, fileName);
+                if (logoFile.exists()) {
+                    holder.logo.setImageBitmap(BitmapFactory.decodeFile(logoFile.getAbsolutePath()));
+                    holder.logo.setVisibility(View.VISIBLE);
+                } else {
+                    holder.logo.setVisibility(View.GONE);
+                }
+            } else {
+                holder.logo.setVisibility(View.GONE);
+            }
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name, favIcon;
+            ImageView logo;
+            ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); logo = v.findViewById(R.id.channel_logo); }
+        }
+    }
+    static class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
+        private List<EPGParser.EpgProgram> data = new ArrayList<>();
+        EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
+        void setItems(List<EPGParser.EpgProgram> newData) { this.data = newData; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_epg, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            EPGParser.EpgProgram prog = data.get(position);
+            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
+            holder.time.setText(time);
+            holder.title.setText(prog.title);
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView time, title;
+            ViewHolder(View v) { super(v); time = v.findViewById(R.id.epg_time); title = v.findViewById(R.id.epg_title); }
+        }
+    }
 }
 EOF
 
@@ -1318,10 +1431,546 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-    # ==================== 布局文件（activity_main.xml, popup_info.xml 等） ====================
-    # 由于篇幅，此处省略所有布局文件的 cat，但完整脚本中必须包含。
-    # 为完整，我在最终答案中提供完整脚本的下载链接（但本环境不允许），所以我会在回答中直接粘贴完整脚本。
-    # 考虑到长度，我将在下一个消息中继续发送剩余部分。
+    # ==================== 布局文件（所有 XML） ====================
+    mkdir -p "$TEMPLATE_DIR/res/layout"
+    cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+    <View
+        android:id="@+id/left_click_area"
+        android:layout_width="48dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="#00000000" />
+    <LinearLayout
+        android:id="@+id/bottom_bar"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:layout_gravity="bottom"
+        android:background="#CC000000"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+        <TextView
+            android:id="@+id/tv_channel_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="频道名"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/tv_epg_info"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="节目信息"
+            android:textColor="#AAAAAA"
+            android:textSize="11sp"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/tv_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="16dp"
+            android:text="00:00 周一"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
+        <ImageButton
+            android:id="@+id/btn_epg"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_epg"
+            android:background="#00000000"
+            android:tint="#FFFFFF" />
+        <ImageButton
+            android:id="@+id/btn_announce"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_announce"
+            android:layout_marginStart="8dp"
+            android:background="#00000000"
+            android:tint="#FFFFFF" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/overlay_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:background="#CC000000"
+        android:visibility="gone">
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.35"
+            android:orientation="horizontal"
+            android:background="#CC000000">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:background="#33000000"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="订阅源"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:paddingBottom="2dp" />
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/sub_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="0.8"
+                android:orientation="vertical"
+                android:background="#44000000"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="分组"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:paddingBottom="2dp" />
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/group_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1.2"
+                android:orientation="vertical"
+                android:background="#55000000"
+                android:padding="4dp">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="频道列表"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:paddingBottom="2dp" />
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/channel_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+                <LinearLayout
+                    android:id="@+id/epg_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="0.3"
+                    android:orientation="vertical"
+                    android:background="#66000000"
+                    android:visibility="gone">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="节目单"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:padding="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/epg_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+        <View
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.65"
+            android:background="#00000000"
+            android:clickable="true"
+            android:onClick="hideOverlay" />
+    </LinearLayout>
+</FrameLayout>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#DD000000"
+    android:padding="16dp">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <ImageView
+            android:id="@+id/popup_logo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/popup_channel_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="频道名"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/popup_resolution"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="720x576"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_fps"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="25FPS"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_audio"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="立体声"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_ip"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="IPV4"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_line"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="线路1/1"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/popup_duration"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="距结束：--分钟"
+        android:textColor="#AAAAAA"
+        android:textSize="12sp" />
+    <TextView
+        android:id="@+id/popup_current_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="正在播放："
+        android:textColor="#FFFFFF"
+        android:textSize="14sp" />
+    <TextView
+        android:id="@+id/popup_next_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="下一节目："
+        android:textColor="#AAAAAA"
+        android:textSize="12sp" />
+</LinearLayout>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/sub_name"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="8dp"
+    android:textSize="13sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/group_name"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="8dp"
+    android:textSize="13sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingLeft="8dp"
+    android:paddingRight="8dp"
+    android:background="?attr/selectableItemBackground">
+    <ImageView
+        android:id="@+id/channel_logo"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:scaleType="fitCenter"
+        android:visibility="gone"
+        android:layout_marginEnd="6dp" />
+    <TextView
+        android:id="@+id/channel_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="13sp"
+        android:textColor="#FFFFFF" />
+    <TextView
+        android:id="@+id/channel_fav"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="★"
+        android:textSize="14sp"
+        android:textColor="#FFD700"
+        android:visibility="gone" />
+</LinearLayout>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="4dp"
+    android:background="?attr/selectableItemBackground">
+    <TextView
+        android:id="@+id/epg_time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#AAAAAA" />
+    <TextView
+        android:id="@+id/epg_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="13sp"
+        android:textColor="#FFFFFF" />
+</LinearLayout>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:background="#DD000000">
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/menu_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#33000000" android:padding="6dp" />
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/content_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2" android:background="#44000000" android:padding="6dp" />
+</LinearLayout>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menu_text"
+    android:layout_width="match_parent"
+    android:layout_height="44dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="12dp"
+    android:textSize="14sp"
+    android:textColor="#FFFFFF"
+    android:background="#33000000" />
+EOF
+
+    cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp"
+    android:background="#22000000">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/content_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF" />
+        <TextView
+            android:id="@+id/content_check"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="√"
+            android:textSize="16sp"
+            android:textColor="#4CAF50"
+            android:visibility="gone" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/content_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#AAAAAA" />
+</LinearLayout>
+EOF
+
+    # ==================== 图标资源 ====================
+    mkdir -p "$TEMPLATE_DIR/res/drawable"
+    cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path android:fillColor="#FF5722" android:pathData="M8,5v14l11,-7z"/>
+</vector>
+EOF
+
+    cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
+</vector>
+EOF
+    cat > "$TEMPLATE_DIR/res/drawable/ic_epg.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
+</vector>
+EOF
+    cat > "$TEMPLATE_DIR/res/drawable/ic_announce.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+</vector>
+EOF
+
+    echo "✅ 模板生成完毕"
+else
+    echo "📂 模板目录已存在，跳过生成"
 fi
 
-echo "✅ 模板生成完成"
+# ========== 复制模板到项目 ==========
+echo "📂 复制模板文件到项目..."
+rm -rf app/src/main/java/com/whyun/witv/ui
+rm -f app/src/main/java/com/whyun/witv/SettingsActivity.java
+rm -rf app/build
+cp -r "$TEMPLATE_DIR/src/." app/src/main/java/com/whyun/witv/
+cp -r "$TEMPLATE_DIR/res/." app/src/main/res/
+cp "$TEMPLATE_DIR/configuration.json" app/src/main/assets/
+
+mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/assets/download \
+         app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
+         app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
+echo "✅ 文件复制完成"
+
+# 修复 SettingsActivity import
+sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
+
+# ========== 自定义图标 ==========
+if [ -f "apk ico.jpeg" ]; then
+    cp "apk ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
+    rm -f app/src/main/res/drawable/ic_launcher.xml
+elif [ -f "apk_ico.jpeg" ]; then
+    cp "apk_ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
+    rm -f app/src/main/res/drawable/ic_launcher.xml
+elif [ -f "apk ico.png" ]; then
+    cp "apk ico.png" "app/src/main/res/drawable/ic_launcher.png"
+    rm -f app/src/main/res/drawable/ic_launcher.xml
+fi
+
+# ========== 添加依赖和权限 ==========
+APP_GRADLE="app/build.gradle"
+MANIFEST="app/src/main/AndroidManifest.xml"
+cp "$APP_GRADLE" "$APP_GRADLE.bak"
+sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
+sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
+sed -i '/implementation.*gson/d' "$APP_GRADLE"
+sed -i '/implementation.*preference/d' "$APP_GRADLE"
+sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
+echo "✅ 依赖已添加"
+
+sed -i '/android.permission.INTERNET/d' "$MANIFEST"
+sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+echo "✅ 权限已添加"
+
+# ========== 设置应用图标 ==========
+python3 <<PYTHON_SCRIPT
+import sys, xml.etree.ElementTree as ET
+from xml.dom import minidom
+ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
+manifest_file = "$MANIFEST"
+pkg = "com.whyun.witv"
+try:
+    tree = ET.parse(manifest_file); root = tree.getroot()
+except Exception as e:
+    print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
+app = root.find('application')
+if app is None:
+    print("未找到 application", file=sys.stderr); sys.exit(1)
+icon_attr = '{http://schemas.android.com/apk/res/android}icon'
+app.set(icon_attr, '@drawable/ic_launcher')
+for act in app.findall('activity'): app.remove(act)
+main_act = ET.Element('activity')
+main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
+main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+intent_filter = ET.SubElement(main_act, 'intent-filter')
+action = ET.SubElement(intent_filter, 'action')
+action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
+cat = ET.SubElement(intent_filter, 'category')
+cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
+app.append(main_act)
+settings_act = ET.Element('activity')
+settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
+settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+app.append(settings_act)
+xml_str = ET.tostring(root, encoding='unicode')
+dom = minidom.parseString(xml_str)
+pretty = dom.toprettyxml(indent="    ")
+pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
+with open(manifest_file, 'w') as f: f.write(pretty)
+print("✅ AndroidManifest 已更新")
+PYTHON_SCRIPT
+
+# ========== 构建 ==========
+echo "🧹 清理并构建..."
+./gradlew clean
+./gradlew assembleDebug
+
+echo ""
+echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
+echo "📌 模板已生成到 ./template/ 目录，下次可大幅精简脚本"
