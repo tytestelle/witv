@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（EPG功能增强版 - 支持别名映射 & 图标下载）"
+echo "🔥 部署 witv 播放器（EPG完整显示版 - 时间排序+描述）"
 
 TEMPLATE_DIR="./config"
 
@@ -274,7 +274,7 @@ public class LogUtils {
 }
 EOF
 
-# ==================== EPGParser.java（一次性解析，修正 mark/reset 错误） ====================
+# ==================== EPGParser.java（修复时间解析、排序、显示描述） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -297,6 +297,8 @@ import java.io.InputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -436,7 +438,9 @@ public class EPGParser {
         String progTitle = null;
         String progDesc = null;
 
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
+        // 支持带时区的格式，如 yyyyMMddHHmmss Z 或不带时区 yyyyMMddHHmmss
+        SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
+        SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
@@ -495,24 +499,28 @@ public class EPGParser {
                             prog.title = progTitle;
                             prog.desc = (progDesc != null) ? progDesc : "";
 
+                            // 解析开始时间（优先带时区）
                             if (progStart != null && !progStart.isEmpty()) {
                                 try {
-                                    prog.startTime = sdf.parse(progStart + " +0000").getTime();
+                                    prog.startTime = sdfWithZone.parse(progStart).getTime();
                                 } catch (ParseException e) {
                                     try {
-                                        SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-                                        prog.startTime = sdf2.parse(progStart).getTime();
-                                    } catch (ParseException ignored) {}
+                                        prog.startTime = sdfNoZone.parse(progStart).getTime();
+                                    } catch (ParseException ignored) {
+                                        LogUtils.writeLog("解析开始时间失败: " + progStart);
+                                    }
                                 }
                             }
+                            // 解析结束时间
                             if (progStop != null && !progStop.isEmpty()) {
                                 try {
-                                    prog.endTime = sdf.parse(progStop + " +0000").getTime();
+                                    prog.endTime = sdfWithZone.parse(progStop).getTime();
                                 } catch (ParseException e) {
                                     try {
-                                        SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-                                        prog.endTime = sdf2.parse(progStop).getTime();
-                                    } catch (ParseException ignored) {}
+                                        prog.endTime = sdfNoZone.parse(progStop).getTime();
+                                    } catch (ParseException ignored) {
+                                        LogUtils.writeLog("解析结束时间失败: " + progStop);
+                                    }
                                 }
                             }
 
@@ -576,6 +584,15 @@ public class EPGParser {
 
         List<EpgProgram> result = programMap.get(targetChannelId);
         if (result == null) result = new ArrayList<>();
+
+        // 按开始时间排序
+        Collections.sort(result, new Comparator<EpgProgram>() {
+            @Override
+            public int compare(EpgProgram o1, EpgProgram o2) {
+                return Long.compare(o1.startTime, o2.startTime);
+            }
+        });
+
         LogUtils.writeLog("最终返回节目数: " + result.size());
         return result;
     }
@@ -752,7 +769,7 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java ====================
+# ==================== MainActivity.java（调整 EpgAdapter 显示描述） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1440,10 +1457,11 @@ public class MainActivity extends AppCompatActivity {
                 tvDuration.setText("距结束：" + minutes + "分钟");
                 SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
                 String currentTime = sdf.format(new Date(currentProg.startTime)) + "-" + sdf.format(new Date(currentProg.endTime));
-                tvCurrentEpg.setText("正在播放：" + currentTime + " " + currentProg.title);
+                String desc = (currentProg.desc != null && !currentProg.desc.isEmpty()) ? currentProg.desc : "暂无描述信息";
+                tvCurrentEpg.setText("正在播放：" + currentTime + " " + currentProg.title + " " + desc);
                 if (currentEpgList.size() > 1) {
                     EPGParser.EpgProgram next = currentEpgList.get(1);
-                    tvNextEpg.setText("下一节目：" + sdf.format(new Date(next.startTime)) + "-" + sdf.format(new Date(next.endTime)) + " " + next.title);
+                    tvNextEpg.setText("下一节目：" + sdf.format(new Date(next.startTime)) + "-" + sdf.format(new Date(next.endTime)) + " " + next.title + (next.desc != null ? " " + next.desc : ""));
                 } else {
                     tvNextEpg.setText("下一节目：暂无");
                 }
@@ -1581,6 +1599,7 @@ public class MainActivity extends AppCompatActivity {
             ViewHolder(View v) { super(v); name = v.findViewById(R.id.channel_name); favIcon = v.findViewById(R.id.channel_fav); logo = v.findViewById(R.id.channel_logo); }
         }
     }
+    // ========== 修改 EpgAdapter 显示描述 ==========
     static class EpgAdapter extends RecyclerView.Adapter<EpgAdapter.ViewHolder> {
         private List<EPGParser.EpgProgram> data = new ArrayList<>();
         EpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
@@ -1594,11 +1613,22 @@ public class MainActivity extends AppCompatActivity {
             String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
             holder.time.setText(time);
             holder.title.setText(prog.title);
+            // 显示描述
+            if (prog.desc != null && !prog.desc.isEmpty()) {
+                holder.desc.setText(prog.desc);
+                holder.desc.setVisibility(View.VISIBLE);
+            } else {
+                holder.desc.setVisibility(View.GONE);
+            }
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView time, title;
-            ViewHolder(View v) { super(v); time = v.findViewById(R.id.epg_time); title = v.findViewById(R.id.epg_title); }
+            TextView time, title, desc;
+            ViewHolder(View v) { super(v); 
+                time = v.findViewById(R.id.epg_time);
+                title = v.findViewById(R.id.epg_title);
+                desc = v.findViewById(R.id.epg_desc);
+            }
         }
     }
 }
@@ -2257,6 +2287,7 @@ cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 </LinearLayout>
 EOF
 
+# ========== 修改 item_epg.xml 增加描述 ==========
 cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2276,7 +2307,16 @@ cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="13sp"
-        android:textColor="#FFFFFF" />
+        android:textColor="#FFFFFF"
+        android:fontFamily="sans-serif-medium" />
+    <TextView
+        android:id="@+id/epg_desc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#888888"
+        android:visibility="gone"
+        android:paddingTop="2dp" />
 </LinearLayout>
 EOF
 
