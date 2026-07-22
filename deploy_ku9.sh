@@ -1,14 +1,14 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署酷9播放器（强制生成所有文件到 config/）"
+echo "🔥 部署 witv 播放器（强制生成所有文件到 config/）"
 
 TEMPLATE_DIR="./config"
 
 # 强制重新生成，删除旧目录
 rm -rf "$TEMPLATE_DIR"
 mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values}
-mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite"
+mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite" "$TEMPLATE_DIR/src/utils"
 
 # ==================== configuration.json ====================
 cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
@@ -141,7 +141,124 @@ public class SourceManager {
 }
 EOF
 
-# ==================== EPGParser.java（增强版，支持模糊匹配和流式解析） ====================
+# ==================== 日志工具类 LogUtils.java ====================
+cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'EOF'
+package com.whyun.witv.utils;
+
+import android.os.Environment;
+import android.util.Log;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public class LogUtils {
+    private static final String APP_DIR = "witv";
+    private static final String LOG_DIR_NAME = "logs";
+    private static final String LOG_FILE = "app.log";
+    private static String sLogDirPath = null;
+
+    /**
+     * 初始化日志目录（在 Application 或 MainActivity 中调用）
+     */
+    public static void init() {
+        if (sLogDirPath != null) return;
+        try {
+            File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
+            if (!baseDir.exists()) {
+                baseDir.mkdirs();
+            }
+            File logDir = new File(baseDir, LOG_DIR_NAME);
+            if (!logDir.exists()) {
+                logDir.mkdirs();
+            }
+            sLogDirPath = logDir.getAbsolutePath();
+            writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
+        } catch (Exception e) {
+            sLogDirPath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR + "/" + LOG_DIR_NAME;
+            writeLog("日志目录初始化异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取日志目录路径
+     */
+    public static String getLogDir() {
+        if (sLogDirPath == null) init();
+        return sLogDirPath;
+    }
+
+    /**
+     * 写入常规日志
+     */
+    public static void writeLog(String message) {
+        try {
+            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
+            String log = time + " - " + message + "\n";
+            File logFile = new File(getLogDir(), LOG_FILE);
+            FileOutputStream fos = new FileOutputStream(logFile, true);
+            fos.write(log.getBytes());
+            fos.close();
+        } catch (Exception e) {
+            Log.e("LogUtils", "写入日志失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 写入崩溃日志（带堆栈）
+     */
+    public static void writeCrashLog(Throwable t) {
+        try {
+            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            t.printStackTrace(pw);
+            String stack = sw.toString();
+            String log = "========== CRASH at " + time + " ==========\n" + stack + "\n\n";
+            String fileName = "crash_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt";
+            File logFile = new File(getLogDir(), fileName);
+            FileOutputStream fos = new FileOutputStream(logFile);
+            fos.write(log.getBytes());
+            fos.close();
+            writeLog("CRASH: " + t.getMessage());
+        } catch (Exception e) {
+            Log.e("LogUtils", "写入崩溃日志失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 创建所有应用目录（localData, backup, download, videoFile, configuration, logo, js, py, webviewJscode, epgCache）
+     */
+    public static void createAppDirectories() {
+        try {
+            File baseDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
+            String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"};
+            for (String sub : subDirs) {
+                File dir = new File(baseDir, sub);
+                if (!dir.exists()) {
+                    dir.mkdirs();
+                }
+            }
+            writeLog("应用目录创建完成: " + baseDir.getAbsolutePath());
+        } catch (Exception e) {
+            writeLog("创建应用目录失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取应用根目录
+     */
+    public static String getAppRootDir() {
+        return Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + APP_DIR;
+    }
+}
+EOF
+
+# ==================== EPGParser.java（增强版 + 日志） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EOF'
 package com.whyun.witv.epg;
 
@@ -149,6 +266,8 @@ import android.util.Xml;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
+
+import com.whyun.witv.utils.LogUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -171,6 +290,7 @@ public class EPGParser {
     }
 
     public static void loadEpg(String url, String channelName, OnEpgLoadListener listener) {
+        LogUtils.writeLog("EPG加载开始: url=" + url + ", channel=" + channelName);
         new Thread(() -> {
             OkHttpClient client = null;
             Response response = null;
@@ -193,6 +313,7 @@ public class EPGParser {
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                         .build();
 
+                LogUtils.writeLog("EPG 请求发送: " + url);
                 response = client.newCall(request).execute();
                 if (!response.isSuccessful()) {
                     throw new Exception("HTTP " + response.code());
@@ -200,12 +321,14 @@ public class EPGParser {
 
                 is = response.body().byteStream();
                 List<EpgProgram> programs = parseXmltvStream(is, channelName);
+                LogUtils.writeLog("EPG 解析成功，节目数: " + (programs != null ? programs.size() : 0));
 
                 android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
                 mainHandler.post(() -> listener.onLoaded(programs));
 
             } catch (Exception e) {
-                e.printStackTrace();
+                LogUtils.writeCrashLog(e);
+                LogUtils.writeLog("EPG 加载异常: " + e.getMessage());
                 android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
                 mainHandler.post(() -> listener.onError(e.getMessage()));
             } finally {
@@ -223,6 +346,7 @@ public class EPGParser {
         parser.setInput(is, "UTF-8");
 
         String normalizedChannelName = normalizeChannelName(channelName);
+        LogUtils.writeLog("归一化频道名: " + normalizedChannelName);
 
         int eventType = parser.getEventType();
         String currentTag = null;
@@ -232,97 +356,111 @@ public class EPGParser {
         String currentTitle = null;
         String currentDesc = null;
         boolean inProgramme = false;
+        int programCount = 0;
 
         SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
-            switch (eventType) {
-                case XmlPullParser.START_TAG:
-                    currentTag = parser.getName();
-                    if ("programme".equals(currentTag)) {
-                        inProgramme = true;
-                        currentChannel = parser.getAttributeValue(null, "channel");
-                        currentStart = parser.getAttributeValue(null, "start");
-                        currentStop = parser.getAttributeValue(null, "stop");
-                        currentTitle = null;
-                        currentDesc = null;
-                    }
-                    break;
-
-                case XmlPullParser.TEXT:
-                    if (inProgramme && parser.getText() != null) {
-                        String text = parser.getText().trim();
-                        if ("title".equals(currentTag)) {
-                            if (currentTitle == null) currentTitle = text;
-                            else currentTitle += text;
-                        } else if ("desc".equals(currentTag)) {
-                            if (currentDesc == null) currentDesc = text;
-                            else currentDesc += text;
+            try {
+                switch (eventType) {
+                    case XmlPullParser.START_TAG:
+                        currentTag = parser.getName();
+                        if ("programme".equals(currentTag)) {
+                            inProgramme = true;
+                            currentChannel = parser.getAttributeValue(null, "channel");
+                            currentStart = parser.getAttributeValue(null, "start");
+                            currentStop = parser.getAttributeValue(null, "stop");
+                            currentTitle = null;
+                            currentDesc = null;
+                            programCount++;
                         }
-                    }
-                    break;
+                        break;
 
-                case XmlPullParser.END_TAG:
-                    if ("programme".equals(parser.getName())) {
-                        inProgramme = false;
-
-                        if (currentTitle != null && !currentTitle.isEmpty()) {
-                            boolean channelMatches = false;
-
-                            if (currentChannel != null) {
-                                String normalizedCurrent = normalizeChannelName(currentChannel);
-                                if (normalizedCurrent.equals(normalizedChannelName) ||
-                                        normalizedCurrent.contains(normalizedChannelName) ||
-                                        normalizedChannelName.contains(normalizedCurrent)) {
-                                    channelMatches = true;
-                                }
+                    case XmlPullParser.TEXT:
+                        if (inProgramme && parser.getText() != null) {
+                            String text = parser.getText().trim();
+                            if ("title".equals(currentTag)) {
+                                if (currentTitle == null) currentTitle = text;
+                                else currentTitle += text;
+                            } else if ("desc".equals(currentTag)) {
+                                if (currentDesc == null) currentDesc = text;
+                                else currentDesc += text;
                             }
+                        }
+                        break;
 
-                            if (!channelMatches && currentChannel == null) {
-                                String normalizedTitle = normalizeChannelName(currentTitle);
-                                if (normalizedTitle.equals(normalizedChannelName) ||
-                                        normalizedTitle.contains(normalizedChannelName) ||
-                                        normalizedChannelName.contains(normalizedTitle)) {
-                                    channelMatches = true;
-                                }
-                            }
+                    case XmlPullParser.END_TAG:
+                        if ("programme".equals(parser.getName())) {
+                            inProgramme = false;
 
-                            if (channelMatches) {
-                                EpgProgram prog = new EpgProgram();
-                                prog.title = currentTitle != null ? currentTitle : "";
-                                prog.desc = currentDesc != null ? currentDesc : "";
+                            if (currentTitle != null && !currentTitle.isEmpty()) {
+                                boolean channelMatches = false;
 
-                                if (currentStart != null && !currentStart.isEmpty()) {
-                                    try {
-                                        prog.startTime = sdf.parse(currentStart + " +0000").getTime();
-                                    } catch (ParseException e) {
-                                        try {
-                                            SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-                                            prog.startTime = sdf2.parse(currentStart).getTime();
-                                        } catch (ParseException ignored) {}
+                                if (currentChannel != null) {
+                                    String normalizedCurrent = normalizeChannelName(currentChannel);
+                                    if (normalizedCurrent.equals(normalizedChannelName) ||
+                                            normalizedCurrent.contains(normalizedChannelName) ||
+                                            normalizedChannelName.contains(normalizedCurrent)) {
+                                        channelMatches = true;
                                     }
                                 }
 
-                                if (currentStop != null && !currentStop.isEmpty()) {
-                                    try {
-                                        prog.endTime = sdf.parse(currentStop + " +0000").getTime();
-                                    } catch (ParseException e) {
-                                        try {
-                                            SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-                                            prog.endTime = sdf2.parse(currentStop).getTime();
-                                        } catch (ParseException ignored) {}
+                                if (!channelMatches && currentChannel == null) {
+                                    String normalizedTitle = normalizeChannelName(currentTitle);
+                                    if (normalizedTitle.equals(normalizedChannelName) ||
+                                            normalizedTitle.contains(normalizedChannelName) ||
+                                            normalizedChannelName.contains(normalizedTitle)) {
+                                        channelMatches = true;
                                     }
                                 }
 
-                                result.add(prog);
+                                if (channelMatches) {
+                                    EpgProgram prog = new EpgProgram();
+                                    prog.title = currentTitle != null ? currentTitle : "";
+                                    prog.desc = currentDesc != null ? currentDesc : "";
+
+                                    if (currentStart != null && !currentStart.isEmpty()) {
+                                        try {
+                                            prog.startTime = sdf.parse(currentStart + " +0000").getTime();
+                                        } catch (ParseException e) {
+                                            try {
+                                                SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+                                                prog.startTime = sdf2.parse(currentStart).getTime();
+                                            } catch (ParseException ignored) {
+                                                LogUtils.writeLog("解析开始时间失败: " + currentStart);
+                                            }
+                                        }
+                                    }
+
+                                    if (currentStop != null && !currentStop.isEmpty()) {
+                                        try {
+                                            prog.endTime = sdf.parse(currentStop + " +0000").getTime();
+                                        } catch (ParseException e) {
+                                            try {
+                                                SimpleDateFormat sdf2 = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
+                                                prog.endTime = sdf2.parse(currentStop).getTime();
+                                            } catch (ParseException ignored) {
+                                                LogUtils.writeLog("解析结束时间失败: " + currentStop);
+                                            }
+                                        }
+                                    }
+
+                                    result.add(prog);
+                                    LogUtils.writeLog("匹配到节目: " + prog.title + " " + prog.startTime);
+                                }
                             }
                         }
-                    }
-                    break;
+                        break;
+                }
+                eventType = parser.next();
+            } catch (Exception e) {
+                LogUtils.writeCrashLog(e);
+                LogUtils.writeLog("解析XML异常: " + e.getMessage());
+                throw e;
             }
-            eventType = parser.next();
         }
 
+        LogUtils.writeLog("解析完成，总节目数: " + programCount + ", 匹配结果数: " + result.size());
         return result;
     }
 
@@ -451,14 +589,16 @@ public class ConfigurationManager {
 }
 EOF
 
-# ==================== MainActivity.java（已移除底部栏） ====================
+# ==================== MainActivity.java（完整版，含日志 + 目录创建） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'EOF'
 package com.whyun.witv;
+import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.BitmapFactory;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
@@ -473,7 +613,10 @@ import android.widget.ImageView;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.media3.common.MediaItem;
@@ -486,6 +629,7 @@ import com.whyun.witv.source.SourceManager;
 import com.whyun.witv.epg.EPGParser;
 import com.whyun.witv.player.PlayerConfigManager;
 import com.whyun.witv.favorite.FavoriteManager;
+import com.whyun.witv.utils.LogUtils;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -504,8 +648,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 public class MainActivity extends AppCompatActivity {
-    private static final String LOG_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
-    private static final String LOG_FILE_PREFIX = "crash_log_";
+    private static final int REQUEST_PERMISSIONS = 100;
     private PlayerView playerView;
     private ExoPlayer player;
     private SourceManager.Channel currentChannel;
@@ -537,15 +680,33 @@ public class MainActivity extends AppCompatActivity {
     private View epgContainer;
     private List<EPGParser.EpgProgram> currentEpgList = new ArrayList<>();
     static class SubEntry { String name, url; }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
-            writeCrashLog(throwable);
+            LogUtils.writeCrashLog(throwable);
             android.os.Process.killProcess(android.os.Process.myPid());
             System.exit(1);
         });
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
+
+        // 初始化日志和目录
+        LogUtils.init();
+        LogUtils.createAppDirectories();
+        LogUtils.writeLog("=== 应用启动 ===");
+
+        // 请求存储权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                Manifest.permission.READ_EXTERNAL_STORAGE},
+                        REQUEST_PERMISSIONS);
+            }
+        }
+
         try {
             setContentView(R.layout.activity_main);
             config = ConfigurationManager.getInstance(this);
@@ -553,8 +714,9 @@ public class MainActivity extends AppCompatActivity {
             FavoriteManager.init(this);
             prefs = PreferenceManager.getDefaultSharedPreferences(this);
             favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
-            logoDir = new File(getFilesDir(), "logo");
+            logoDir = new File(LogUtils.getAppRootDir(), "logo");
             if (!logoDir.exists()) logoDir.mkdirs();
+
             playerView = findViewById(R.id.player_container);
             overlayLayout = findViewById(R.id.overlay_layout);
             subRecycler = findViewById(R.id.sub_recycler);
@@ -562,10 +724,12 @@ public class MainActivity extends AppCompatActivity {
             channelRecycler = findViewById(R.id.channel_recycler);
             epgRecycler = findViewById(R.id.epg_recycler);
             epgContainer = findViewById(R.id.epg_container);
+
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
             channelRecycler.setLayoutManager(new LinearLayoutManager(this));
             epgRecycler.setLayoutManager(new LinearLayoutManager(this));
+
             loadSubscriptions();
             subAdapter = new SubAdapter(subEntryList, entry -> {
                 currentSubName = entry.name;
@@ -575,12 +739,14 @@ public class MainActivity extends AppCompatActivity {
                 hideOverlay();
             });
             subRecycler.setAdapter(subAdapter);
+
             groupAdapter = new GroupAdapter(new ArrayList<>(), group -> {
                 currentGroup = group;
                 showChannelsForGroup(group);
                 groupAdapter.setSelectedGroup(group);
             });
             groupRecycler.setAdapter(groupAdapter);
+
             channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, channel -> {
                 playChannel(channel);
                 loadEpgForChannel(channel);
@@ -588,8 +754,10 @@ public class MainActivity extends AppCompatActivity {
                 hideOverlay();
             }, this::toggleFavorite);
             channelRecycler.setAdapter(channelAdapter);
+
             epgAdapter = new EpgAdapter(new ArrayList<>());
             epgRecycler.setAdapter(epgAdapter);
+
             playerView.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_UP) {
                     float y = event.getY();
@@ -601,6 +769,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 return false;
             });
+
             String selected = prefs.getString(KEY_SELECTED_SUB, "");
             if (!selected.isEmpty()) {
                 String[] parts = selected.split("\\|\\|");
@@ -609,6 +778,7 @@ public class MainActivity extends AppCompatActivity {
                     currentSubUrl = parts[1];
                 }
             }
+
             if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
                 loadSourceForUrl(currentSubUrl);
             } else if (!subEntryList.isEmpty()) {
@@ -629,18 +799,34 @@ public class MainActivity extends AppCompatActivity {
                     loadSourceForUrl(defaultUrl);
                 }
             }
+
             hideOverlayRunnable = () -> {
                 if (isOverlayVisible) hideOverlay();
             };
             findViewById(R.id.left_click_area).setOnClickListener(v -> {
                 if (!isOverlayVisible) showOverlay();
             });
-            writeLog("应用启动成功");
+
+            LogUtils.writeLog("应用启动成功");
         } catch (Exception e) {
-            writeCrashLog(e);
+            LogUtils.writeCrashLog(e);
             Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_PERMISSIONS) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                LogUtils.writeLog("存储权限已获取");
+                LogUtils.createAppDirectories();
+            } else {
+                LogUtils.writeLog("存储权限被拒绝");
+            }
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -669,10 +855,11 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         } catch (Exception e) {
-            writeCrashLog(e);
+            LogUtils.writeCrashLog(e);
             Toast.makeText(this, "恢复时出错: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void loadSubscriptions() {
         subEntryList.clear();
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
@@ -692,12 +879,13 @@ public class MainActivity extends AppCompatActivity {
         fav.url = null;
         subEntryList.add(0, fav);
     }
+
     private void loadSourceForUrl(String url) {
         if (isLoading || url == null || url.isEmpty()) return;
         isLoading = true;
         if (url.contains("$")) url = url.substring(0, url.indexOf("$"));
         final String finalUrl = url;
-        writeLog("开始加载源: " + finalUrl);
+        LogUtils.writeLog("开始加载源: " + finalUrl);
         Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
         new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
             @Override
@@ -717,20 +905,21 @@ public class MainActivity extends AppCompatActivity {
                     }
                     showOverlay();
                     resetAutoHideTimer();
-                    writeLog("源加载成功，频道数: " + (map != null ? map.size() : 0));
+                    LogUtils.writeLog("源加载成功，分组数: " + (map != null ? map.size() : 0));
                 } catch (Exception e) {
-                    writeCrashLog(e);
+                    LogUtils.writeCrashLog(e);
                     Toast.makeText(MainActivity.this, "加载数据异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             }
             @Override
             public void onError(String error) {
                 isLoading = false;
-                writeLog("加载源失败: " + error);
+                LogUtils.writeLog("加载源失败: " + error);
                 Toast.makeText(MainActivity.this, "加载失败: " + error, Toast.LENGTH_LONG).show();
             }
         });
     }
+
     private void showChannelsForGroup(String group) {
         try {
             List<SourceManager.Channel> list;
@@ -770,10 +959,11 @@ public class MainActivity extends AppCompatActivity {
                 loadEpgForChannel(ch);
             }
         } catch (Exception e) {
-            writeCrashLog(e);
+            LogUtils.writeCrashLog(e);
             Toast.makeText(this, "显示分组异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void downloadLogo(String logoUrl, String channelName) {
         new Thread(() -> {
             try {
@@ -798,10 +988,11 @@ public class MainActivity extends AppCompatActivity {
                 is.close();
                 runOnUiThread(() -> channelAdapter.notifyDataSetChanged());
             } catch (Exception e) {
-                writeCrashLog(e);
+                LogUtils.writeCrashLog(e);
             }
         }).start();
     }
+
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
@@ -820,7 +1011,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onPlayerError(PlaybackException error) {
                         runOnUiThread(() -> {
-                            writeCrashLog(error);
+                            LogUtils.writeCrashLog(error);
                             Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
                         });
                     }
@@ -830,18 +1021,20 @@ public class MainActivity extends AppCompatActivity {
             player.prepare();
             player.play();
             loadEpgForChannel(channel);
-            writeLog("播放频道: " + channel.name + " URL: " + channel.url);
+            LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
         } catch (Exception e) {
-            writeCrashLog(e);
+            LogUtils.writeCrashLog(e);
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void loadEpgForChannel(SourceManager.Channel channel) {
         try {
             String epgUrl = prefs.getString("epg_url", null);
             if (epgUrl == null || epgUrl.isEmpty()) {
                 epgUrl = config.getString("EPG_URLS", null);
                 if (epgUrl == null || epgUrl.isEmpty()) {
+                    LogUtils.writeLog("未配置EPG URL");
                     epgAdapter.setItems(new ArrayList<>());
                     currentEpgList.clear();
                     return;
@@ -849,6 +1042,7 @@ public class MainActivity extends AppCompatActivity {
             }
             if (epgUrl.contains("$")) epgUrl = epgUrl.substring(0, epgUrl.indexOf("$"));
             final String finalEpgUrl = epgUrl;
+            LogUtils.writeLog("开始加载EPG: " + finalEpgUrl + " for " + channel.name);
             EPGParser.loadEpg(finalEpgUrl, channel.name, new EPGParser.OnEpgLoadListener() {
                 @Override
                 public void onLoaded(List<EPGParser.EpgProgram> programs) {
@@ -856,9 +1050,9 @@ public class MainActivity extends AppCompatActivity {
                         try {
                             currentEpgList = programs;
                             epgAdapter.setItems(programs);
-                            writeLog("EPG加载成功，节目数: " + programs.size());
+                            LogUtils.writeLog("EPG加载成功，节目数: " + programs.size());
                         } catch (Exception e) {
-                            writeCrashLog(e);
+                            LogUtils.writeCrashLog(e);
                         }
                     });
                 }
@@ -867,15 +1061,16 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         epgAdapter.setItems(new ArrayList<>());
                         currentEpgList.clear();
-                        writeLog("EPG加载失败: " + error);
+                        LogUtils.writeLog("EPG加载失败: " + error);
                     });
                 }
             });
         } catch (Exception e) {
-            writeCrashLog(e);
+            LogUtils.writeCrashLog(e);
             Toast.makeText(this, "EPG加载异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void toggleFavorite(SourceManager.Channel channel) {
         try {
             if (favoriteSet.contains(channel.name)) {
@@ -888,27 +1083,31 @@ public class MainActivity extends AppCompatActivity {
             channelAdapter.updateFavorites(favoriteSet);
             Toast.makeText(this, favoriteSet.contains(channel.name) ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            writeCrashLog(e);
+            LogUtils.writeCrashLog(e);
             Toast.makeText(this, "收藏操作异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     private void showOverlay() {
         isOverlayVisible = true;
         overlayLayout.setVisibility(View.VISIBLE);
         resetAutoHideTimer();
         epgContainer.setVisibility(View.GONE);
     }
+
     private void hideOverlay() {
         isOverlayVisible = false;
         overlayLayout.setVisibility(View.GONE);
         mainHandler.removeCallbacks(hideOverlayRunnable);
     }
+
     private void resetAutoHideTimer() {
         mainHandler.removeCallbacks(hideOverlayRunnable);
         if (isOverlayVisible) {
             mainHandler.postDelayed(hideOverlayRunnable, 5000);
         }
     }
+
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -971,10 +1170,11 @@ public class MainActivity extends AppCompatActivity {
             popup.showAtLocation(findViewById(android.R.id.content), Gravity.BOTTOM, 0, 0);
             popupView.setOnClickListener(v -> popup.dismiss());
         } catch (Exception e) {
-            writeCrashLog(e);
+            LogUtils.writeCrashLog(e);
             Toast.makeText(this, "信息窗口异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -983,6 +1183,7 @@ public class MainActivity extends AppCompatActivity {
         }
         return super.onKeyDown(keyCode, event);
     }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -991,37 +1192,9 @@ public class MainActivity extends AppCompatActivity {
             player = null;
         }
         mainHandler.removeCallbacks(hideOverlayRunnable);
+        LogUtils.writeLog("=== 应用退出 ===");
     }
-    private void writeLog(String message) {
-        try {
-            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
-            String log = time + " - " + message + "\n";
-            File dir = new File(LOG_DIR);
-            if (!dir.exists()) dir.mkdirs();
-            File logFile = new File(dir, LOG_FILE_PREFIX + "app.log");
-            FileOutputStream fos = new FileOutputStream(logFile, true);
-            fos.write(log.getBytes());
-            fos.close();
-        } catch (Exception e) {}
-    }
-    private void writeCrashLog(Throwable t) {
-        try {
-            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            t.printStackTrace(pw);
-            String stack = sw.toString();
-            String log = "========== CRASH at " + time + " ==========\n" + stack + "\n\n";
-            File dir = new File(LOG_DIR);
-            if (!dir.exists()) dir.mkdirs();
-            String fileName = LOG_FILE_PREFIX + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt";
-            File logFile = new File(dir, fileName);
-            FileOutputStream fos = new FileOutputStream(logFile);
-            fos.write(log.getBytes());
-            fos.close();
-            writeLog("CRASH: " + t.getMessage());
-        } catch (Exception e) {}
-    }
+
     // ---------- Adapters ----------
     static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
         private List<SubEntry> data;
@@ -1452,7 +1625,7 @@ public class SettingsActivity extends AppCompatActivity {
     }
     private void showMoreInfo() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("更多管理").setMessage("酷9 2.0.1\n软件仅供测试").setPositiveButton("确定", null);
+        builder.setTitle("更多管理").setMessage("witv 1.0.0\n软件仅供测试").setPositiveButton("确定", null);
         AlertDialog dialog = builder.create();
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         dialog.show();
@@ -1508,7 +1681,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 EOF
 
-# ==================== 布局文件（所有 XML） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -1945,6 +2118,7 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
+# 添加存储权限
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 echo "✅ 权限已添加"
@@ -1995,3 +2169,6 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
+echo "📂 应用安装后会在 /sdcard/witv/ 下创建以下目录："
+echo "   localData, backup, download, videoFile, configuration, logo, js, py, webviewJscode, epgCache, logs"
+echo "📋 日志文件位于 /sdcard/witv/logs/app.log 和 crash_*.txt"
