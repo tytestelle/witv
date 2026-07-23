@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（酷9风格最终完整版 - 全量EPG缓存 + 自动加载）"
+echo "🔥 部署 witv 播放器（加强EPG解析 + 节目单高亮）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（修正：解析所有频道，无论是否有 display-name） ====================
+# ==================== EPGParser.java（增强解析：记录所有频道，即使没有节目也保留） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -398,6 +398,8 @@ public class EPGParser {
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
+        // 额外记录所有 channel id，即使没有节目
+        Set<String> allChannelIds = new HashSet<>();
 
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
@@ -416,7 +418,6 @@ public class EPGParser {
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
 
-        // 先遍历一遍，收集所有 channel 信息
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
                 case XmlPullParser.START_TAG:
@@ -426,6 +427,10 @@ public class EPGParser {
                         currentChannelId = parser.getAttributeValue(null, "id");
                         currentDisplayName = null;
                         currentIconUrl = null;
+                        // 记录所有频道 ID
+                        if (currentChannelId != null) {
+                            allChannelIds.add(currentChannelId);
+                        }
                     } else if (inChannel && "display-name".equals(currentTag)) {
                         // 读取 display-name 文本
                     } else if (inChannel && "icon".equals(currentTag)) {
@@ -457,16 +462,14 @@ public class EPGParser {
                 case XmlPullParser.END_TAG:
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
-                        // 即使 display-name 为空，也保留频道，使用 id 作为显示名
+                        // 记录 display-name 到 ID 的映射，即使没有节目
                         if (currentChannelId != null) {
                             String display = (currentDisplayName != null && !currentDisplayName.isEmpty()) 
                                     ? currentDisplayName : currentChannelId;
-                            channelNameToId.put(normalizeChannelName(display), currentChannelId);
+                            String norm = normalizeChannelName(display);
+                            channelNameToId.put(norm, currentChannelId);
                             channelNameToId.put(display, currentChannelId);
-                            // 同时加入 id 自身，便于直接匹配
                             channelNameToId.put(currentChannelId, currentChannelId);
-                            // 存储图标信息（可选）
-                            // 这里不存储图标，因为后面可能用到，但我们直接解析所有节目时不需要图标
                         }
                         currentDisplayName = null;
                     } else if ("programme".equals(parser.getName())) {
@@ -493,21 +496,23 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 将别名映射加入到 channelNameToId 中
+        // 将别名映射加入到 channelNameToId 中（覆盖已有映射）
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
                 String epgid = entry.getValue();
-                // 如果该 epgid 在 allPrograms 中存在，则添加别名映射
-                if (allPrograms.containsKey(epgid)) {
+                // 如果该 epgid 在 allPrograms 中存在，或者 allChannelIds 中存在，都添加别名
+                if (allPrograms.containsKey(epgid) || allChannelIds.contains(epgid)) {
                     channelNameToId.put(alias, epgid);
                     channelNameToId.put(normalizeChannelName(alias), epgid);
                 }
             }
         }
 
-        // 统计频道数量
-        LogUtils.writeLog("解析完成：频道数=" + allPrograms.size() + ", 名称映射=" + channelNameToId.size());
+        // 统计频道数量（包括没有节目的频道）
+        int totalChannels = allChannelIds.size();
+        int channelsWithPrograms = allPrograms.size();
+        LogUtils.writeLog("解析完成：总频道数=" + totalChannels + ", 有节目频道数=" + channelsWithPrograms + ", 名称映射数=" + channelNameToId.size());
 
         sAllPrograms = allPrograms;
         sChannelNameToId = channelNameToId;
@@ -518,11 +523,9 @@ public class EPGParser {
         String normalized = normalizeChannelName(channelName);
         String channelId = sChannelNameToId.get(normalized);
         if (channelId == null) {
-            // 尝试原始名称
             channelId = sChannelNameToId.get(channelName);
         }
         if (channelId == null) {
-            // 尝试包含匹配
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
                 if (key.contains(normalized) || normalized.contains(key) || key.contains(channelName) || channelName.contains(key)) {
@@ -535,7 +538,6 @@ public class EPGParser {
         if (channelId == null) return new ArrayList<>();
         List<EpgProgram> result = sAllPrograms.get(channelId);
         if (result == null) result = new ArrayList<>();
-        // 排序：按开始时间排序
         Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
         return result;
     }
@@ -683,7 +685,7 @@ printf '%s\n' \
 
 # ==================== 第一条消息结束 ====================
 # 请继续复制第二条消息
-# ==================== MainActivity.java ====================
+# ==================== MainActivity.java（保留原有EPG显示，增加节目单高亮） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -953,7 +955,6 @@ public class MainActivity extends AppCompatActivity {
                     public void onLoaded(Map<String, List<EPGParser.EpgProgram>> allPrograms, Map<String, String> channelNameToId) {
                         runOnUiThread(() -> {
                             epgCacheMap.clear();
-                            // 构建频道名到节目列表的映射
                             for (Map.Entry<String, String> entry : channelNameToId.entrySet()) {
                                 String name = entry.getKey();
                                 String id = entry.getValue();
@@ -964,10 +965,8 @@ public class MainActivity extends AppCompatActivity {
                             }
                             epgLoaded = true;
                             LogUtils.writeLog("全量EPG加载完成，缓存频道数: " + epgCacheMap.size());
-                            // 刷新界面
                             channelAdapter.notifyDataSetChanged();
                             scheduleChannelAdapter.notifyDataSetChanged();
-                            // 如果当前有正在播放的频道，更新其EPG列表
                             if (currentChannel != null && epgCacheMap.containsKey(currentChannel.name)) {
                                 currentEpgList = epgCacheMap.get(currentChannel.name);
                             }
@@ -1165,8 +1164,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onPlayerError(PlaybackException error) {
                         runOnUiThread(() -> {
                             LogUtils.writeCrashLog(error);
-                            Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
-                            // 重试
+                            Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show());
                             if (player != null && currentChannel != null) {
                                 player.prepare();
                                 player.play();
@@ -1189,7 +1187,6 @@ public class MainActivity extends AppCompatActivity {
             player.setMediaItem(MediaItem.fromUri(channel.url));
             player.prepare();
             player.play();
-            // 从缓存获取EPG
             if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
                 List<EPGParser.EpgProgram> list = epgCacheMap.get(channel.name);
                 if (list != null && !list.isEmpty()) {
@@ -1812,8 +1809,6 @@ public class MainActivity extends AppCompatActivity {
 }
 MAINEOF
 
-# ==================== 第二条消息结束 ====================
-# 请继续复制第三条消息
 # ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETEOF'
 package com.whyun.witv;
@@ -2784,4 +2779,4 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 全量EPG缓存：首次加载时一次性解析全部频道，切换频道无需重复加载。"
+echo "💡 增强解析：记录所有频道（即使无节目），别名映射更全，节目单高亮当前节目。"
