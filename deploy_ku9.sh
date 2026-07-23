@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 基于稳定版本）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 支持台标、断线重连）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -653,7 +653,6 @@ public class EPGParser {
                         realId = channelNameToId.get(normalizedEpgid);
                     } else {
                         // 3. 用归一化后的别名与 channelNameToId 的所有 key 进行包含匹配（兜底）
-                        //    注意：这里使用 alias（可能已经是归一化的），但为了更准确，我们用 normalizedAlias
                         String normalizedAlias = normalizeChannelName(alias);
                         for (Map.Entry<String, String> kv : channelNameToId.entrySet()) {
                             String key = kv.getKey();
@@ -786,7 +785,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java ====================
+# ==================== MainActivity.java（支持台标、断线重连、点击加载订阅） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -879,6 +878,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_SELECTED_SUBS = "selected_subs";
     private static final String KEY_LAST_CHANNEL = "last_channel";
     private static final String KEY_LAST_GROUP = "last_group";
+    private static final String KEY_AUTO_RECONNECT = "auto_reconnect";
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
     private Runnable hideOverlayRunnable;
@@ -899,6 +899,8 @@ public class MainActivity extends AppCompatActivity {
     private View leftClickArea;
     private Map<String, List<EPGParser.EpgProgram>> epgCacheMap = new HashMap<>();
     private boolean epgLoaded = false;
+    private boolean isReconnecting = false;
+    private int reconnectAttempts = 0;
 
     static class SubEntry { String name; String url; }
 
@@ -941,6 +943,10 @@ public class MainActivity extends AppCompatActivity {
             PlayerConfigManager.init(this);
             FavoriteManager.init(this);
             prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            // 默认启用断线重连
+            if (!prefs.contains(KEY_AUTO_RECONNECT)) {
+                prefs.edit().putBoolean(KEY_AUTO_RECONNECT, true).apply();
+            }
             favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
             logoDir = new File(LogUtils.getAppRootDir(), "logo");
             if (!logoDir.exists()) logoDir.mkdirs();
@@ -987,6 +993,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 prefs.edit().putStringSet(KEY_SELECTED_SUBS, selectedSubs).apply();
                 subAdapter.notifyDataSetChanged();
+                // 选中订阅后立即加载
                 loadSelectedSources();
             });
             subRecycler.setAdapter(subAdapter);
@@ -1249,8 +1256,13 @@ public class MainActivity extends AppCompatActivity {
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
+        // 重置重连计数
+        reconnectAttempts = 0;
+        isReconnecting = false;
         prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
         prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
+        // 下载台标（异步）
+        downloadLogo(channel);
         try {
             if (player == null) {
                 DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
@@ -1267,9 +1279,20 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             LogUtils.writeCrashLog(error);
                             Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
-                            if (player != null && currentChannel != null) {
-                                player.prepare();
-                                player.play();
+                            // 断线重连
+                            if (prefs.getBoolean(KEY_AUTO_RECONNECT, true) && currentChannel != null && !isReconnecting) {
+                                isReconnecting = true;
+                                reconnectAttempts++;
+                                LogUtils.writeLog("尝试重连，次数: " + reconnectAttempts);
+                                mainHandler.postDelayed(() -> {
+                                    if (player != null && currentChannel != null) {
+                                        player.setMediaItem(MediaItem.fromUri(currentChannel.url));
+                                        player.prepare();
+                                        player.play();
+                                        isReconnecting = false;
+                                        Toast.makeText(MainActivity.this, "已重连", Toast.LENGTH_SHORT).show();
+                                    }
+                                }, 1000);
                             }
                         });
                     }
@@ -1297,6 +1320,45 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeCrashLog(e);
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ========== 台标下载 ==========
+    private void downloadLogo(SourceManager.Channel channel) {
+        if (channel.logoUrl == null || channel.logoUrl.isEmpty()) return;
+        String fileName = channel.name.hashCode() + ".png";
+        File logoFile = new File(logoDir, fileName);
+        if (logoFile.exists()) return; // 已存在
+
+        new Thread(() -> {
+            try {
+                OkHttpClient client = new OkHttpClient.Builder()
+                        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                        .build();
+                Request request = new Request.Builder().url(channel.logoUrl).build();
+                Response response = client.newCall(request).execute();
+                if (response.code() == 200) {
+                    InputStream is = response.body().byteStream();
+                    FileOutputStream fos = new FileOutputStream(logoFile);
+                    byte[] buf = new byte[8192];
+                    int len;
+                    while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
+                    fos.close();
+                    is.close();
+                    LogUtils.writeLog("台标下载成功: " + channel.name);
+                    runOnUiThread(() -> {
+                        // 通知适配器更新
+                        channelAdapter.notifyDataSetChanged();
+                        scheduleChannelAdapter.notifyDataSetChanged();
+                    });
+                } else {
+                    LogUtils.writeLog("台标下载失败: " + response.code());
+                }
+                response.close();
+            } catch (Exception e) {
+                LogUtils.writeLog("台标下载异常: " + e.getMessage());
+            }
+        }).start();
     }
 
     private void toggleFavorite(SourceManager.Channel channel) {
@@ -1776,6 +1838,7 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
+            // 显示台标
             if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
                 String fileName = ch.name.hashCode() + ".png";
                 File logoFile = new File(logoDir, fileName);
@@ -1784,6 +1847,8 @@ public class MainActivity extends AppCompatActivity {
                     holder.logo.setVisibility(View.VISIBLE);
                 } else {
                     holder.logo.setVisibility(View.GONE);
+                    // 触发下载
+                    activity.downloadLogo(ch);
                 }
             } else {
                 holder.logo.setVisibility(View.GONE);
@@ -1907,7 +1972,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java ====================
+# ==================== SettingsActivity.java（新增断线重连开关） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -1944,6 +2009,7 @@ public class SettingsActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private static final String KEY_SUB_LIST = "sub_list";
     private static final String KEY_SELECTED_SUB = "selected_sub";
+    private static final String KEY_AUTO_RECONNECT = "auto_reconnect";
     private String localIp = "";
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1985,7 +2051,7 @@ public class SettingsActivity extends AppCompatActivity {
         switch (pos) {
             case 0: items.add(new ContentItem("线路选择", "点击选择", v -> showLineSelection())); break;
             case 1: items.add(new ContentItem("频道搜索", "点击搜索", v -> Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show())); break;
-            case 2: items.add(new ContentItem("播放设置", "点击展开", v -> showPlaySettings())); break;
+            case 2: buildPlaySettings(items); break;
             case 3: buildSubscriptionList(items); break;
             case 4: buildEpgSubscriptionList(items); break;
             case 5: items.add(new ContentItem("分类管理", "管理", v -> Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show())); break;
@@ -1998,6 +2064,19 @@ public class SettingsActivity extends AppCompatActivity {
             case 12: items.add(new ContentItem("更多管理", "查看", v -> showMoreInfo())); break;
         }
         contentAdapter.setItems(items);
+    }
+    private void buildPlaySettings(List<ContentItem> items) {
+        items.add(new ContentItem("解码方式", "点击设置", v -> showDecoderDialog()));
+        items.add(new ContentItem("画面比例", "点击设置", v -> showAspectDialog()));
+        items.add(new ContentItem("超时换源", "点击设置", v -> Toast.makeText(this, "超时换源功能", Toast.LENGTH_SHORT).show()));
+        items.add(new ContentItem("断线重连", "点击切换", v -> toggleAutoReconnect()));
+    }
+    private void toggleAutoReconnect() {
+        boolean current = prefs.getBoolean(KEY_AUTO_RECONNECT, true);
+        boolean newVal = !current;
+        prefs.edit().putBoolean(KEY_AUTO_RECONNECT, newVal).apply();
+        Toast.makeText(this, "断线重连已" + (newVal ? "开启" : "关闭"), Toast.LENGTH_SHORT).show();
+        showContent(2); // 刷新列表
     }
     private void buildSubscriptionList(List<ContentItem> items) {
         items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "IP: " + localIp + " 端口 9978", Toast.LENGTH_LONG).show()));
@@ -2111,21 +2190,6 @@ public class SettingsActivity extends AppCompatActivity {
     private void showLineSelection() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show());
-        AlertDialog dialog = builder.create();
-        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        dialog.show();
-    }
-    private void showPlaySettings() {
-        String[] items = {"解码方式", "画面比例", "超时换源", "断线重连"};
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("播放设置").setItems(items, (d, which) -> {
-            switch (which) {
-                case 0: showDecoderDialog(); break;
-                case 1: showAspectDialog(); break;
-                case 2: Toast.makeText(this, "超时换源", Toast.LENGTH_SHORT).show(); break;
-                case 3: Toast.makeText(this, "断线重连", Toast.LENGTH_SHORT).show(); break;
-            }
-        });
         AlertDialog dialog = builder.create();
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         dialog.show();
@@ -2875,3 +2939,5 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
+echo "🖼️ 台标自动下载并缓存到 logo 目录"
+echo "🔁 断线重连默认开启（1秒），可在设置中关闭"
