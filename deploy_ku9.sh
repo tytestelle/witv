@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 基于 epg_data.json，每个有节目的XML频道独立映射）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 别名匹配 XML display-name，独立映射）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,7 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（每个有节目的XML频道独立映射，别名映射到xmlId） ====================
+# ==================== EPGParser.java（别名匹配XML display-name，独立映射） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -310,9 +310,10 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
     public interface OnAllEpgLoadedListener { void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId); void onError(String error); }
 
-    private static Map<String, String> sAliasMap = null;
-    private static Map<String, List<EpgProgram>> sAllPrograms = null;          // key: xml channel id (只包含有节目的)
-    private static Map<String, String> sChannelNameToId = null;                // key: 频道名称（别名）, value: xml channel id
+    private static Map<String, String> sAliasMap = null;              // 别名 -> epgid（来自epg_data.json）
+    private static Map<String, List<EpgProgram>> sAllPrograms = null; // xml频道id -> 节目列表
+    private static Map<String, String> sChannelNameToId = null;       // 最终映射：别名 -> xml频道id
+
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
@@ -337,6 +338,7 @@ public class EPGParser {
                     String trimmed = name.trim();
                     if (trimmed.isEmpty()) continue;
                     map.put(trimmed, epgid);
+                    // 同时生成变体以便后续匹配
                     String norm = normalizeChannelName(trimmed);
                     if (!norm.isEmpty() && !norm.equals(trimmed)) {
                         map.put(norm, epgid);
@@ -483,11 +485,11 @@ public class EPGParser {
         }).start();
     }
 
-    // ===================== 核心解析 =====================
+    // ===================== 核心解析：别名匹配XML display-name，每个xml频道独立 =====================
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
-        // 1. 解析XML，收集所有channel信息
-        Map<String, Set<String>> xmlIdToVariants = new HashMap<>();
-        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>();
+        // 1. 解析XML，提取所有频道信息
+        Map<String, Set<String>> xmlIdToVariants = new HashMap<>();   // xml id -> display-name变体
+        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>(); // xml id -> 节目
         Set<String> allXmlIds = new HashSet<>();
 
         XmlPullParser parser = Xml.newPullParser();
@@ -600,94 +602,72 @@ public class EPGParser {
 
         LogUtils.writeLog("XML解析完成，总频道数: " + allXmlIds.size() + ", 有节目的频道数: " + xmlIdToPrograms.size());
 
-        // 2. 为每个XML频道匹配epgid（用于后续别名映射）
-        Map<String, String> xmlIdToEpgId = new HashMap<>();
+        // 2. 构建：display-name变体 -> xml id 的映射（用于快速查找）
+        Map<String, String> variantToXmlId = new HashMap<>();
         for (String xmlId : allXmlIds) {
             Set<String> variants = xmlIdToVariants.get(xmlId);
-            if (variants == null || variants.isEmpty()) continue;
-            String bestEpgId = null;
-            int bestScore = -1;
-            for (String variant : variants) {
-                // 精确匹配
-                String epgid = sAliasMap.get(variant);
-                if (epgid != null) {
-                    int score = 10000 - variant.length();
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestEpgId = epgid;
+            if (variants != null) {
+                for (String variant : variants) {
+                    if (!variantToXmlId.containsKey(variant)) {
+                        variantToXmlId.put(variant, xmlId);
                     }
-                    continue;
                 }
-                // 包含匹配
-                for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                    String alias = entry.getKey();
-                    String epgid2 = entry.getValue();
+            }
+        }
+
+        // 3. 构建最终映射：别名 -> xml id
+        Map<String, String> channelNameToId = new HashMap<>();
+        // 3.1 从epg_data.json的别名中匹配
+        for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+            String alias = entry.getKey();
+            String epgid = entry.getValue(); // 这个epgid是逻辑id，不一定等于xml id
+            // 在variantToXmlId中查找epgid（如果epgid恰好是display-name）
+            String xmlId = variantToXmlId.get(epgid);
+            if (xmlId != null) {
+                // 如果alias映射到某个xml id，且该xml有节目
+                if (xmlIdToPrograms.containsKey(xmlId)) {
+                    channelNameToId.put(alias, xmlId);
+                }
+                continue;
+            }
+            // 如果epgid没有直接匹配，尝试用别名本身去匹配
+            xmlId = variantToXmlId.get(alias);
+            if (xmlId != null && xmlIdToPrograms.containsKey(xmlId)) {
+                channelNameToId.put(alias, xmlId);
+                continue;
+            }
+            // 如果精确匹配失败，尝试包含匹配
+            for (Map.Entry<String, String> vEntry : variantToXmlId.entrySet()) {
+                String variant = vEntry.getKey();
+                String xmlId2 = vEntry.getValue();
+                if (xmlIdToPrograms.containsKey(xmlId2)) {
                     String vLower = variant.toLowerCase(Locale.US);
                     String aLower = alias.toLowerCase(Locale.US);
                     if (vLower.contains(aLower) || aLower.contains(vLower)) {
-                        int score = Math.max(variant.length(), alias.length()) * 10;
-                        if (vLower.contains(aLower)) score += 100;
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestEpgId = epgid2;
+                        // 只添加如果该别名尚未有映射
+                        if (!channelNameToId.containsKey(alias)) {
+                            channelNameToId.put(alias, xmlId2);
                         }
                     }
                 }
             }
-            if (bestEpgId != null) {
-                xmlIdToEpgId.put(xmlId, bestEpgId);
-            }
         }
 
-        LogUtils.writeLog("匹配到epgid的XML频道数: " + xmlIdToEpgId.size());
-
-        // 3. 构建映射：名称 -> xmlId（只针对有节目的XML频道）
-        Map<String, String> nameToXmlId = new HashMap<>();
-
-        // 3.1 先添加每个有节目的XML频道的所有display-name变体
+        // 3.2 为了确保所有有节目的xml频道都能被某个别名访问，如果某个xml频道没有被任何别名覆盖，则将其自身display-name变体加入映射
         for (String xmlId : xmlIdToPrograms.keySet()) {
             Set<String> variants = xmlIdToVariants.get(xmlId);
             if (variants != null) {
                 for (String variant : variants) {
-                    if (!nameToXmlId.containsKey(variant)) {
-                        nameToXmlId.put(variant, xmlId);
+                    if (!channelNameToId.containsKey(variant)) {
+                        channelNameToId.put(variant, xmlId);
                     }
                 }
-            }
-        }
-
-        // 3.2 为每个epgid选择最佳的有节目XML频道（节目数最多）
-        Map<String, String> epgidToXmlId = new HashMap<>();
-        for (Map.Entry<String, String> entry : xmlIdToEpgId.entrySet()) {
-            String xmlId = entry.getKey();
-            String epgid = entry.getValue();
-            if (xmlIdToPrograms.containsKey(xmlId)) {
-                if (!epgidToXmlId.containsKey(epgid)) {
-                    epgidToXmlId.put(epgid, xmlId);
-                } else {
-                    String existingXmlId = epgidToXmlId.get(epgid);
-                    int existingCount = xmlIdToPrograms.get(existingXmlId).size();
-                    int currentCount = xmlIdToPrograms.get(xmlId).size();
-                    if (currentCount > existingCount) {
-                        epgidToXmlId.put(epgid, xmlId);
-                    }
-                }
-            }
-        }
-
-        // 3.3 将sAliasMap中的别名映射到对应的xmlId（如果该xmlId有节目）
-        for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-            String alias = entry.getKey();
-            String epgid = entry.getValue();
-            String xmlId = epgidToXmlId.get(epgid);
-            if (xmlId != null && !nameToXmlId.containsKey(alias)) {
-                nameToXmlId.put(alias, xmlId);
             }
         }
 
         // 4. 存储结果
-        sAllPrograms = xmlIdToPrograms;  // key: xmlId, value: 节目列表
-        sChannelNameToId = nameToXmlId;  // key: 名称, value: xmlId
+        sAllPrograms = xmlIdToPrograms;
+        sChannelNameToId = channelNameToId;
 
         LogUtils.writeLog("最终映射构建完成：有节目的XML频道数=" + sAllPrograms.size() + ", 名称映射总数=" + sChannelNameToId.size());
     }
@@ -2887,9 +2867,4 @@ echo "🧹 清理并构建..."
 ./gradlew assembleDebug
 
 echo ""
-echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
-echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "🔧 EPG解析以XML频道为单位，每个有节目的XML频道的display-name变体和epg_data.json中的别名都映射到该XML频道，确保CCTV等频道正确显示。"
+echo "🎉 构建完成！APK 位于 app/build/outputs/apk
