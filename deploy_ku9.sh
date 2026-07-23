@@ -271,8 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-
-# ==================== EPGParser.java（增强解析规则） ====================
+# ==================== EPGParser.java（增强解析规则，优先外部epg_data.json） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -321,8 +320,18 @@ public class EPGParser {
     private static synchronized Map<String, String> loadAliasMap(Context context) {
         if (sAliasMap != null) return sAliasMap;
         Map<String, String> map = new HashMap<>();
+        // 优先尝试外部存储 /sdcard/witv/epg_data.json
+        String externalPath = android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/witv/epg_data.json";
+        File externalFile = new File(externalPath);
+        InputStream is = null;
         try {
-            InputStream is = context.getAssets().open("epg_data.json");
+            if (externalFile.exists()) {
+                LogUtils.writeLog("从外部文件加载 epg_data.json: " + externalPath);
+                is = new FileInputStream(externalFile);
+            } else {
+                LogUtils.writeLog("外部文件不存在，从 assets 加载 epg_data.json");
+                is = context.getAssets().open("epg_data.json");
+            }
             byte[] buffer = new byte[is.available()];
             is.read(buffer);
             is.close();
@@ -344,6 +353,7 @@ public class EPGParser {
             LogUtils.writeLog("别名映射加载完成，条目数: " + map.size());
         } catch (Exception e) {
             LogUtils.writeLog("加载别名映射失败: " + e.getMessage());
+            // 回退到空映射
         }
         sAliasMap = map;
         return sAliasMap;
@@ -473,10 +483,12 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 增强解析（核心改动：强制所有channel id加入映射） ==========
+    // ========== 增强解析：基于 epg_data.json 映射 epgid 到节目 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
-        Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
-        Map<String, String> channelNameToId = new HashMap<>();
+        // 先解析 XML，构建 channel id -> display-name 变体集合 和 channel id -> 节目列表
+        Map<String, Set<String>> xmlIdToDisplayNames = new HashMap<>();
+        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>();
+        Set<String> allXmlIds = new HashSet<>();
 
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
@@ -486,7 +498,6 @@ public class EPGParser {
         boolean inProgramme = false;
         String currentChannelId = null;
         String currentDisplayName = null;
-        String currentIconUrl = null;
         String progChannelId = null;
         String progStart = null;
         String progStop = null;
@@ -495,8 +506,6 @@ public class EPGParser {
 
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-
-        Set<String> allChannelIds = new HashSet<>();
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
@@ -507,18 +516,16 @@ public class EPGParser {
                         currentChannelId = parser.getAttributeValue(null, "id");
                         if (currentChannelId != null) {
                             currentChannelId = currentChannelId.trim();
-                            allChannelIds.add(currentChannelId);
+                            allXmlIds.add(currentChannelId);
+                            xmlIdToDisplayNames.putIfAbsent(currentChannelId, new HashSet<>());
                         }
                         currentDisplayName = null;
-                        currentIconUrl = null;
                     } else if (inChannel && "display-name".equals(currentTag)) {
                         String text = parser.nextText().trim();
                         if (text != null && !text.isEmpty()) {
                             if (currentDisplayName == null) currentDisplayName = text;
                             else currentDisplayName += "," + text;
                         }
-                    } else if (inChannel && "icon".equals(currentTag)) {
-                        currentIconUrl = parser.getAttributeValue(null, "src");
                     } else if ("programme".equals(currentTag)) {
                         inProgramme = true;
                         progChannelId = parser.getAttributeValue(null, "channel");
@@ -547,28 +554,30 @@ public class EPGParser {
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
                         if (currentChannelId != null && !currentChannelId.isEmpty()) {
-                            // 强制添加 id 本身和归一化 id
-                            String normalizedId = normalizeChannelName(currentChannelId);
-                            if (!normalizedId.isEmpty()) channelNameToId.put(normalizedId, currentChannelId);
-                            channelNameToId.put(currentChannelId, currentChannelId);
-
+                            // 收集 display-name 变体
+                            Set<String> variants = xmlIdToDisplayNames.get(currentChannelId);
                             if (currentDisplayName != null && !currentDisplayName.isEmpty()) {
                                 String[] names = currentDisplayName.split(",");
                                 for (String name : names) {
                                     name = name.trim();
                                     if (name.isEmpty()) continue;
-                                    channelNameToId.put(name, currentChannelId);
-                                    String normName = normalizeChannelName(name);
-                                    if (!normName.isEmpty()) channelNameToId.put(normName, currentChannelId);
-                                    // 简单去特殊字符
+                                    variants.add(name);
+                                    // 归一化变体
+                                    String norm = normalizeChannelName(name);
+                                    if (!norm.isEmpty()) variants.add(norm);
+                                    // 去特殊字符简单版
                                     String simple = name.replaceAll("[\\s\\-_]", "");
                                     if (!simple.equals(name) && !simple.isEmpty()) {
-                                        channelNameToId.put(simple, currentChannelId);
+                                        variants.add(simple);
                                         String normSimple = normalizeChannelName(simple);
-                                        if (!normSimple.isEmpty()) channelNameToId.put(normSimple, currentChannelId);
+                                        if (!normSimple.isEmpty()) variants.add(normSimple);
                                     }
                                 }
                             }
+                            // 加入 id 本身作为变体
+                            variants.add(currentChannelId);
+                            String normId = normalizeChannelName(currentChannelId);
+                            if (!normId.isEmpty()) variants.add(normId);
                         }
                     } else if ("programme".equals(parser.getName())) {
                         inProgramme = false;
@@ -584,8 +593,8 @@ public class EPGParser {
                                 try { prog.endTime = sdfWithZone.parse(progStop).getTime(); }
                                 catch (ParseException e) { try { prog.endTime = sdfNoZone.parse(progStop).getTime(); } catch (ParseException ignored) {} }
                             }
-                            List<EpgProgram> list = allPrograms.get(progChannelId);
-                            if (list == null) { list = new ArrayList<>(); allPrograms.put(progChannelId, list); }
+                            List<EpgProgram> list = xmlIdToPrograms.get(progChannelId);
+                            if (list == null) { list = new ArrayList<>(); xmlIdToPrograms.put(progChannelId, list); }
                             list.add(prog);
                         }
                     }
@@ -594,29 +603,98 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 确保每个 id 都有映射
-        for (String id : allChannelIds) {
-            if (!channelNameToId.containsValue(id)) {
-                channelNameToId.put(id, id);
-                String normId = normalizeChannelName(id);
-                if (!normId.isEmpty() && !channelNameToId.containsKey(normId)) {
-                    channelNameToId.put(normId, id);
+        // 构建映射：从别名到 epgid（sAliasMap 已加载）
+        // 对于每个 xml channel，尝试用其 display-name 变体匹配别名，确定其 epgid
+        Map<String, String> xmlIdToEpgId = new HashMap<>();
+        for (String xmlId : allXmlIds) {
+            Set<String> variants = xmlIdToDisplayNames.get(xmlId);
+            if (variants == null) continue;
+            String matchedEpgId = null;
+            // 先尝试精确匹配别名
+            for (String variant : variants) {
+                String epgid = sAliasMap.get(variant);
+                if (epgid != null) {
+                    matchedEpgId = epgid;
+                    break;
                 }
+            }
+            // 如果没匹配到，尝试用 display-name 中最长的一个进行包含匹配（备选）
+            if (matchedEpgId == null) {
+                // 按长度降序排序变体，尝试包含关系
+                List<String> sortedVariants = new ArrayList<>(variants);
+                sortedVariants.sort((a, b) -> b.length() - a.length());
+                for (String variant : sortedVariants) {
+                    for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+                        String alias = entry.getKey();
+                        String epgid = entry.getValue();
+                        if (variant.contains(alias) || alias.contains(variant)) {
+                            matchedEpgId = epgid;
+                            break;
+                        }
+                    }
+                    if (matchedEpgId != null) break;
+                }
+            }
+            if (matchedEpgId != null) {
+                xmlIdToEpgId.put(xmlId, matchedEpgId);
             }
         }
 
-        // 应用别名映射
-        if (sAliasMap != null) {
-            for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();
-                String epgid = entry.getValue();
-                if (!channelNameToId.containsKey(alias) && allChannelIds.contains(epgid)) {
-                    channelNameToId.put(alias, epgid);
+        // 构建 epgid -> 节目列表（合并多个 xml id）
+        Map<String, List<EpgProgram>> epgIdToPrograms = new HashMap<>();
+        for (Map.Entry<String, String> entry : xmlIdToEpgId.entrySet()) {
+            String xmlId = entry.getKey();
+            String epgid = entry.getValue();
+            List<EpgProgram> progs = xmlIdToPrograms.get(xmlId);
+            if (progs != null) {
+                List<EpgProgram> existing = epgIdToPrograms.get(epgid);
+                if (existing == null) {
+                    existing = new ArrayList<>();
+                    epgIdToPrograms.put(epgid, existing);
                 }
+                existing.addAll(progs);
             }
         }
 
-        sAllPrograms = allPrograms;
+        // 对于没有匹配到 epgid 但有节目的 xml id，保留它们自身的 id 作为 epgid（为了不丢失节目）
+        for (String xmlId : xmlIdToPrograms.keySet()) {
+            if (!xmlIdToEpgId.containsKey(xmlId)) {
+                // 使用 xml id 自身作为 epgid
+                String epgid = xmlId;
+                List<EpgProgram> progs = xmlIdToPrograms.get(xmlId);
+                List<EpgProgram> existing = epgIdToPrograms.get(epgid);
+                if (existing == null) {
+                    existing = new ArrayList<>();
+                    epgIdToPrograms.put(epgid, existing);
+                }
+                existing.addAll(progs);
+                // 同时将该 xml id 加入别名映射（以便 M3U 中的频道名可以匹配）
+                sAliasMap.put(xmlId, epgid);
+                // 也加入归一化
+                String normId = normalizeChannelName(xmlId);
+                if (!normId.isEmpty()) sAliasMap.put(normId, epgid);
+            }
+        }
+
+        // 构建最终 sChannelNameToId：所有别名 -> epgid
+        Map<String, String> channelNameToId = new HashMap<>();
+        for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+            String alias = entry.getKey();
+            String epgid = entry.getValue();
+            // 只保留在 epgIdToPrograms 中存在的 epgid
+            if (epgIdToPrograms.containsKey(epgid)) {
+                channelNameToId.put(alias, epgid);
+            }
+        }
+
+        // 确保每个 epgid 自身也被映射
+        for (String epgid : epgIdToPrograms.keySet()) {
+            if (!channelNameToId.containsKey(epgid)) {
+                channelNameToId.put(epgid, epgid);
+            }
+        }
+
+        sAllPrograms = epgIdToPrograms;
         sChannelNameToId = channelNameToId;
         LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
     }
