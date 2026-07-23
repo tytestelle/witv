@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终修正版 - 用 epgid 匹配 display-name）"
+echo "🔥 部署 witv 播放器（修正 EPG 映射规则 + 台标目录创建）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -272,7 +272,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（直接用 epgid 匹配 display-name） ====================
+# ==================== EPGParser.java（修正映射规则） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -501,7 +501,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 纯净解析：只使用原始名称，同时记录图标 ==========
+    // ========== 按照用户要求：用别名匹配 -> 获取 epgid -> 用 epgid 匹配 display-name -> 获取 channel id -> 获取节目 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -527,6 +527,7 @@ public class EPGParser {
 
         Set<String> allChannelIds = new HashSet<>();
 
+        // 第一遍：解析 XML 建立 display-name -> channel id 映射，并记录节目数据
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
                 case XmlPullParser.START_TAG:
@@ -577,7 +578,6 @@ public class EPGParser {
                         inChannel = false;
                         if (currentChannelId != null && !currentChannelId.isEmpty()) {
                             channelNameToId.put(currentChannelId, currentChannelId);
-
                             if (currentDisplayName != null && !currentDisplayName.isEmpty()) {
                                 String[] names = currentDisplayName.split(",");
                                 for (String name : names) {
@@ -624,32 +624,30 @@ public class EPGParser {
             }
         }
 
-        // ========== 应用别名映射（直接用 epgid 匹配 display-name） ==========
+        // ========== 【修正】应用别名映射：强制覆盖 ==========
+        // 规则：对于每个别名（如 "CCTV7"），查找其对应的 epgid（如 "CCTV-7国防军事"）
+        // 然后用这个 epgid 作为 display-name 去 channelNameToId 中查找真实的 channel id
+        // 如果找到了，就将该别名强制映射到这个真实 channel id（覆盖可能存在的错误映射）
         if (sAliasMap != null) {
             int successCount = 0;
             int failCount = 0;
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();   // 别名（来自 name）
-                String epgid = entry.getValue(); // epgid（作为 display-name 使用）
+                String alias = entry.getKey();      // 例如 "CCTV7"
+                String epgid = entry.getValue();    // 例如 "CCTV-7国防军事"
 
-                // 如果别名已经有映射，跳过
-                if (channelNameToId.containsKey(alias)) continue;
-
-                // 用 epgid 作为 display-name 在 channelNameToId 中查找真实 channel id
-                String realId = null;
-                if (channelNameToId.containsKey(epgid)) {
-                    realId = channelNameToId.get(epgid);
-                } else {
-                    // 如果 epgid 找不到，记录失败（不尝试用 alias 匹配）
+                // 用 epgid 作为 display-name 去查找真实 channel id
+                String realId = channelNameToId.get(epgid);
+                if (realId == null) {
+                    // 如果 epgid 本身不在 XML 的 display-name 中，则无法映射
                     LogUtils.writeLog("别名映射失败: " + alias + " (epgid: " + epgid + " 未找到对应的 display-name)");
                     failCount++;
                     continue;
                 }
 
-                if (realId != null && !channelNameToId.containsKey(alias)) {
-                    channelNameToId.put(alias, realId);
-                    successCount++;
-                }
+                // 直接覆盖（无论 alias 是否已有映射）
+                channelNameToId.put(alias, realId);
+                successCount++;
+                // 如果 alias 有图标但之前未记录，可尝试用 epgid 的图标？这里不处理，保持原有逻辑
             }
             LogUtils.writeLog("别名映射统计: 成功 " + successCount + " 个，失败 " + failCount + " 个");
         }
@@ -727,7 +725,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（修正 final 变量问题） ====================
+# ==================== MainActivity.java（修正台标目录创建） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -1288,7 +1286,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 台标下载（含URL解码） ==========
+    // ========== 台标下载（含URL解码 + 目录创建） ==========
     private void downloadAndProcessLogo(SourceManager.Channel channel) {
         String logoUrl = channel.logoUrl;
         if (logoUrl == null || logoUrl.isEmpty()) {
@@ -1319,6 +1317,10 @@ public class MainActivity extends AppCompatActivity {
 
         new Thread(() -> {
             try {
+                // 【修正】确保原始目录存在
+                if (!logoRawDir.exists()) {
+                    logoRawDir.mkdirs();
+                }
                 OkHttpClient client = new OkHttpClient.Builder()
                         .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                         .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
@@ -1347,6 +1349,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void processRawToLogo(File rawFile, File logoFile) {
         try {
+            // 【修正】确保目标目录存在
+            if (!logoDir.exists()) {
+                logoDir.mkdirs();
+            }
             Bitmap src = BitmapFactory.decodeFile(rawFile.getAbsolutePath());
             if (src == null) {
                 LogUtils.writeLog("解码原始图片失败: " + rawFile.getAbsolutePath());
@@ -2967,3 +2973,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
+echo "✅ 修正内容：1) EPG 别名映射强制覆盖（按您的要求）；2) 台标下载前确保目录存在。"
