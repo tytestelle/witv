@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（修正 EPG 映射规则 + 台标目录创建）"
+echo "🔥 部署 witv 播放器（完整修正版）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -191,21 +191,25 @@ public class LogUtils {
     public static String getAppRootDir() { return sAppRoot != null ? sAppRoot : ""; }
     public static String getEpgCacheDir() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epgCache"; }
     public static String getEpgHashFile() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epg_hash.txt"; }
+    public static String getConfigDir() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/configuration"; }
     public static void writeLog(String message) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); String log = time + " - " + message + "\n"; File logFile = new File(sLogDirPath, LOG_FILE); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile, true); fos.write(log.getBytes()); fos.close(); } catch (Exception e) { Log.e("LogUtils", "写入日志失败", e); } }
     public static void writeCrashLog(Throwable t) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); StringWriter sw = new StringWriter(); PrintWriter pw = new PrintWriter(sw); t.printStackTrace(pw); String stack = sw.toString(); String log = "========== CRASH at " + time + " ==========\n" + stack + "\n\n"; String fileName = "crash_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt"; File logFile = new File(sLogDirPath, fileName); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile); fos.write(log.getBytes()); fos.close(); writeLog("CRASH: " + t.getMessage()); } catch (Exception e) { Log.e("LogUtils", "写入崩溃日志失败", e); } }
     public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }
 }
 LOGUTIL
 
-# ==================== ConfigurationManager.java ====================
+# ==================== ConfigurationManager.java（优先外部存储） ====================
 mkdir -p "$TEMPLATE_DIR/src"
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'CONFIG'
 package com.whyun.witv;
 import android.content.Context;
 import android.content.res.AssetManager;
 import org.json.JSONObject;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import com.whyun.witv.utils.LogUtils;
 public class ConfigurationManager {
     private static ConfigurationManager instance;
     private JSONObject config;
@@ -216,15 +220,36 @@ public class ConfigurationManager {
     }
     private void loadConfig(Context context) {
         try {
-            AssetManager am = context.getAssets();
-            InputStream is = am.open("configuration.json");
-            byte[] buffer = new byte[is.available()];
-            is.read(buffer);
-            is.close();
-            String json = new String(buffer, StandardCharsets.UTF_8);
+            String json = null;
+            // 优先从外部存储读取
+            String configDir = LogUtils.getConfigDir();
+            if (!configDir.isEmpty()) {
+                File extFile = new File(configDir, "configuration.json");
+                if (extFile.exists()) {
+                    FileInputStream fis = new FileInputStream(extFile);
+                    byte[] buffer = new byte[(int) extFile.length()];
+                    fis.read(buffer);
+                    fis.close();
+                    json = new String(buffer, StandardCharsets.UTF_8);
+                    LogUtils.writeLog("从外部存储加载配置: " + extFile.getAbsolutePath());
+                }
+            }
+            if (json == null) {
+                // 从 assets 加载
+                AssetManager am = context.getAssets();
+                InputStream is = am.open("configuration.json");
+                byte[] buffer = new byte[is.available()];
+                is.read(buffer);
+                is.close();
+                json = new String(buffer, StandardCharsets.UTF_8);
+                LogUtils.writeLog("从 assets 加载配置");
+            }
             JSONObject root = new JSONObject(json);
             config = root.getJSONObject("Configuration");
-        } catch (Exception e) { config = new JSONObject(); }
+        } catch (Exception e) {
+            LogUtils.writeLog("加载配置失败: " + e.getMessage());
+            config = new JSONObject();
+        }
     }
     public String getString(String key, String defaultValue) { return config != null ? config.optString(key, defaultValue) : defaultValue; }
     public boolean getBoolean(String key, boolean defaultValue) { return config != null ? config.optBoolean(key, defaultValue) : defaultValue; }
@@ -272,7 +297,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（修正映射规则） ====================
+# ==================== EPGParser.java（修正映射规则 + 外部别名） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -326,11 +351,28 @@ public class EPGParser {
         if (sAliasMap != null) return sAliasMap;
         Map<String, String> map = new HashMap<>();
         try {
-            InputStream is = context.getAssets().open("epg_data.json");
-            byte[] buffer = new byte[is.available()];
-            is.read(buffer);
-            is.close();
-            String json = new String(buffer, "UTF-8");
+            String json = null;
+            // 优先从外部存储读取
+            String configDir = LogUtils.getConfigDir();
+            if (!configDir.isEmpty()) {
+                File extFile = new File(configDir, "epg_data.json");
+                if (extFile.exists()) {
+                    FileInputStream fis = new FileInputStream(extFile);
+                    byte[] buffer = new byte[(int) extFile.length()];
+                    fis.read(buffer);
+                    fis.close();
+                    json = new String(buffer, "UTF-8");
+                    LogUtils.writeLog("从外部存储加载别名映射: " + extFile.getAbsolutePath());
+                }
+            }
+            if (json == null) {
+                InputStream is = context.getAssets().open("epg_data.json");
+                byte[] buffer = new byte[is.available()];
+                is.read(buffer);
+                is.close();
+                json = new String(buffer, "UTF-8");
+                LogUtils.writeLog("从 assets 加载别名映射");
+            }
             
             JSONArray epgs = null;
             try {
@@ -359,10 +401,8 @@ public class EPGParser {
                 for (String name : names) {
                     String trimmed = name.trim();
                     if (trimmed.isEmpty()) continue;
-                    // 直接使用原始名称，不做任何转换
                     map.put(trimmed, epgid);
                 }
-                // epgid 本身也加入，便于在 channelNameToId 中查找
                 String epgidTrim = epgid.trim();
                 if (!epgidTrim.isEmpty()) {
                     map.put(epgidTrim, epgid);
@@ -624,7 +664,7 @@ public class EPGParser {
             }
         }
 
-        // ========== 【修正】应用别名映射：强制覆盖 ==========
+        // ========== 应用别名映射：强制覆盖 ==========
         // 规则：对于每个别名（如 "CCTV7"），查找其对应的 epgid（如 "CCTV-7国防军事"）
         // 然后用这个 epgid 作为 display-name 去 channelNameToId 中查找真实的 channel id
         // 如果找到了，就将该别名强制映射到这个真实 channel id（覆盖可能存在的错误映射）
@@ -647,7 +687,6 @@ public class EPGParser {
                 // 直接覆盖（无论 alias 是否已有映射）
                 channelNameToId.put(alias, realId);
                 successCount++;
-                // 如果 alias 有图标但之前未记录，可尝试用 epgid 的图标？这里不处理，保持原有逻辑
             }
             LogUtils.writeLog("别名映射统计: 成功 " + successCount + " 个，失败 " + failCount + " 个");
         }
@@ -725,7 +764,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（修正台标目录创建） ====================
+# ==================== MainActivity.java（复制配置文件 + 台标目录确保） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -863,6 +902,9 @@ public class MainActivity extends AppCompatActivity {
 
         LogUtils.init(this);
         LogUtils.writeLog("=== 应用启动 ===");
+
+        // 复制配置文件到外部存储（覆盖）
+        copyConfigFiles();
 
         String logDir = LogUtils.getLogDir();
         if (!logDir.isEmpty()) {
@@ -1076,6 +1118,30 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
             showFatalErrorDialog("初始化失败: " + e.getMessage());
+        }
+    }
+
+    // ========== 复制配置文件到外部存储（覆盖） ==========
+    private void copyConfigFiles() {
+        try {
+            String configDir = LogUtils.getConfigDir();
+            if (configDir.isEmpty()) return;
+            File dir = new File(configDir);
+            if (!dir.exists()) dir.mkdirs();
+            String[] files = {"configuration.json", "epg_data.json"};
+            for (String fname : files) {
+                InputStream is = getAssets().open(fname);
+                File outFile = new File(dir, fname);
+                FileOutputStream fos = new FileOutputStream(outFile);
+                byte[] buffer = new byte[8192];
+                int len;
+                while ((len = is.read(buffer)) != -1) fos.write(buffer, 0, len);
+                fos.close();
+                is.close();
+                LogUtils.writeLog("复制配置文件: " + outFile.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            LogUtils.writeLog("复制配置文件失败: " + e.getMessage());
         }
     }
 
@@ -1293,7 +1359,6 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeLog("频道 " + channel.name + " 无台标URL");
             return;
         }
-        // 解码URL（解决 https%3A// 问题）
         String decodedUrl = logoUrl;
         try {
             decodedUrl = URLDecoder.decode(logoUrl, "UTF-8");
@@ -1317,10 +1382,7 @@ public class MainActivity extends AppCompatActivity {
 
         new Thread(() -> {
             try {
-                // 【修正】确保原始目录存在
-                if (!logoRawDir.exists()) {
-                    logoRawDir.mkdirs();
-                }
+                if (!logoRawDir.exists()) logoRawDir.mkdirs();
                 OkHttpClient client = new OkHttpClient.Builder()
                         .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                         .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
@@ -1349,10 +1411,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void processRawToLogo(File rawFile, File logoFile) {
         try {
-            // 【修正】确保目标目录存在
-            if (!logoDir.exists()) {
-                logoDir.mkdirs();
-            }
+            if (!logoDir.exists()) logoDir.mkdirs();
             Bitmap src = BitmapFactory.decodeFile(rawFile.getAbsolutePath());
             if (src == null) {
                 LogUtils.writeLog("解码原始图片失败: " + rawFile.getAbsolutePath());
@@ -2970,7 +3029,10 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
+echo "📂 应用安装后会在外部存储的 witv 目录下创建所需文件夹，配置文件存放在 witv/configuration/"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "✅ 修正内容：1) EPG 别名映射强制覆盖（按您的要求）；2) 台标下载前确保目录存在。"
+echo "✅ 修正内容："
+echo "  1) EPG 别名映射强制覆盖（按您要求）"
+echo "  2) 配置文件（configuration.json, epg_data.json）复制到外部存储，支持本地修改，卸载不删除"
+echo "  3) 台标下载前确保目录存在"
+echo "  4) 订阅源切换时保持当前播放频道（通过 lastChannel 实现）"
