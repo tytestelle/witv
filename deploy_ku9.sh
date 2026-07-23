@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终稳定版 - 台标URL解码+订阅即时加载+大缓冲）"
+echo "🔥 部署 witv 播放器（最终修正版 - 用 epgid 匹配 display-name）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -272,7 +272,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（纯净解析 + 图标映射） ====================
+# ==================== EPGParser.java（直接用 epgid 匹配 display-name） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -359,8 +359,10 @@ public class EPGParser {
                 for (String name : names) {
                     String trimmed = name.trim();
                     if (trimmed.isEmpty()) continue;
+                    // 直接使用原始名称，不做任何转换
                     map.put(trimmed, epgid);
                 }
+                // epgid 本身也加入，便于在 channelNameToId 中查找
                 String epgidTrim = epgid.trim();
                 if (!epgidTrim.isEmpty()) {
                     map.put(epgidTrim, epgid);
@@ -622,44 +624,31 @@ public class EPGParser {
             }
         }
 
-        // ========== 应用别名映射 ==========
+        // ========== 应用别名映射（直接用 epgid 匹配 display-name） ==========
         if (sAliasMap != null) {
             int successCount = 0;
             int failCount = 0;
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();
-                String epgid = entry.getValue();
+                String alias = entry.getKey();   // 别名（来自 name）
+                String epgid = entry.getValue(); // epgid（作为 display-name 使用）
 
+                // 如果别名已经有映射，跳过
                 if (channelNameToId.containsKey(alias)) continue;
 
+                // 用 epgid 作为 display-name 在 channelNameToId 中查找真实 channel id
                 String realId = null;
-                boolean matched = false;
-
-                if (allChannelIds.contains(epgid)) {
-                    realId = epgid;
-                    matched = true;
+                if (channelNameToId.containsKey(epgid)) {
+                    realId = channelNameToId.get(epgid);
                 } else {
-                    if (channelNameToId.containsKey(epgid)) {
-                        realId = channelNameToId.get(epgid);
-                        matched = true;
-                    } else {
-                        for (Map.Entry<String, String> kv : channelNameToId.entrySet()) {
-                            String key = kv.getKey();
-                            if (key.contains(alias) || alias.contains(key)) {
-                                realId = kv.getValue();
-                                matched = true;
-                                break;
-                            }
-                        }
-                    }
+                    // 如果 epgid 找不到，记录失败（不尝试用 alias 匹配）
+                    LogUtils.writeLog("别名映射失败: " + alias + " (epgid: " + epgid + " 未找到对应的 display-name)");
+                    failCount++;
+                    continue;
                 }
 
-                if (matched && realId != null && !channelNameToId.containsKey(alias)) {
+                if (realId != null && !channelNameToId.containsKey(alias)) {
                     channelNameToId.put(alias, realId);
                     successCount++;
-                } else if (!matched) {
-                    failCount++;
-                    LogUtils.writeLog("别名映射失败: " + alias + " (epgid: " + epgid + ")");
                 }
             }
             LogUtils.writeLog("别名映射统计: 成功 " + successCount + " 个，失败 " + failCount + " 个");
@@ -674,15 +663,6 @@ public class EPGParser {
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
         if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
         String channelId = sChannelNameToId.get(channelName);
-        if (channelId == null) {
-            for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
-                String key = entry.getKey();
-                if (key.contains(channelName) || channelName.contains(key)) {
-                    channelId = entry.getValue();
-                    break;
-                }
-            }
-        }
         if (channelId == null) {
             LogUtils.writeLog("getProgramsForChannel: 未找到频道ID: " + channelName);
             return new ArrayList<>();
@@ -747,7 +727,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（含URL解码） ====================
+# ==================== MainActivity.java（修正 final 变量问题） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -1316,12 +1296,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         // 解码URL（解决 https%3A// 问题）
+        String decodedUrl = logoUrl;
         try {
-            logoUrl = URLDecoder.decode(logoUrl, "UTF-8");
-            LogUtils.writeLog("解码后台标URL: " + logoUrl);
+            decodedUrl = URLDecoder.decode(logoUrl, "UTF-8");
+            LogUtils.writeLog("解码后台标URL: " + decodedUrl);
         } catch (Exception e) {
             LogUtils.writeLog("台标URL解码失败: " + e.getMessage());
         }
+        final String finalUrl = decodedUrl;
         String fileName = channel.name.hashCode() + ".png";
         File logoFile = new File(logoDir, fileName);
         if (logoFile.exists()) {
@@ -1341,7 +1323,7 @@ public class MainActivity extends AppCompatActivity {
                         .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                         .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                         .build();
-                Request request = new Request.Builder().url(logoUrl).build();
+                Request request = new Request.Builder().url(finalUrl).build();
                 Response response = client.newCall(request).execute();
                 if (response.code() == 200) {
                     InputStream is = response.body().byteStream();
@@ -2982,8 +2964,6 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储 witv 目录下创建 logo 和 logo原始 文件夹"
-echo "🖼️ 台标逻辑：先检查 logo 目录，若无则从 logo原始 转换，若无则下载并解码 URL"
-echo "🔁 断线重连默认开启（1秒），可在设置中关闭"
-echo "✅ 订阅选中后立即生效，无需重启应用"
-echo "📺 播放缓冲区已增大至 120s/180s，减少卡顿"
+echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
+echo "📋 日志文件位置会在应用启动时 Toast 显示"
+echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
