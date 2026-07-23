@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 增强EPG模糊匹配）"
+echo "🔥 部署 witv 播放器（终极EPG解析增强版）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,7 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（增强别名与模糊匹配） ====================
+# ==================== EPGParser.java（终极模糊匹配） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -317,6 +317,7 @@ public class EPGParser {
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
 
+    // ========== 加载别名映射（扩展变体） ==========
     private static synchronized Map<String, String> loadAliasMap(Context context) {
         if (sAliasMap != null) return sAliasMap;
         Map<String, String> map = new HashMap<>();
@@ -337,35 +338,30 @@ public class EPGParser {
                     name = name.trim();
                     // 原始名称
                     map.put(name, epgid);
-                    // 归一化名称
+                    // 归一化
                     String normalized = normalizeChannelName(name);
-                    if (!normalized.isEmpty() && !normalized.equals(name)) {
-                        map.put(normalized, epgid);
-                    }
-                    // 去掉“高清”、“HD”等后缀
+                    if (!normalized.isEmpty()) map.put(normalized, epgid);
+                    // 去高清/HD后缀
                     String clean = name.replaceAll("(?i)\\s*[（(]?高清[)）]?\\s*", "")
                                        .replaceAll("(?i)\\s*[（(]?HD[)）]?\\s*", "")
                                        .replaceAll("(?i)\\s*[（(]?标清[)）]?\\s*", "")
                                        .replaceAll("(?i)\\s*[（(]?SD[)）]?\\s*", "")
-                                       .replaceAll("\\s+", " ")
-                                       .trim();
+                                       .replaceAll("\\s+", " ").trim();
                     if (!clean.isEmpty() && !clean.equals(name)) {
                         map.put(clean, epgid);
                         String normClean = normalizeChannelName(clean);
-                        if (!normClean.isEmpty() && !normClean.equals(clean) && !normClean.equals(normalized)) {
-                            map.put(normClean, epgid);
-                        }
+                        if (!normClean.isEmpty()) map.put(normClean, epgid);
+                    }
+                    // 去空格
+                    String noSpace = name.replaceAll("\\s+", "");
+                    if (!noSpace.isEmpty() && !noSpace.equals(name)) {
+                        map.put(noSpace, epgid);
                     }
                 }
-                // 用 epgid 本身作为别名
-                String epgidClean = epgid.replaceAll("\\s+", "").trim();
-                if (!epgidClean.isEmpty()) {
-                    map.put(epgidClean, epgid);
-                }
-                String normEpgid = normalizeChannelName(epgid);
-                if (!normEpgid.isEmpty()) {
-                    map.put(normEpgid, epgid);
-                }
+                // epgid 本身
+                map.put(epgid, epgid);
+                String normId = normalizeChannelName(epgid);
+                if (!normId.isEmpty()) map.put(normId, epgid);
             }
             LogUtils.writeLog("别名映射加载完成，条目数: " + map.size());
         } catch (Exception e) {
@@ -382,9 +378,7 @@ public class EPGParser {
             return;
         }
         sPendingListeners.add(listener);
-        if (!sLoading.compareAndSet(false, true)) {
-            return;
-        }
+        if (!sLoading.compareAndSet(false, true)) return;
 
         LogUtils.writeLog("开始全量加载并解析EPG...");
         new Thread(() -> {
@@ -411,12 +405,10 @@ public class EPGParser {
                         LogUtils.writeLog("获取远程哈希成功: " + remoteHash);
                     } else {
                         useHash = false;
-                        LogUtils.writeLog("远程哈希不存在，将直接下载EPG");
                     }
                     response.close();
                 } catch (Exception e) {
                     useHash = false;
-                    LogUtils.writeLog("获取远程哈希失败，将直接下载EPG: " + e.getMessage());
                 }
 
                 File cacheFile = null;
@@ -466,7 +458,6 @@ public class EPGParser {
                         FileOutputStream hfos = new FileOutputStream(hashFileObj);
                         hfos.write(remoteHash.getBytes());
                         hfos.close();
-                        LogUtils.writeLog("更新本地哈希: " + remoteHash);
                     }
                 }
 
@@ -503,7 +494,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 解析：收集所有 programme 的 channel id ==========
+    // ========== 解析：构建所有节目和映射 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -581,17 +572,19 @@ public class EPGParser {
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
                         if (currentChannelId != null && !currentChannelId.isEmpty()) {
-                            // 添加 channel id 本身和归一化
-                            String normalizedId = normalizeChannelName(currentChannelId);
-                            if (!normalizedId.isEmpty()) channelNameToId.put(normalizedId, currentChannelId);
+                            // 添加 id 本身
                             channelNameToId.put(currentChannelId, currentChannelId);
+                            String normId = normalizeChannelName(currentChannelId);
+                            if (!normId.isEmpty()) channelNameToId.put(normId, currentChannelId);
 
                             if (currentDisplayName != null && !currentDisplayName.isEmpty()) {
                                 String[] names = currentDisplayName.split(",");
                                 for (String name : names) {
                                     name = name.trim();
                                     if (name.isEmpty()) continue;
+                                    // 原始名称
                                     channelNameToId.put(name, currentChannelId);
+                                    // 归一化
                                     String normName = normalizeChannelName(name);
                                     if (!normName.isEmpty()) channelNameToId.put(normName, currentChannelId);
                                     // 去高清后缀
@@ -602,6 +595,11 @@ public class EPGParser {
                                         channelNameToId.put(clean, currentChannelId);
                                         String normClean = normalizeChannelName(clean);
                                         if (!normClean.isEmpty()) channelNameToId.put(normClean, currentChannelId);
+                                    }
+                                    // 去空格
+                                    String noSpace = name.replaceAll("\\s+", "");
+                                    if (!noSpace.isEmpty() && !noSpace.equals(name)) {
+                                        channelNameToId.put(noSpace, currentChannelId);
                                     }
                                 }
                             }
@@ -646,13 +644,12 @@ public class EPGParser {
             }
         }
 
-        // 应用别名映射（优先使用别名）
+        // 应用别名映射
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
                 String epgid = entry.getValue();
                 if (allIds.contains(epgid)) {
-                    // 如果别名尚未映射，则添加
                     if (!channelNameToId.containsKey(alias)) {
                         channelNameToId.put(alias, epgid);
                     }
@@ -665,39 +662,72 @@ public class EPGParser {
         LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
     }
 
-    // ========== 增强匹配：支持模糊匹配 ==========
+    // ========== 终极模糊匹配：尝试所有变体 ==========
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
         if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
-        String normalized = normalizeChannelName(channelName);
-        // 精确匹配
-        String channelId = sChannelNameToId.get(normalized);
+        if (channelName == null || channelName.isEmpty()) return new ArrayList<>();
+
+        String channelId = null;
+
+        // 1. 精确匹配（原始名称）
+        channelId = sChannelNameToId.get(channelName);
+
+        // 2. 归一化匹配
         if (channelId == null) {
-            channelId = sChannelNameToId.get(channelName);
+            String normalized = normalizeChannelName(channelName);
+            channelId = sChannelNameToId.get(normalized);
         }
+
+        // 3. 去高清后缀匹配
         if (channelId == null) {
-            // 去掉高清后缀再匹配
             String clean = channelName.replaceAll("(?i)\\s*[（(]?高清[)）]?\\s*", "")
                                       .replaceAll("(?i)\\s*[（(]?HD[)）]?\\s*", "")
                                       .replaceAll("\\s+", " ").trim();
             if (!clean.isEmpty() && !clean.equals(channelName)) {
-                String normClean = normalizeChannelName(clean);
-                channelId = sChannelNameToId.get(normClean);
-                if (channelId == null) channelId = sChannelNameToId.get(clean);
+                channelId = sChannelNameToId.get(clean);
+                if (channelId == null) {
+                    String normClean = normalizeChannelName(clean);
+                    channelId = sChannelNameToId.get(normClean);
+                }
             }
         }
-        // 模糊匹配：遍历所有键，检查包含关系
+
+        // 4. 去空格匹配
         if (channelId == null) {
-            String finalNormalized = normalized;
+            String noSpace = channelName.replaceAll("\\s+", "");
+            if (!noSpace.isEmpty() && !noSpace.equals(channelName)) {
+                channelId = sChannelNameToId.get(noSpace);
+                if (channelId == null) {
+                    String normNoSpace = normalizeChannelName(noSpace);
+                    channelId = sChannelNameToId.get(normNoSpace);
+                }
+            }
+        }
+
+        // 5. 子串匹配：遍历所有键，找包含关系
+        if (channelId == null) {
+            String normalized = normalizeChannelName(channelName);
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
                 String keyNorm = normalizeChannelName(key);
-                if (keyNorm.contains(finalNormalized) || finalNormalized.contains(keyNorm)) {
+                if (keyNorm.contains(normalized) || normalized.contains(keyNorm)) {
                     channelId = entry.getValue();
                     break;
                 }
             }
         }
-        // 如果还找不到，尝试用别名映射（已经在 sChannelNameToId 中包含了别名）
+
+        // 6. 尝试用别名映射中的键匹配
+        if (channelId == null && sAliasMap != null) {
+            for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+                String alias = entry.getKey();
+                if (alias.equals(channelName) || alias.equals(normalizeChannelName(channelName))) {
+                    channelId = entry.getValue();
+                    break;
+                }
+            }
+        }
+
         if (channelId == null) return new ArrayList<>();
 
         List<EpgProgram> result = sAllPrograms.get(channelId);
@@ -742,14 +772,14 @@ public class EPGParser {
             if (!logoFolder.exists()) logoFolder.mkdirs();
             String fileName = channelName.hashCode() + ".png";
             File logoFile = new File(logoFolder, fileName);
-            if (logoFile.exists()) { LogUtils.writeLog("图标已存在: " + logoFile.getAbsolutePath()); return; }
+            if (logoFile.exists()) return;
             OkHttpClient client = new OkHttpClient.Builder()
                     .connectTimeout(10, TimeUnit.SECONDS)
                     .readTimeout(10, TimeUnit.SECONDS)
                     .build();
             Request request = new Request.Builder().url(decoded).build();
             Response response = client.newCall(request).execute();
-            if (response.code() != 200) { LogUtils.writeLog("下载图标失败: " + response.code()); return; }
+            if (response.code() != 200) return;
             InputStream is = response.body().byteStream();
             FileOutputStream fos = new FileOutputStream(logoFile);
             byte[] buf = new byte[8192];
@@ -757,10 +787,7 @@ public class EPGParser {
             while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
             fos.close();
             is.close();
-            LogUtils.writeLog("图标下载成功: " + logoFile.getAbsolutePath());
-        } catch (Exception e) {
-            LogUtils.writeLog("下载图标异常: " + e.getMessage());
-        }
+        } catch (Exception ignored) {}
     }
 
     private static String normalizeChannelName(String name) {
@@ -791,7 +818,7 @@ public class EPGParser {
     }
 }
 EPG
-# ==================== MainActivity.java（增强缓存构建） ====================
+# ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -1012,8 +1039,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 },
                 this::toggleFavorite,
-                this,
-                epgCacheMap
+                this
             );
             channelRecycler.setAdapter(channelAdapter);
 
@@ -1060,46 +1086,8 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onLoaded(Map<String, List<EPGParser.EpgProgram>> allPrograms, Map<String, String> channelNameToId) {
                         runOnUiThread(() -> {
-                            epgCacheMap.clear();
-                            // 构建缓存：遍历所有频道名称（从 SourceManager 来的频道名）
-                            // 但我们无法直接遍历所有频道名，只能在需要时动态查找。
-                            // 为了在 Adapter 中快速查找，我们可以预先为所有 channelNameToId 中的键建立缓存。
-                            // 但 channelNameToId 可能不完整，所以我们采用动态查找方式：
-                            // 在 ChannelAdapter 中使用 EPGParser.getProgramsForChannel 替代查 epgCacheMap。
-                            // 但为了保持原结构，我们仍然构建 epgCacheMap，但使用模糊匹配。
-                            // 我们遍历所有 SourceManager 的频道名（在 groupMap 中），但 groupMap 尚未加载。
-                            // 因此，我们改为：当用户点击频道时，再获取 EPG，但为了显示，我们先构建一个通用映射。
-                            // 更简单：我们在 Adapter 中直接调用 EPGParser.getProgramsForChannel。
-                            // 但为了兼容现有代码，我们仍然填充 epgCacheMap，但不再从 channelNameToId 精确匹配，
-                            // 而是遍历所有 allPrograms 的 key（节目 ID），并与频道名进行模糊匹配。
-                            // 这里我们采取简单方法：将 channelNameToId 中所有键值对放入 epgCacheMap，
-                            // 然后另外存储 allPrograms 和 channelNameToId，供 Adapter 动态查询。
-                            // 修改 ChannelAdapter 使用 EPGParser.getProgramsForChannel 替代 epgCacheMap。
-                            // 所以我们这里不再构建 epgCacheMap，而是直接存储 allPrograms 和 channelNameToId 供后续使用。
-                            // 但为了保持现有代码改动最小，我们重新构建 epgCacheMap：遍历 channelNameToId，但只取其中能够匹配到节目的。
-                            // 对于那些不能精确匹配的，我们通过模糊匹配补充。
-                            // 更彻底：我们在 Adapter 中直接使用 EPGParser.getProgramsForChannel，它已经包含了模糊匹配。
-                            // 所以我们将 epgCacheMap 构建为从所有可能名称到节目的映射，但可能不完整。
-                            // 因此我们改为：在 ChannelAdapter 中，当需要显示 EPG 时，调用 EPGParser.getProgramsForChannel(ch.name)。
-                            // 这样就不用 epgCacheMap 了。但我们保留 epgCacheMap 作为缓存，加快速度。
-                            // 这里我们构建一个增强版的 epgCacheMap：对于每个频道名称，尝试获取节目列表。
-                            // 但由于我们不知道所有频道名称，我们只能等频道加载后再构建。
-                            // 所以我们先清空，后面在 playChannel 或显示时动态获取。
-                            // 更简单：直接移除 epgCacheMap，改用 EPGParser 的静态方法。
-                            // 为了最小改动，我们在加载完成后，遍历 groupMap 中的所有频道，为每个频道尝试匹配。
-                            // 但此时 groupMap 可能还没有加载（订阅源加载是异步的）。
-                            // 所以我们在 ChannelAdapter 中实时调用 EPGParser.getProgramsForChannel。
-                            // 因此我们不再构建 epgCacheMap，而是直接使用 EPGParser。
-                            // 为了兼容，我们将 epgCacheMap 设为动态查询的包装。
-                            // 我们可以修改 ChannelAdapter，让它使用 EPGParser 而不是 epgCacheMap。
-                            // 由于时间关系，我们采用如下方案：
-                            // 1. 保留 epgCacheMap，但不再依赖 channelNameToId，而是当需要时通过 EPGParser 查询。
-                            // 2. 我们在 ChannelAdapter 中，每次 onBind 时调用 EPGParser.getProgramsForChannel。
-                            //    但这样可能多次调用，所以我们将查询结果缓存到 epgCacheMap 中。
-                            // 所以我们在 ChannelAdapter 中实现缓存逻辑。
-                            // 这里我们只记录 epgLoaded = true，不填充 epgCacheMap。
                             epgLoaded = true;
-                            LogUtils.writeLog("全量EPG加载完成，总节目数: " + allPrograms.values().stream().mapToInt(List::size).sum());
+                            LogUtils.writeLog("全量EPG加载完成");
                             channelAdapter.notifyDataSetChanged();
                             scheduleChannelAdapter.notifyDataSetChanged();
                             if (currentChannel != null) {
@@ -1495,7 +1483,6 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ========== 信息弹窗 ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1578,7 +1565,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 对话框方法 ==========
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -1784,18 +1770,15 @@ public class MainActivity extends AppCompatActivity {
         private Set<String> favoriteSet;
         private File logoDir;
         private MainActivity activity;
-        // 不再使用 epgCacheMap，改用 EPGParser 动态查询，但为了兼容保留字段
-        private Map<String, List<EPGParser.EpgProgram>> epgCache;
 
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
         ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir,
                        OnChannelClickListener listener, OnFavoriteClickListener favListener,
-                       MainActivity activity, Map<String, List<EPGParser.EpgProgram>> epgCache) {
+                       MainActivity activity) {
             this.data = data; this.favoriteSet = favorites; this.logoDir = logoDir;
             this.listener = listener; this.favListener = favListener;
             this.activity = activity;
-            this.epgCache = epgCache; // 保留但不再使用
         }
         void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
         void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
@@ -1823,7 +1806,6 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 holder.logo.setVisibility(View.GONE);
             }
-            // 动态查询 EPG
             if (activity.epgLoaded) {
                 List<EPGParser.EpgProgram> epgList = EPGParser.getProgramsForChannel(ch.name);
                 if (epgList != null && !epgList.isEmpty()) {
