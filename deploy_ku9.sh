@@ -14,14 +14,19 @@ EPG_URL="https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_m
 EPG_XML_FILE="$TEMPLATE_DIR/assets/epg_merged.xml"
 curl -s -L -o "$EPG_XML_FILE" "$EPG_URL" || wget -q -O "$EPG_XML_FILE" "$EPG_URL"
 
-# 使用Python解析XML生成epg_data.json
-python3 <<'PYEOF'
+# 导出变量供Python使用
+export TEMPLATE_DIR="$TEMPLATE_DIR"
+
+python3 <<PYEOF
 import xml.etree.ElementTree as ET
 import json
 import re
+import os
+
+template_dir = os.environ.get('TEMPLATE_DIR', './config')
+xml_file = os.path.join(template_dir, 'assets/epg_merged.xml')
 
 def normalize_name(name):
-    # 去空格、括号、连字符等，去常见后缀
     name = re.sub(r'[（(]HD[)）]', '', name, flags=re.I)
     name = re.sub(r'\s*[HD高清标清4K8K超清FHDUHD]+\s*', '', name, flags=re.I)
     name = re.sub(r'[-\s_()（）【】\[\]·:：]+', '', name)
@@ -30,45 +35,35 @@ def normalize_name(name):
 def generate_variants(name):
     variants = set()
     variants.add(name)
-    # 去常见后缀
     no_suffix = re.sub(r'(?i)(高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\d+p)', '', name).strip()
     if no_suffix and no_suffix != name:
         variants.add(no_suffix)
-    # 去空格、连字符、括号等
     simple = re.sub(r'[-\s_()（）【】\[\]·:：]+', '', name)
     if simple and simple != name:
         variants.add(simple)
-    # 归一化（去特殊符号，小写）
     norm = normalize_name(name)
     if norm and norm != name and norm != simple:
         variants.add(norm)
-    # 如果name包含“高清”等，可能原始名称就是类似“CCTV-1 高清”，我们保留
     return list(variants)
 
-tree = ET.parse("$TEMPLATE_DIR/assets/epg_merged.xml")
+tree = ET.parse(xml_file)
 root = tree.getroot()
 epgs = []
 for channel in root.findall("channel"):
     ch_id = channel.get("id")
     if not ch_id:
         continue
-    # 收集所有display-name
     names = []
     for dn in channel.findall("display-name"):
         if dn.text:
             names.append(dn.text.strip())
     if not names:
-        # 如果没有display-name，用id本身
         names = [ch_id]
-    # 合并所有display-name，用逗号分隔
     combined = ",".join(names)
-    # 拆分可能的逗号分隔
     raw_names = [x.strip() for x in combined.split(",") if x.strip()]
-    # 为每个原始名生成变体
     all_aliases = set()
     for raw in raw_names:
         all_aliases.update(generate_variants(raw))
-    # 构建name字符串
     name_str = ",".join(all_aliases)
     epgs.append({
         "epgid": ch_id,
@@ -78,7 +73,8 @@ for channel in root.findall("channel"):
         "logo": ""
     })
 
-with open("$TEMPLATE_DIR/assets/epg_data.json", "w", encoding="utf-8") as f:
+output_file = os.path.join(template_dir, 'assets/epg_data.json')
+with open(output_file, "w", encoding="utf-8") as f:
     json.dump({"epgs": epgs}, f, ensure_ascii=False, indent=2)
 
 print("✅ epg_data.json 生成完成，频道数: " + str(len(epgs)))
