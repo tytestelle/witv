@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 精确匹配中国内地频道）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - epgid直接匹配XML channel id）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,7 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（精确匹配中国内地频道） ====================
+# ==================== EPGParser.java（epgid直接匹配XML channel id，CN优先） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -310,9 +310,10 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
     public interface OnAllEpgLoadedListener { void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId); void onError(String error); }
 
-    private static Map<String, String> sAliasMap = null;
-    private static Map<String, List<EpgProgram>> sAllPrograms = null;
-    private static Map<String, String> sChannelNameToId = null;
+    private static Map<String, String> sAliasMap = null;              // 别名 -> epgid（epgid即XML channel id）
+    private static Map<String, List<EpgProgram>> sAllPrograms = null; // XML channel id -> 节目列表
+    private static Map<String, String> sChannelNameToId = null;       // 别名 -> XML channel id（最终映射）
+
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
@@ -336,11 +337,14 @@ public class EPGParser {
                 for (String name : names) {
                     String trimmed = name.trim();
                     if (trimmed.isEmpty()) continue;
+                    // 原始名称
                     map.put(trimmed, epgid);
+                    // 归一化变体
                     String norm = normalizeChannelName(trimmed);
                     if (!norm.isEmpty() && !norm.equals(trimmed)) {
                         map.put(norm, epgid);
                     }
+                    // 简化变体
                     String simple = trimmed.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
                     if (!simple.isEmpty() && !simple.equals(trimmed)) {
                         map.put(simple, epgid);
@@ -483,11 +487,11 @@ public class EPGParser {
         }).start();
     }
 
-    // ===================== 核心解析：别名直接匹配display-name，优先选择中国内地频道 =====================
+    // ===================== 核心解析：别名直接匹配XML channel id =====================
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         // 1. 解析XML，提取所有频道信息
-        Map<String, Set<String>> xmlIdToVariants = new HashMap<>();
-        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>();
+        Map<String, Set<String>> xmlIdToVariants = new HashMap<>();   // xml channel id -> display-name变体
+        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>(); // xml id -> 节目列表
         Set<String> allXmlIds = new HashSet<>();
 
         XmlPullParser parser = Xml.newPullParser();
@@ -600,80 +604,124 @@ public class EPGParser {
 
         LogUtils.writeLog("XML解析完成，总频道数: " + allXmlIds.size() + ", 有节目的频道数: " + xmlIdToPrograms.size());
 
-        // 2. 构建 display-name变体 -> xml id 的映射（如果有多个xml id映射到同一个变体，保留所有）
-        Map<String, List<String>> variantToXmlIds = new HashMap<>();
+        // 2. 对每个XML channel id，尝试用其变体在别名映射中查找对应的epgid（即XML id）
+        Map<String, String> xmlIdToEpgId = new HashMap<>(); // xml id -> 匹配到的epgid（即另一个xml id）
         for (String xmlId : allXmlIds) {
             Set<String> variants = xmlIdToVariants.get(xmlId);
-            if (variants != null) {
-                for (String variant : variants) {
-                    variantToXmlIds.computeIfAbsent(variant, k -> new ArrayList<>()).add(xmlId);
+            if (variants == null || variants.isEmpty()) continue;
+            String matchedEpgId = null;
+            int bestScore = -1;
+            for (String variant : variants) {
+                // 精确匹配
+                String epgid = sAliasMap.get(variant);
+                if (epgid != null) {
+                    // 确保该epgid是有效的XML id（即存在于allXmlIds中）
+                    if (allXmlIds.contains(epgid)) {
+                        int score = 10000 - variant.length();
+                        if (score > bestScore) {
+                            bestScore = score;
+                            matchedEpgId = epgid;
+                        }
+                    }
+                    continue;
                 }
+                // 包含匹配（使用别名映射中的key）
+                for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+                    String alias = entry.getKey();
+                    String epgid2 = entry.getValue();
+                    if (!allXmlIds.contains(epgid2)) continue; // 必须为有效的XML id
+                    String vLower = variant.toLowerCase(Locale.US);
+                    String aLower = alias.toLowerCase(Locale.US);
+                    if (vLower.contains(aLower) || aLower.contains(vLower)) {
+                        int score = Math.max(variant.length(), alias.length()) * 10;
+                        if (vLower.contains(aLower)) score += 100;
+                        if (score > bestScore) {
+                            bestScore = score;
+                            matchedEpgId = epgid2;
+                        }
+                    }
+                }
+            }
+            if (matchedEpgId != null) {
+                xmlIdToEpgId.put(xmlId, matchedEpgId);
             }
         }
 
-        // 3. 为每个别名选择最佳的 xml id（优先精确匹配、优先中国内地、优先节目数多）
-        Map<String, String> channelNameToId = new HashMap<>();
-        for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-            String alias = entry.getKey();
-            // 直接根据别名查找对应的 xml id
-            List<String> candidateXmlIds = variantToXmlIds.get(alias);
-            if (candidateXmlIds == null || candidateXmlIds.isEmpty()) {
-                // 尝试归一化匹配
-                String normAlias = normalizeChannelName(alias);
-                candidateXmlIds = variantToXmlIds.get(normAlias);
-            }
-            if (candidateXmlIds == null || candidateXmlIds.isEmpty()) {
-                // 尝试包含匹配
-                for (Map.Entry<String, List<String>> vEntry : variantToXmlIds.entrySet()) {
-                    String variant = vEntry.getKey();
-                    if (variant.toLowerCase(Locale.US).contains(alias.toLowerCase(Locale.US)) ||
-                        alias.toLowerCase(Locale.US).contains(variant.toLowerCase(Locale.US))) {
-                        candidateXmlIds = vEntry.getValue();
-                        break;
-                    }
-                }
-            }
-            if (candidateXmlIds != null && !candidateXmlIds.isEmpty()) {
-                // 从候选中选择最佳的一个：优先有节目、优先display-name包含中国内地标识
-                String bestXmlId = null;
-                int bestScore = -1;
-                for (String xmlId : candidateXmlIds) {
-                    // 计算得分
-                    int score = 0;
-                    // 有节目加分
-                    if (xmlIdToPrograms.containsKey(xmlId)) {
-                        score += 10000;
-                        // 节目数量越多越好
-                        score += xmlIdToPrograms.get(xmlId).size();
-                    }
-                    // display-name中包含中国内地标识加分
-                    Set<String> variants = xmlIdToVariants.get(xmlId);
-                    if (variants != null) {
-                        for (String v : variants) {
-                            String vLower = v.toLowerCase(Locale.US);
-                            if (vLower.contains("cctv") || vLower.contains("央视") || vLower.contains("中央") ||
-                                vLower.contains("中国") || vLower.contains("china") || vLower.contains("cctv-")) {
-                                score += 5000;
-                            }
-                            // 如果包含台湾、台视、中视等，减分（避免匹配到台湾频道）
-                            if (vLower.contains("台湾") || vLower.contains("台视") || vLower.contains("中视") ||
-                                vLower.contains("华视") || vLower.contains("民视") || vLower.contains("tvbs")) {
-                                score -= 5000;
-                            }
+        // 3. 对于每个匹配到的epgid（即一个XML id），选择最佳候选（CN优先）
+        // 注意：epgid本身就是XML channel id，我们要从所有映射到该epgid的xml id中选出一个主id
+        // 但更简单：直接保留匹配关系，但将别名映射到epgid本身（如果epgid有节目）或最佳候选
+        // 实际中，xmlIdToEpgId 的 value 已经是一个有效的 XML id，并且该 id 很可能有节目
+        // 我们需要确保映射到有节目的id，且为CN版本
+
+        // 先构建 epgid -> 所有候选xml id的映射（候选即匹配到该epgid的xml id）
+        Map<String, Set<String>> epgidCandidates = new HashMap<>();
+        for (Map.Entry<String, String> entry : xmlIdToEpgId.entrySet()) {
+            String xmlId = entry.getKey();
+            String epgid = entry.getValue();
+            epgidCandidates.computeIfAbsent(epgid, k -> new HashSet<>()).add(xmlId);
+        }
+
+        // 对每个epgid，选择最佳候选（节目数最多，CN优先）
+        Map<String, String> epgidToBestXmlId = new HashMap<>();
+        for (String epgid : epgidCandidates.keySet()) {
+            Set<String> candidates = epgidCandidates.get(epgid);
+            String bestXmlId = epgid; // 默认用epgid自身
+            int bestScore = -1;
+            for (String candidate : candidates) {
+                List<EpgProgram> progs = xmlIdToPrograms.get(candidate);
+                int progCount = (progs == null) ? 0 : progs.size();
+                int score = progCount * 1000;
+                // CN加分：display-name中不含“美洲”“欧洲”“亚洲”
+                Set<String> variants = xmlIdToVariants.get(candidate);
+                boolean isCn = true;
+                if (variants != null) {
+                    for (String v : variants) {
+                        if (v.contains("美洲") || v.contains("欧洲") || v.contains("亚洲")) {
+                            isCn = false;
+                            break;
                         }
                     }
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestXmlId = xmlId;
+                }
+                if (isCn) score += 100;
+                // 含“高清”加10
+                if (variants != null) {
+                    for (String v : variants) {
+                        if (v.contains("高清")) { score += 10; break; }
                     }
                 }
-                if (bestXmlId != null) {
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestXmlId = candidate;
+                }
+            }
+            if (bestXmlId != null) {
+                epgidToBestXmlId.put(epgid, bestXmlId);
+            }
+        }
+
+        // 4. 构建最终映射：别名 -> 最佳 XML id
+        Map<String, String> channelNameToId = new HashMap<>();
+        // 4.1 从别名映射中，将每个别名映射到其epgid对应的最佳XML id
+        for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+            String alias = entry.getKey();
+            String epgid = entry.getValue();
+            if (epgidToBestXmlId.containsKey(epgid)) {
+                String bestXmlId = epgidToBestXmlId.get(epgid);
+                if (xmlIdToPrograms.containsKey(bestXmlId)) {
                     channelNameToId.put(alias, bestXmlId);
                 }
             }
         }
-
-        // 4. 为了确保所有有节目的xml频道都能被某个别名访问，如果某个xml频道没有被任何别名覆盖，则将其自身display-name变体加入映射
+        // 4.2 将 epgid 自身也作为别名加入（如果尚未覆盖）
+        for (String epgid : epgidToBestXmlId.keySet()) {
+            String bestXmlId = epgidToBestXmlId.get(epgid);
+            if (xmlIdToPrograms.containsKey(bestXmlId)) {
+                if (!channelNameToId.containsKey(epgid)) {
+                    channelNameToId.put(epgid, bestXmlId);
+                }
+            }
+        }
+        // 4.3 对于有节目但未被任何别名覆盖的 XML 频道，用其自身 display-name 变体映射
         for (String xmlId : xmlIdToPrograms.keySet()) {
             Set<String> variants = xmlIdToVariants.get(xmlId);
             if (variants != null) {
@@ -2892,4 +2940,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "🔧 EPG解析优先匹配中国内地频道（CCTV、央视、中央等），确保节目正确。"
+echo "🔧 EPG解析以epg_data.json中的epgid直接匹配XML channel id，CN优先。"
