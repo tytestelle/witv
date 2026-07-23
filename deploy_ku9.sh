@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终修正版）"
+echo "🔥 部署 witv 播放器（最终完整版）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -147,7 +147,7 @@ public class SourceManager {
 }
 SRCMGR
 
-# ==================== LogUtils.java ====================
+# ==================== LogUtils.java（强制外部存储） ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'LOGUTIL'
 package com.whyun.witv.utils;
 import android.content.Context;
@@ -169,6 +169,7 @@ public class LogUtils {
     public static void init(Context context) {
         if (sLogDirPath != null) return;
         File baseDir = null;
+        // 优先外部存储
         try {
             if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
                 File extDir = new File(Environment.getExternalStorageDirectory(), APP_DIR);
@@ -176,6 +177,7 @@ public class LogUtils {
             }
         } catch (Exception e) { Log.e("LogUtils", "外部存储不可用", e); }
         if (baseDir == null) {
+            // 回退到内部存储
             File internalDir = new File(context.getFilesDir(), APP_DIR);
             if (internalDir.exists() || internalDir.mkdirs()) baseDir = internalDir;
         }
@@ -185,13 +187,14 @@ public class LogUtils {
         if (!logDir.exists()) logDir.mkdirs();
         sLogDirPath = logDir.getAbsolutePath();
         sAppRoot = baseDir.getAbsolutePath();
-        writeLog("=== 日志系统初始化成功，日志目录: " + sLogDirPath + " ===");
+        writeLog("=== 日志系统初始化成功，根目录: " + sAppRoot + "，日志目录: " + sLogDirPath + " ===");
     }
     public static String getLogDir() { return sLogDirPath != null ? sLogDirPath : ""; }
     public static String getAppRootDir() { return sAppRoot != null ? sAppRoot : ""; }
     public static String getEpgCacheDir() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epgCache"; }
     public static String getEpgHashFile() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/epg_hash.txt"; }
     public static String getConfigDir() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/configuration"; }
+    public static String getLogoDir() { String root = getAppRootDir(); return root.isEmpty() ? "" : root + "/logo"; }
     public static void writeLog(String message) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); String log = time + " - " + message + "\n"; File logFile = new File(sLogDirPath, LOG_FILE); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile, true); fos.write(log.getBytes()); fos.close(); } catch (Exception e) { Log.e("LogUtils", "写入日志失败", e); } }
     public static void writeCrashLog(Throwable t) { if (sLogDirPath == null) return; try { String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()); StringWriter sw = new StringWriter(); PrintWriter pw = new PrintWriter(sw); t.printStackTrace(pw); String stack = sw.toString(); String log = "========== CRASH at " + time + " ==========\n" + stack + "\n\n"; String fileName = "crash_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt"; File logFile = new File(sLogDirPath, fileName); File parent = logFile.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream fos = new FileOutputStream(logFile); fos.write(log.getBytes()); fos.close(); writeLog("CRASH: " + t.getMessage()); } catch (Exception e) { Log.e("LogUtils", "写入崩溃日志失败", e); } }
     public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }
@@ -341,7 +344,7 @@ public class EPGParser {
     private static Map<String, List<EpgProgram>> sAllPrograms = null;
     private static Map<String, String> sChannelNameToId = null;
     private static Map<String, String> sChannelNameToIcon = null;
-    private static Map<String, String> sChannelNameToEpgid = null; // 新增：channelName -> epgid
+    private static Map<String, String> sChannelNameToEpgid = null;
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
@@ -543,7 +546,7 @@ public class EPGParser {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
         Map<String, String> channelNameToIcon = new HashMap<>();
-        Map<String, String> channelNameToEpgid = new HashMap<>(); // 本地变量
+        Map<String, String> channelNameToEpgid = new HashMap<>();
 
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
@@ -660,7 +663,7 @@ public class EPGParser {
             }
         }
 
-        // 应用别名映射：强制覆盖，同时记录 epgid
+        // 应用别名映射：强制覆盖
         if (sAliasMap != null) {
             int successCount = 0;
             int failCount = 0;
@@ -675,9 +678,7 @@ public class EPGParser {
                     continue;
                 }
 
-                // 覆盖 channel id
                 channelNameToId.put(alias, realId);
-                // 记录 channelName -> epgid
                 channelNameToEpgid.put(alias, epgid);
                 successCount++;
             }
@@ -762,7 +763,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（修正：台标使用epgid命名 + 首次启动跳转） ====================
+# ==================== MainActivity.java（修正存储路径 + 订阅加载逻辑） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -881,7 +882,7 @@ public class MainActivity extends AppCompatActivity {
     private View leftClickArea;
     private Map<String, List<EPGParser.EpgProgram>> epgCacheMap = new HashMap<>();
     private Map<String, String> epgIconMap = new HashMap<>();
-    private Map<String, String> epgIdMap = new HashMap<>(); // channelName -> epgid
+    private Map<String, String> epgIdMap = new HashMap<>();
     private boolean epgLoaded = false;
     private boolean isReconnecting = false;
     private int reconnectAttempts = 0;
@@ -934,10 +935,18 @@ public class MainActivity extends AppCompatActivity {
             }
             favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
             
-            File baseDir = new File(Environment.getExternalStorageDirectory(), "witv");
-            if (!baseDir.exists()) baseDir.mkdirs();
-            logoDir = new File(baseDir, "logo");
-            if (!logoDir.exists()) logoDir.mkdirs();
+            // 使用 LogUtils 提供的根目录
+            String root = LogUtils.getAppRootDir();
+            if (!root.isEmpty()) {
+                logoDir = new File(root, "logo");
+                if (!logoDir.exists()) logoDir.mkdirs();
+            } else {
+                // 回退
+                File baseDir = new File(Environment.getExternalStorageDirectory(), "witv");
+                if (!baseDir.exists()) baseDir.mkdirs();
+                logoDir = new File(baseDir, "logo");
+                if (!logoDir.exists()) logoDir.mkdirs();
+            }
 
             selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
 
@@ -945,9 +954,8 @@ public class MainActivity extends AppCompatActivity {
             if (selectedSubs.isEmpty()) {
                 LogUtils.writeLog("无订阅源，跳转到设置界面");
                 Intent intent = new Intent(this, SettingsActivity.class);
-                intent.putExtra("open_tab", 3); // 列表订阅菜单索引
+                intent.putExtra("open_tab", 3);
                 startActivity(intent);
-                // 稍后回来时会触发 onResume，再加载
             }
 
             String epgUrlPref = prefs.getString("epg_url", null);
@@ -1061,7 +1069,6 @@ public class MainActivity extends AppCompatActivity {
                             epgCacheMap.clear();
                             epgIconMap.clear();
                             epgIdMap.clear();
-                            // 获取 epgid 映射
                             epgIdMap.putAll(EPGParser.getChannelNameToEpgid());
                             for (Map.Entry<String, String> entry : channelNameToId.entrySet()) {
                                 String name = entry.getKey();
@@ -1374,11 +1381,9 @@ public class MainActivity extends AppCompatActivity {
         }
         final String finalUrl = decodedUrl;
 
-        // 确定文件名：优先使用 epgid，若为空则用 channel.name.hashCode()
         String epgid = epgIdMap.get(channel.name);
         String fileName;
         if (epgid != null && !epgid.isEmpty()) {
-            // 替换路径分隔符，避免子目录
             fileName = epgid.replace("/", "_").replace("\\", "_") + ".png";
         } else {
             fileName = channel.name.hashCode() + ".png";
@@ -1754,16 +1759,22 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         loadSubscriptions();
         subAdapter.updateData(subEntryList);
+        // 检测是否需要重新加载
         if (prefs.getBoolean(KEY_NEED_RELOAD, false)) {
             prefs.edit().remove(KEY_NEED_RELOAD).apply();
             selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
+            // 强制重新加载
             if (!selectedSubs.isEmpty()) {
                 loadSelectedSources();
+            } else {
+                showNoSourceDialog();
             }
-        }
-        if (groupMap.isEmpty() && !subEntryList.isEmpty() && !isLoading) {
-            if (!selectedSubs.isEmpty()) {
-                loadSelectedSources();
+        } else {
+            // 常规检查
+            if (groupMap.isEmpty() && !subEntryList.isEmpty() && !isLoading) {
+                if (!selectedSubs.isEmpty()) {
+                    loadSelectedSources();
+                }
             }
         }
     }
@@ -2041,7 +2052,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java（接受 open_tab extra） ====================
+# ==================== SettingsActivity.java（使用 KEY_SELECTED_SUBS，多选） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -2077,7 +2088,7 @@ public class SettingsActivity extends AppCompatActivity {
     private int currentPos = 0;
     private SharedPreferences prefs;
     private static final String KEY_SUB_LIST = "sub_list";
-    private static final String KEY_SELECTED_SUB = "selected_sub";
+    private static final String KEY_SELECTED_SUBS = "selected_subs";
     private static final String KEY_AUTO_RECONNECT = "auto_reconnect";
     private static final String KEY_NEED_RELOAD = "need_reload";
     private String localIp = "";
@@ -2099,7 +2110,6 @@ public class SettingsActivity extends AppCompatActivity {
         contentRecycler.setLayoutManager(new LinearLayoutManager(this));
         contentAdapter = new ContentAdapter();
         contentRecycler.setAdapter(contentAdapter);
-        // 读取外部传入的 tab
         int openTab = getIntent().getIntExtra("open_tab", -1);
         if (openTab >= 0 && openTab < menuTitles.length) {
             currentPos = openTab;
@@ -2160,28 +2170,26 @@ public class SettingsActivity extends AppCompatActivity {
         items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "IP: " + localIp + " 端口 9978", Toast.LENGTH_LONG).show()));
         items.add(new ContentItem("列表订阅", "http://" + localIp + ":9978/", v -> {}));
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
-        String selected = prefs.getString(KEY_SELECTED_SUB, "");
+        Set<String> selectedSet = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
         if (subSet != null && !subSet.isEmpty()) {
             for (String entry : subSet) {
                 String[] parts = entry.split("\\|\\|");
                 String name = parts.length > 0 ? parts[0] : entry;
                 String url = parts.length > 1 ? parts[1] : "";
-                boolean isSelected = entry.equals(selected);
+                boolean isSelected = selectedSet.contains(entry);
                 items.add(new ContentItem(name, url, isSelected, v -> {
-                    if (isSelected) {
-                        prefs.edit().putString(KEY_SELECTED_SUB, "").apply();
-                        prefs.edit().putString("selected_sub_url", "").apply();
-                        prefs.edit().putString("selected_sub_name", "").apply();
-                        Toast.makeText(this, "已取消选中", Toast.LENGTH_SHORT).show();
+                    // 切换选中状态
+                    Set<String> currentSelected = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
+                    if (currentSelected.contains(entry)) {
+                        currentSelected.remove(entry);
                     } else {
-                        prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
-                        prefs.edit().putString("selected_sub_url", url).apply();
-                        prefs.edit().putString("selected_sub_name", name).apply();
-                        Toast.makeText(this, "已选中: " + name, Toast.LENGTH_SHORT).show();
+                        currentSelected.add(entry);
                     }
+                    prefs.edit().putStringSet(KEY_SELECTED_SUBS, currentSelected).apply();
                     prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
+                    Toast.makeText(this, currentSelected.contains(entry) ? "已选中" : "已取消选中", Toast.LENGTH_SHORT).show();
+                    // 刷新列表
                     showContent(3);
-                    finish();
                 }));
             }
         }
@@ -2228,9 +2236,10 @@ public class SettingsActivity extends AppCompatActivity {
             Set<String> subSet = new HashSet<>(prefs.getStringSet(KEY_SUB_LIST, new HashSet<>()));
             subSet.add(entry);
             prefs.edit().putStringSet(KEY_SUB_LIST, subSet).apply();
-            prefs.edit().putString(KEY_SELECTED_SUB, entry).apply();
-            prefs.edit().putString("selected_sub_url", url).apply();
-            prefs.edit().putString("selected_sub_name", name).apply();
+            // 自动选中新添加的订阅
+            Set<String> selectedSet = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
+            selectedSet.add(entry);
+            prefs.edit().putStringSet(KEY_SELECTED_SUBS, selectedSet).apply();
             prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
             Toast.makeText(this, "订阅已添加并选中", Toast.LENGTH_SHORT).show();
             showContent(3);
@@ -3016,10 +3025,9 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储的 witv 目录下创建所需文件夹，配置文件存放在 witv/configuration/"
-echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "✅ 本次修正："
-echo "  1) 台标使用 epgid 命名（如 CCTV-7国防军事.png），直接存放在 logo 目录"
-echo "  2) 首次启动无订阅源时自动跳转到设置-列表订阅"
-echo "  3) 订阅选中后刷新加载，保持当前播放频道"
-echo "  4) 配置文件复制到外部存储，支持本地修改"
+echo "📂 所有数据（日志、EPG缓存、配置文件、台标）均存放在外部存储 /witv/ 下"
+echo "✅ 修正内容："
+echo "  1) 台标使用 epgid 命名，直接存入 logo 目录，下载前确保目录存在"
+echo "  2) 设置中的订阅改为多选（与主界面一致），选中后立即刷新加载"
+echo "  3) 添加订阅后自动选中并加载"
+echo "  4) 切换订阅时自动触发重新加载，无需重启"
