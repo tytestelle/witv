@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（酷9风格最终完整版 - 全量EPG缓存 + 自动加载）"
+echo "🔥 部署 witv 播放器（酷9风格最终完整版 - 修复EPG匹配）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（全量解析） ====================
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -457,6 +457,7 @@ public class EPGParser {
                             String normName = normalizeChannelName(currentDisplayName);
                             if (!normName.isEmpty()) {
                                 channelNameToId.put(normName, currentChannelId);
+                                // 也存储原始 display-name
                                 channelNameToId.put(currentDisplayName, currentChannelId);
                             }
                             channelNameToId.put(currentDisplayName, currentChannelId);
@@ -502,12 +503,19 @@ public class EPGParser {
 
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
         if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
-        String normalized = normalizeChannelName(channelName);
-        String channelId = sChannelNameToId.get(normalized);
+        // 先尝试原始名称
+        String channelId = sChannelNameToId.get(channelName);
         if (channelId == null) {
+            String normalized = normalizeChannelName(channelName);
+            channelId = sChannelNameToId.get(normalized);
+        }
+        if (channelId == null) {
+            // 包含匹配
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
-                if (key.contains(normalized) || normalized.contains(key)) {
+                String normKey = normalizeChannelName(key);
+                String normChannel = normalizeChannelName(channelName);
+                if (normKey.contains(normChannel) || normChannel.contains(normKey)) {
                     channelId = entry.getValue();
                     break;
                 }
@@ -947,6 +955,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onLoaded(Map<String, List<EPGParser.EpgProgram>> allPrograms, Map<String, String> channelNameToId) {
                         runOnUiThread(() -> {
                             epgCacheMap.clear();
+                            // 使用原始 display-name 构建映射
                             for (Map.Entry<String, String> entry : channelNameToId.entrySet()) {
                                 String name = entry.getKey();
                                 String id = entry.getValue();
@@ -956,9 +965,13 @@ public class MainActivity extends AppCompatActivity {
                                 }
                             }
                             epgLoaded = true;
-                            LogUtils.writeLog("全量EPG加载完成");
+                            LogUtils.writeLog("全量EPG加载完成，缓存频道数: " + epgCacheMap.size());
                             channelAdapter.notifyDataSetChanged();
                             scheduleChannelAdapter.notifyDataSetChanged();
+                            // 如果当前有频道，立即刷新EPG信息
+                            if (currentChannel != null && epgCacheMap.containsKey(currentChannel.name)) {
+                                currentEpgList = epgCacheMap.get(currentChannel.name);
+                            }
                         });
                     }
                     @Override
@@ -1133,97 +1146,78 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-  private void playChannel(SourceManager.Channel channel) {
-    if (channel == null) return;
-    currentChannel = channel;
-    prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
-    prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
-    try {
-        if (player == null) {
-            DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-            player = new ExoPlayer.Builder(this)
-                    .setTrackSelector(trackSelector)
-                    .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                            .setBufferDurationsMs(50000, 80000, 2500, 5000)
-                            .build())
-                    .build();
-            playerView.setPlayer(player);
-            player.addListener(new Player.Listener() {
-                @Override
-                public void onPlayerError(PlaybackException error) {
-                    runOnUiThread(() -> {
-                        LogUtils.writeCrashLog(error);
-                        Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
-                        // 重连：重新prepare并播放
-                        if (player != null && currentChannel != null) {
-                            player.prepare();
-                            player.play();
-                        }
-                    });
-                }
-                @Override
-                public void onPlaybackStateChanged(int state) {
-                    if (state == Player.STATE_ENDED) {
+    private void playChannel(SourceManager.Channel channel) {
+        if (channel == null) return;
+        currentChannel = channel;
+        prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
+        prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
+        try {
+            if (player == null) {
+                DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+                player = new ExoPlayer.Builder(this)
+                        .setTrackSelector(trackSelector)
+                        .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                                .setBufferDurationsMs(50000, 80000, 2500, 5000)
+                                .build())
+                        .build();
+                playerView.setPlayer(player);
+                player.addListener(new Player.Listener() {
+                    @Override
+                    public void onPlayerError(PlaybackException error) {
                         runOnUiThread(() -> {
+                            LogUtils.writeCrashLog(error);
+                            Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
                             if (player != null && currentChannel != null) {
                                 player.prepare();
                                 player.play();
                             }
                         });
                     }
-                }
-            });
-        }
-        player.setMediaItem(MediaItem.fromUri(channel.url));
-        player.prepare();
-        player.play();
-        // 从缓存获取EPG并过滤当前节目
-        if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
-            List<EPGParser.EpgProgram> fullList = epgCacheMap.get(channel.name);
-            if (fullList != null && !fullList.isEmpty()) {
-                long now = System.currentTimeMillis();
-                // 复制一份，避免修改缓存
-                List<EPGParser.EpgProgram> filtered = new ArrayList<>();
-                // 找到当前节目及其之后的节目（从当前节目开始循环排序）
-                int currentIndex = 0;
-                for (int i = 0; i < fullList.size(); i++) {
-                    EPGParser.EpgProgram prog = fullList.get(i);
-                    if (prog.startTime <= now && prog.endTime > now) {
-                        currentIndex = i;
+                    @Override
+                    public void onPlaybackStateChanged(int state) {
+                        if (state == Player.STATE_ENDED) {
+                            runOnUiThread(() -> {
+                                if (player != null && currentChannel != null) {
+                                    player.prepare();
+                                    player.play();
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+            player.setMediaItem(MediaItem.fromUri(channel.url));
+            player.prepare();
+            player.play();
+            // 从缓存获取EPG
+            if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
+                currentEpgList = epgCacheMap.get(channel.name);
+                LogUtils.writeLog("从缓存加载EPG，节目数: " + currentEpgList.size());
+            } else if (epgLoaded) {
+                // 尝试用归一化名匹配
+                String norm = normalizeChannelNameForMatch(channel.name);
+                for (String key : epgCacheMap.keySet()) {
+                    if (normalizeChannelNameForMatch(key).equals(norm)) {
+                        currentEpgList = epgCacheMap.get(key);
+                        LogUtils.writeLog("通过归一化匹配EPG，节目数: " + currentEpgList.size());
                         break;
                     }
                 }
-                // 如果没找到当前节目，找第一个未来的节目
-                if (currentIndex == 0 && fullList.get(0).endTime <= now) {
-                    for (int i = 0; i < fullList.size(); i++) {
-                        if (fullList.get(i).startTime > now) {
-                            currentIndex = i;
-                            break;
-                        }
-                    }
-                }
-                // 从 currentIndex 开始循环添加到 filtered
-                for (int i = currentIndex; i < fullList.size(); i++) {
-                    filtered.add(fullList.get(i));
-                }
-                for (int i = 0; i < currentIndex; i++) {
-                    filtered.add(fullList.get(i));
-                }
-                currentEpgList = filtered;
-                // 刷新信息弹窗（如果有）
-                LogUtils.writeLog("当前节目EPG已加载，节目数: " + filtered.size());
-            } else {
-                currentEpgList = new ArrayList<>();
             }
-        } else {
-            currentEpgList = new ArrayList<>();
+            LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
+        } catch (Exception e) {
+            LogUtils.writeCrashLog(e);
+            Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
-        LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
-    } catch (Exception e) {
-        LogUtils.writeCrashLog(e);
-        Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
     }
-}
+
+    private String normalizeChannelNameForMatch(String name) {
+        if (name == null) return "";
+        return name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
+                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
+                .toLowerCase(Locale.getDefault());
+    }
+
     private void toggleFavorite(SourceManager.Channel channel) {
         try {
             if (favoriteSet.contains(channel.name)) {
@@ -1295,14 +1289,27 @@ public class MainActivity extends AppCompatActivity {
     private void showScheduleForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentScheduleChannelName = channel.name;
-        if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
-            currentScheduleEpg = epgCacheMap.get(channel.name);
-            generateDayTabs(currentScheduleEpg);
-            selectedDayIndex = 0;
-            showDayPrograms(0);
-            return;
+        if (epgLoaded) {
+            if (epgCacheMap.containsKey(channel.name)) {
+                currentScheduleEpg = epgCacheMap.get(channel.name);
+            } else {
+                // 归一化匹配
+                String norm = normalizeChannelNameForMatch(channel.name);
+                for (String key : epgCacheMap.keySet()) {
+                    if (normalizeChannelNameForMatch(key).equals(norm)) {
+                        currentScheduleEpg = epgCacheMap.get(key);
+                        break;
+                    }
+                }
+            }
+            if (currentScheduleEpg != null && !currentScheduleEpg.isEmpty()) {
+                generateDayTabs(currentScheduleEpg);
+                selectedDayIndex = 0;
+                showDayPrograms(0);
+                return;
+            }
         }
-        Toast.makeText(this, "EPG数据未加载", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "该频道暂无EPG数据", Toast.LENGTH_SHORT).show();
     }
 
     private void generateDayTabs(List<EPGParser.EpgProgram> programs) {
@@ -2791,4 +2798,5 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 全量EPG缓存：首次加载时一次性解析全部频道，切换频道无需重复加载。"
+echo "💡 EPG缓存目录: /data/data/com.whyun.witv/files/witv/epgCache (或 /sdcard/witv/epgCache)"
+echo "💡 哈希文件: /data/data/com.whyun.witv/files/witv/epg_hash.txt (或 /sdcard/witv/epg_hash.txt)"
