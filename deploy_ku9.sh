@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 支持台标、断线重连）"
+echo "🔥 部署 witv 播放器（纯净别名匹配 + 台标透明化）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -272,7 +272,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（纯净解析 - 兼容两种JSON格式） ====================
+# ==================== EPGParser.java（纯净解析 - 不归一化） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -328,7 +328,6 @@ public class EPGParser {
             is.close();
             String json = new String(buffer, "UTF-8");
             
-            // 兼容两种格式：直接数组或 {"epgs": [...]}
             JSONArray epgs = null;
             try {
                 epgs = new JSONArray(json);
@@ -356,20 +355,13 @@ public class EPGParser {
                 for (String name : names) {
                     String trimmed = name.trim();
                     if (trimmed.isEmpty()) continue;
-                    // 保留原始别名
+                    // 直接使用原始名称，不做任何转换
                     map.put(trimmed, epgid);
-                    // 归一化别名（仅去符号和空格，转小写）
-                    String normalized = normalizeChannelName(trimmed);
-                    if (!normalized.isEmpty()) {
-                        map.put(normalized, epgid);
-                    }
                 }
-                // 也把 epgid 本身及其归一化加入，便于直接匹配 display-name
+                // epgid 本身也加入
                 String epgidTrim = epgid.trim();
                 if (!epgidTrim.isEmpty()) {
                     map.put(epgidTrim, epgid);
-                    String normEpgid = normalizeChannelName(epgidTrim);
-                    if (!normEpgid.isEmpty()) map.put(normEpgid, epgid);
                 }
             }
             LogUtils.writeLog("别名映射加载完成，条目数: " + map.size());
@@ -504,7 +496,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 纯净解析：只使用原始名称和归一化名称，不生成额外变种 ==========
+    // ========== 纯净解析：只使用原始名称，不做任何转换 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -578,9 +570,6 @@ public class EPGParser {
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
                         if (currentChannelId != null && !currentChannelId.isEmpty()) {
-                            // 强制添加 id 本身和归一化 id
-                            String normalizedId = normalizeChannelName(currentChannelId);
-                            if (!normalizedId.isEmpty()) channelNameToId.put(normalizedId, currentChannelId);
                             channelNameToId.put(currentChannelId, currentChannelId);
 
                             if (currentDisplayName != null && !currentDisplayName.isEmpty()) {
@@ -588,10 +577,8 @@ public class EPGParser {
                                 for (String name : names) {
                                     name = name.trim();
                                     if (name.isEmpty()) continue;
-                                    // 只保留原始名称和归一化名称，不生成额外变种
+                                    // 只保留原始名称，不做任何转换
                                     channelNameToId.put(name, currentChannelId);
-                                    String normName = normalizeChannelName(name);
-                                    if (!normName.isEmpty()) channelNameToId.put(normName, currentChannelId);
                                 }
                             }
                         }
@@ -623,54 +610,54 @@ public class EPGParser {
         for (String id : allChannelIds) {
             if (!channelNameToId.containsValue(id)) {
                 channelNameToId.put(id, id);
-                String normId = normalizeChannelName(id);
-                if (!normId.isEmpty() && !channelNameToId.containsKey(normId)) {
-                    channelNameToId.put(normId, id);
-                }
             }
         }
 
-        // ========== 应用别名映射（仅使用用户提供的别名） ==========
+        // ========== 应用别名映射（仅使用原始别名，不做任何转换） ==========
         if (sAliasMap != null) {
+            int successCount = 0;
+            int failCount = 0;
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();          // 别名（可能是原始或归一化）
-                String epgid = entry.getValue();        // 自定义 epgid
+                String alias = entry.getKey();          // 原始别名
+                String epgid = entry.getValue();
 
-                // 如果别名已经存在映射，跳过
                 if (channelNameToId.containsKey(alias)) continue;
 
                 String realId = null;
+                boolean matched = false;
 
-                // 1. 检查 epgid 是否本身就是 XML 中的真实 channel id
+                // 1. 检查 epgid 是否本身就是真实 channel id
                 if (allChannelIds.contains(epgid)) {
                     realId = epgid;
+                    matched = true;
                 } else {
-                    // 2. 尝试将 epgid 作为 display-name 查找其对应的真实 id（原始或归一化）
-                    String normalizedEpgid = normalizeChannelName(epgid);
+                    // 2. 尝试将 epgid 作为 display-name 查找
                     if (channelNameToId.containsKey(epgid)) {
                         realId = channelNameToId.get(epgid);
-                    } else if (channelNameToId.containsKey(normalizedEpgid)) {
-                        realId = channelNameToId.get(normalizedEpgid);
+                        matched = true;
                     } else {
-                        // 3. 用归一化后的别名与 channelNameToId 的所有 key 进行包含匹配（兜底）
-                        String normalizedAlias = normalizeChannelName(alias);
+                        // 3. 包含匹配（原始字符串）
                         for (Map.Entry<String, String> kv : channelNameToId.entrySet()) {
                             String key = kv.getKey();
-                            if (key.contains(normalizedAlias) || normalizedAlias.contains(key)) {
+                            if (key.contains(alias) || alias.contains(key)) {
                                 realId = kv.getValue();
+                                matched = true;
                                 break;
                             }
                         }
                     }
                 }
 
-                if (realId != null && !channelNameToId.containsKey(alias)) {
+                if (matched && realId != null && !channelNameToId.containsKey(alias)) {
                     channelNameToId.put(alias, realId);
-                    LogUtils.writeLog("别名映射成功: " + alias + " -> " + realId + " (通过 epgid: " + epgid + ")");
-                } else if (realId == null) {
-                    LogUtils.writeLog("别名映射失败: " + alias + " 无法找到真实ID (epgid: " + epgid + ")");
+                    successCount++;
+                } else if (!matched) {
+                    failCount++;
+                    // 只记录失败的，方便排查
+                    LogUtils.writeLog("别名映射失败: " + alias + " (epgid: " + epgid + ")");
                 }
             }
+            LogUtils.writeLog("别名映射统计: 成功 " + successCount + " 个，失败 " + failCount + " 个");
         }
 
         sAllPrograms = allPrograms;
@@ -680,14 +667,12 @@ public class EPGParser {
 
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
         if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
-        String normalized = normalizeChannelName(channelName);
-        String channelId = sChannelNameToId.get(normalized);
-        if (channelId == null) channelId = sChannelNameToId.get(channelName);
+        String channelId = sChannelNameToId.get(channelName);
         if (channelId == null) {
-            // 模糊匹配兜底
+            // 兜底包含匹配
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
-                if (key.contains(normalized) || normalized.contains(key)) {
+                if (key.contains(channelName) || channelName.contains(key)) {
                     channelId = entry.getValue();
                     break;
                 }
@@ -729,42 +714,7 @@ public class EPGParser {
     }
 
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
-        try {
-            if (iconUrl == null || iconUrl.isEmpty()) return;
-            String decoded = URLDecoder.decode(iconUrl, "UTF-8");
-            File logoFolder = new File(logoDir);
-            if (!logoFolder.exists()) logoFolder.mkdirs();
-            String fileName = channelName.hashCode() + ".png";
-            File logoFile = new File(logoFolder, fileName);
-            if (logoFile.exists()) { LogUtils.writeLog("图标已存在: " + logoFile.getAbsolutePath()); return; }
-            OkHttpClient client = new OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .build();
-            Request request = new Request.Builder().url(decoded).build();
-            Response response = client.newCall(request).execute();
-            if (response.code() != 200) { LogUtils.writeLog("下载图标失败: " + response.code()); return; }
-            InputStream is = response.body().byteStream();
-            FileOutputStream fos = new FileOutputStream(logoFile);
-            byte[] buf = new byte[8192];
-            int len;
-            while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
-            fos.close();
-            is.close();
-            LogUtils.writeLog("图标下载成功: " + logoFile.getAbsolutePath());
-        } catch (Exception e) {
-            LogUtils.writeLog("下载图标异常: " + e.getMessage());
-        }
-    }
-
-    // ========== 纯净归一化：仅去除符号和空格，转为小写 ==========
-    private static String normalizeChannelName(String name) {
-        if (name == null) return "";
-        // 只去除常见符号、空格、连字符、下划线、括号等，转为小写
-        // 注意：不特意去除“高清”、“HD”等，因为这些已在 name 中由用户控制
-        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：,]", "")
-                .toLowerCase(Locale.getDefault());
-        return normalized;
+        // 此方法不再使用
     }
 
     public static class EpgProgram {
@@ -785,7 +735,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（支持台标、断线重连、点击加载订阅） ====================
+# ==================== MainActivity.java（台标下载透明化 + 订阅即加载） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -794,7 +744,9 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -943,7 +895,6 @@ public class MainActivity extends AppCompatActivity {
             PlayerConfigManager.init(this);
             FavoriteManager.init(this);
             prefs = PreferenceManager.getDefaultSharedPreferences(this);
-            // 默认启用断线重连
             if (!prefs.contains(KEY_AUTO_RECONNECT)) {
                 prefs.edit().putBoolean(KEY_AUTO_RECONNECT, true).apply();
             }
@@ -1256,13 +1207,12 @@ public class MainActivity extends AppCompatActivity {
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
-        // 重置重连计数
         reconnectAttempts = 0;
         isReconnecting = false;
         prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
         prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
-        // 下载台标（异步）
-        downloadLogo(channel);
+        // 下载并处理台标
+        downloadAndProcessLogo(channel);
         try {
             if (player == null) {
                 DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
@@ -1279,7 +1229,6 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             LogUtils.writeCrashLog(error);
                             Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
-                            // 断线重连
                             if (prefs.getBoolean(KEY_AUTO_RECONNECT, true) && currentChannel != null && !isReconnecting) {
                                 isReconnecting = true;
                                 reconnectAttempts++;
@@ -1322,12 +1271,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 台标下载 ==========
-    private void downloadLogo(SourceManager.Channel channel) {
+    // ========== 下载并处理台标（透明化） ==========
+    private void downloadAndProcessLogo(SourceManager.Channel channel) {
         if (channel.logoUrl == null || channel.logoUrl.isEmpty()) return;
         String fileName = channel.name.hashCode() + ".png";
         File logoFile = new File(logoDir, fileName);
-        if (logoFile.exists()) return; // 已存在
+        if (logoFile.exists()) return;
 
         new Thread(() -> {
             try {
@@ -1339,15 +1288,40 @@ public class MainActivity extends AppCompatActivity {
                 Response response = client.newCall(request).execute();
                 if (response.code() == 200) {
                     InputStream is = response.body().byteStream();
-                    FileOutputStream fos = new FileOutputStream(logoFile);
-                    byte[] buf = new byte[8192];
-                    int len;
-                    while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
-                    fos.close();
+                    // 解码为 Bitmap
+                    Bitmap src = BitmapFactory.decodeStream(is);
                     is.close();
-                    LogUtils.writeLog("台标下载成功: " + channel.name);
+                    if (src == null) {
+                        LogUtils.writeLog("台标解码失败: " + channel.name);
+                        return;
+                    }
+                    // 转换为 ARGB_8888 以支持透明
+                    Bitmap processed = src.copy(Bitmap.Config.ARGB_8888, true);
+                    // 将白色或接近白色的背景变为透明（简单处理，可调整阈值）
+                    int width = processed.getWidth();
+                    int height = processed.getHeight();
+                    for (int x = 0; x < width; x++) {
+                        for (int y = 0; y < height; y++) {
+                            int pixel = processed.getPixel(x, y);
+                            int r = Color.red(pixel);
+                            int g = Color.green(pixel);
+                            int b = Color.blue(pixel);
+                            // 如果颜色接近白色（>240），设为透明
+                            if (r > 240 && g > 240 && b > 240) {
+                                processed.setPixel(x, y, Color.TRANSPARENT);
+                            }
+                            // 也可去除黑色背景（可选）
+                            // if (r < 20 && g < 20 && b < 20) processed.setPixel(x, y, Color.TRANSPARENT);
+                        }
+                    }
+                    // 保存为 PNG
+                    FileOutputStream fos = new FileOutputStream(logoFile);
+                    processed.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                    fos.close();
+                    processed.recycle();
+                    src.recycle();
+                    LogUtils.writeLog("台标处理完成: " + channel.name);
                     runOnUiThread(() -> {
-                        // 通知适配器更新
                         channelAdapter.notifyDataSetChanged();
                         scheduleChannelAdapter.notifyDataSetChanged();
                     });
@@ -1356,7 +1330,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 response.close();
             } catch (Exception e) {
-                LogUtils.writeLog("台标下载异常: " + e.getMessage());
+                LogUtils.writeLog("台标处理异常: " + e.getMessage());
             }
         }).start();
     }
@@ -1847,8 +1821,7 @@ public class MainActivity extends AppCompatActivity {
                     holder.logo.setVisibility(View.VISIBLE);
                 } else {
                     holder.logo.setVisibility(View.GONE);
-                    // 触发下载
-                    activity.downloadLogo(ch);
+                    activity.downloadAndProcessLogo(ch);
                 }
             } else {
                 holder.logo.setVisibility(View.GONE);
@@ -2076,7 +2049,7 @@ public class SettingsActivity extends AppCompatActivity {
         boolean newVal = !current;
         prefs.edit().putBoolean(KEY_AUTO_RECONNECT, newVal).apply();
         Toast.makeText(this, "断线重连已" + (newVal ? "开启" : "关闭"), Toast.LENGTH_SHORT).show();
-        showContent(2); // 刷新列表
+        showContent(2);
     }
     private void buildSubscriptionList(List<ContentItem> items) {
         items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "IP: " + localIp + " 端口 9978", Toast.LENGTH_LONG).show()));
@@ -2939,5 +2912,5 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "🖼️ 台标自动下载并缓存到 logo 目录"
+echo "🖼️ 台标下载后自动转为 PNG 并去除白色背景（透明）"
 echo "🔁 断线重连默认开启（1秒），可在设置中关闭"
