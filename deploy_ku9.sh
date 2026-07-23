@@ -1,17 +1,89 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - epgid直接匹配XML channel id）"
+echo "🔥 部署 witv 播放器（从EPG XML生成epg_data.json，独立映射）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
 mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values,assets}
 mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite" "$TEMPLATE_DIR/src/utils"
 
-# ==================== 下载 epg_data.json ====================
-echo "📥 下载别名映射 epg_data.json ..."
-curl -s -L -o "$TEMPLATE_DIR/assets/epg_data.json" "https://raw.githubusercontent.com/tytestelle/witv/main/assets/epg_data.json" || \
-wget -q -O "$TEMPLATE_DIR/assets/epg_data.json" "https://raw.githubusercontent.com/tytestelle/witv/main/assets/epg_data.json"
+# ==================== 从EPG XML生成epg_data.json ====================
+echo "📥 下载EPG XML并生成epg_data.json ..."
+EPG_URL="https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml"
+EPG_XML_FILE="$TEMPLATE_DIR/assets/epg_merged.xml"
+curl -s -L -o "$EPG_XML_FILE" "$EPG_URL" || wget -q -O "$EPG_XML_FILE" "$EPG_URL"
+
+# 使用Python解析XML生成epg_data.json
+python3 <<'PYEOF'
+import xml.etree.ElementTree as ET
+import json
+import re
+
+def normalize_name(name):
+    # 去空格、括号、连字符等，去常见后缀
+    name = re.sub(r'[（(]HD[)）]', '', name, flags=re.I)
+    name = re.sub(r'\s*[HD高清标清4K8K超清FHDUHD]+\s*', '', name, flags=re.I)
+    name = re.sub(r'[-\s_()（）【】\[\]·:：]+', '', name)
+    return name.strip()
+
+def generate_variants(name):
+    variants = set()
+    variants.add(name)
+    # 去常见后缀
+    no_suffix = re.sub(r'(?i)(高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\d+p)', '', name).strip()
+    if no_suffix and no_suffix != name:
+        variants.add(no_suffix)
+    # 去空格、连字符、括号等
+    simple = re.sub(r'[-\s_()（）【】\[\]·:：]+', '', name)
+    if simple and simple != name:
+        variants.add(simple)
+    # 归一化（去特殊符号，小写）
+    norm = normalize_name(name)
+    if norm and norm != name and norm != simple:
+        variants.add(norm)
+    # 如果name包含“高清”等，可能原始名称就是类似“CCTV-1 高清”，我们保留
+    return list(variants)
+
+tree = ET.parse("$TEMPLATE_DIR/assets/epg_merged.xml")
+root = tree.getroot()
+epgs = []
+for channel in root.findall("channel"):
+    ch_id = channel.get("id")
+    if not ch_id:
+        continue
+    # 收集所有display-name
+    names = []
+    for dn in channel.findall("display-name"):
+        if dn.text:
+            names.append(dn.text.strip())
+    if not names:
+        # 如果没有display-name，用id本身
+        names = [ch_id]
+    # 合并所有display-name，用逗号分隔
+    combined = ",".join(names)
+    # 拆分可能的逗号分隔
+    raw_names = [x.strip() for x in combined.split(",") if x.strip()]
+    # 为每个原始名生成变体
+    all_aliases = set()
+    for raw in raw_names:
+        all_aliases.update(generate_variants(raw))
+    # 构建name字符串
+    name_str = ",".join(all_aliases)
+    epgs.append({
+        "epgid": ch_id,
+        "name": name_str,
+        "status": "1",
+        "note": "",
+        "logo": ""
+    })
+
+with open("$TEMPLATE_DIR/assets/epg_data.json", "w", encoding="utf-8") as f:
+    json.dump({"epgs": epgs}, f, ensure_ascii=False, indent=2)
+
+print("✅ epg_data.json 生成完成，频道数: " + str(len(epgs)))
+PYEOF
+
 if [ ! -f "$TEMPLATE_DIR/assets/epg_data.json" ]; then
     echo '{"epgs":[]}' > "$TEMPLATE_DIR/assets/epg_data.json"
 fi
@@ -271,7 +343,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（epgid直接匹配XML channel id，CN优先） ====================
+# ==================== EPGParser.java（使用生成的epg_data.json独立映射） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -310,10 +382,9 @@ public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
     public interface OnAllEpgLoadedListener { void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId); void onError(String error); }
 
-    private static Map<String, String> sAliasMap = null;              // 别名 -> epgid（epgid即XML channel id）
-    private static Map<String, List<EpgProgram>> sAllPrograms = null; // XML channel id -> 节目列表
-    private static Map<String, String> sChannelNameToId = null;       // 别名 -> XML channel id（最终映射）
-
+    private static Map<String, String> sAliasMap = null;
+    private static Map<String, List<EpgProgram>> sAllPrograms = null;
+    private static Map<String, String> sChannelNameToId = null;
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
@@ -337,14 +408,11 @@ public class EPGParser {
                 for (String name : names) {
                     String trimmed = name.trim();
                     if (trimmed.isEmpty()) continue;
-                    // 原始名称
                     map.put(trimmed, epgid);
-                    // 归一化变体
                     String norm = normalizeChannelName(trimmed);
                     if (!norm.isEmpty() && !norm.equals(trimmed)) {
                         map.put(norm, epgid);
                     }
-                    // 简化变体
                     String simple = trimmed.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
                     if (!simple.isEmpty() && !simple.equals(trimmed)) {
                         map.put(simple, epgid);
@@ -487,11 +555,11 @@ public class EPGParser {
         }).start();
     }
 
-    // ===================== 核心解析：别名直接匹配XML channel id =====================
+    // ===================== 核心解析：直接使用别名映射到xml id，不合并 =====================
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
-        // 1. 解析XML，提取所有频道信息
-        Map<String, Set<String>> xmlIdToVariants = new HashMap<>();   // xml channel id -> display-name变体
-        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>(); // xml id -> 节目列表
+        // 1. 解析XML，提取所有频道信息和节目
+        Map<String, Set<String>> xmlIdToVariants = new HashMap<>();
+        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>();
         Set<String> allXmlIds = new HashSet<>();
 
         XmlPullParser parser = Xml.newPullParser();
@@ -604,124 +672,20 @@ public class EPGParser {
 
         LogUtils.writeLog("XML解析完成，总频道数: " + allXmlIds.size() + ", 有节目的频道数: " + xmlIdToPrograms.size());
 
-        // 2. 对每个XML channel id，尝试用其变体在别名映射中查找对应的epgid（即XML id）
-        Map<String, String> xmlIdToEpgId = new HashMap<>(); // xml id -> 匹配到的epgid（即另一个xml id）
-        for (String xmlId : allXmlIds) {
-            Set<String> variants = xmlIdToVariants.get(xmlId);
-            if (variants == null || variants.isEmpty()) continue;
-            String matchedEpgId = null;
-            int bestScore = -1;
-            for (String variant : variants) {
-                // 精确匹配
-                String epgid = sAliasMap.get(variant);
-                if (epgid != null) {
-                    // 确保该epgid是有效的XML id（即存在于allXmlIds中）
-                    if (allXmlIds.contains(epgid)) {
-                        int score = 10000 - variant.length();
-                        if (score > bestScore) {
-                            bestScore = score;
-                            matchedEpgId = epgid;
-                        }
-                    }
-                    continue;
-                }
-                // 包含匹配（使用别名映射中的key）
-                for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                    String alias = entry.getKey();
-                    String epgid2 = entry.getValue();
-                    if (!allXmlIds.contains(epgid2)) continue; // 必须为有效的XML id
-                    String vLower = variant.toLowerCase(Locale.US);
-                    String aLower = alias.toLowerCase(Locale.US);
-                    if (vLower.contains(aLower) || aLower.contains(vLower)) {
-                        int score = Math.max(variant.length(), alias.length()) * 10;
-                        if (vLower.contains(aLower)) score += 100;
-                        if (score > bestScore) {
-                            bestScore = score;
-                            matchedEpgId = epgid2;
-                        }
-                    }
-                }
-            }
-            if (matchedEpgId != null) {
-                xmlIdToEpgId.put(xmlId, matchedEpgId);
-            }
-        }
-
-        // 3. 对于每个匹配到的epgid（即一个XML id），选择最佳候选（CN优先）
-        // 注意：epgid本身就是XML channel id，我们要从所有映射到该epgid的xml id中选出一个主id
-        // 但更简单：直接保留匹配关系，但将别名映射到epgid本身（如果epgid有节目）或最佳候选
-        // 实际中，xmlIdToEpgId 的 value 已经是一个有效的 XML id，并且该 id 很可能有节目
-        // 我们需要确保映射到有节目的id，且为CN版本
-
-        // 先构建 epgid -> 所有候选xml id的映射（候选即匹配到该epgid的xml id）
-        Map<String, Set<String>> epgidCandidates = new HashMap<>();
-        for (Map.Entry<String, String> entry : xmlIdToEpgId.entrySet()) {
-            String xmlId = entry.getKey();
-            String epgid = entry.getValue();
-            epgidCandidates.computeIfAbsent(epgid, k -> new HashSet<>()).add(xmlId);
-        }
-
-        // 对每个epgid，选择最佳候选（节目数最多，CN优先）
-        Map<String, String> epgidToBestXmlId = new HashMap<>();
-        for (String epgid : epgidCandidates.keySet()) {
-            Set<String> candidates = epgidCandidates.get(epgid);
-            String bestXmlId = epgid; // 默认用epgid自身
-            int bestScore = -1;
-            for (String candidate : candidates) {
-                List<EpgProgram> progs = xmlIdToPrograms.get(candidate);
-                int progCount = (progs == null) ? 0 : progs.size();
-                int score = progCount * 1000;
-                // CN加分：display-name中不含“美洲”“欧洲”“亚洲”
-                Set<String> variants = xmlIdToVariants.get(candidate);
-                boolean isCn = true;
-                if (variants != null) {
-                    for (String v : variants) {
-                        if (v.contains("美洲") || v.contains("欧洲") || v.contains("亚洲")) {
-                            isCn = false;
-                            break;
-                        }
-                    }
-                }
-                if (isCn) score += 100;
-                // 含“高清”加10
-                if (variants != null) {
-                    for (String v : variants) {
-                        if (v.contains("高清")) { score += 10; break; }
-                    }
-                }
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestXmlId = candidate;
-                }
-            }
-            if (bestXmlId != null) {
-                epgidToBestXmlId.put(epgid, bestXmlId);
-            }
-        }
-
-        // 4. 构建最终映射：别名 -> 最佳 XML id
+        // 2. 构建最终映射：别名 -> xml id（直接从sAliasMap映射，由于sAliasMap中每个别名对应一个epgid，而epgid就是xml id）
         Map<String, String> channelNameToId = new HashMap<>();
-        // 4.1 从别名映射中，将每个别名映射到其epgid对应的最佳XML id
-        for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-            String alias = entry.getKey();
-            String epgid = entry.getValue();
-            if (epgidToBestXmlId.containsKey(epgid)) {
-                String bestXmlId = epgidToBestXmlId.get(epgid);
-                if (xmlIdToPrograms.containsKey(bestXmlId)) {
-                    channelNameToId.put(alias, bestXmlId);
+        // 2.1 从sAliasMap复制所有映射
+        if (sAliasMap != null) {
+            for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+                String alias = entry.getKey();
+                String xmlId = entry.getValue();
+                // 只有该xmlId有节目时才添加
+                if (xmlIdToPrograms.containsKey(xmlId)) {
+                    channelNameToId.put(alias, xmlId);
                 }
             }
         }
-        // 4.2 将 epgid 自身也作为别名加入（如果尚未覆盖）
-        for (String epgid : epgidToBestXmlId.keySet()) {
-            String bestXmlId = epgidToBestXmlId.get(epgid);
-            if (xmlIdToPrograms.containsKey(bestXmlId)) {
-                if (!channelNameToId.containsKey(epgid)) {
-                    channelNameToId.put(epgid, bestXmlId);
-                }
-            }
-        }
-        // 4.3 对于有节目但未被任何别名覆盖的 XML 频道，用其自身 display-name 变体映射
+        // 2.2 对于有节目但未被覆盖的xmlId，用其自身display-name变体补充
         for (String xmlId : xmlIdToPrograms.keySet()) {
             Set<String> variants = xmlIdToVariants.get(xmlId);
             if (variants != null) {
@@ -733,7 +697,6 @@ public class EPGParser {
             }
         }
 
-        // 5. 存储结果
         sAllPrograms = xmlIdToPrograms;
         sChannelNameToId = channelNameToId;
 
@@ -2854,6 +2817,7 @@ cp -r "$TEMPLATE_DIR/src/." app/src/main/java/com/whyun/witv/
 cp -r "$TEMPLATE_DIR/res/." app/src/main/res/
 cp "$TEMPLATE_DIR/configuration.json" app/src/main/assets/
 cp "$TEMPLATE_DIR/assets/epg_data.json" app/src/main/assets/
+cp "$TEMPLATE_DIR/assets/epg_merged.xml" app/src/main/assets/  # 可选，用于缓存
 
 mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/assets/download \
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
@@ -2880,64 +2844,4 @@ sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
 sed -i '/implementation.*preference/d' "$APP_GRADLE"
-sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
-echo "✅ 依赖已添加"
-
-sed -i '/android.permission.INTERNET/d' "$MANIFEST"
-sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
-echo "✅ 权限和 cleartext 已添加"
-
-# ========== 设置应用图标 ==========
-cat > /tmp/fix_manifest.py <<'PYEOF'
-import sys, xml.etree.ElementTree as ET
-from xml.dom import minidom
-ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
-manifest_file = "app/src/main/AndroidManifest.xml"
-pkg = "com.whyun.witv"
-try:
-    tree = ET.parse(manifest_file); root = tree.getroot()
-except Exception as e:
-    print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
-app = root.find('application')
-if app is None:
-    print("未找到 application", file=sys.stderr); sys.exit(1)
-icon_attr = '{http://schemas.android.com/apk/res/android}icon'
-app.set(icon_attr, '@drawable/ic_launcher')
-for act in app.findall('activity'): app.remove(act)
-main_act = ET.Element('activity')
-main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
-main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-intent_filter = ET.SubElement(main_act, 'intent-filter')
-action = ET.SubElement(intent_filter, 'action')
-action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
-cat = ET.SubElement(intent_filter, 'category')
-cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
-app.append(main_act)
-settings_act = ET.Element('activity')
-settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
-settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-app.append(settings_act)
-xml_str = ET.tostring(root, encoding='unicode')
-dom = minidom.parseString(xml_str)
-pretty = dom.toprettyxml(indent="    ")
-pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f: f.write(pretty)
-print("✅ AndroidManifest 已更新")
-PYEOF
-
-python3 /tmp/fix_manifest.py
-rm -f /tmp/fix_manifest.py
-
-# ========== 构建 ==========
-echo "🧹 清理并构建..."
-./gradlew clean
-./gradlew assembleDebug
-
-echo ""
-echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
-echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "🔧 EPG解析以epg_data.json中的epgid直接匹配XML channel id，CN优先。"
+sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3
