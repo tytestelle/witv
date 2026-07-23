@@ -1133,63 +1133,97 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void playChannel(SourceManager.Channel channel) {
-        if (channel == null) return;
-        currentChannel = channel;
-        prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
-        prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
-        try {
-            if (player == null) {
-                DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-                player = new ExoPlayer.Builder(this)
-                        .setTrackSelector(trackSelector)
-                        .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                                .setBufferDurationsMs(50000, 80000, 2500, 5000)
-                                .build())
-                        .build();
-                playerView.setPlayer(player);
-                player.addListener(new Player.Listener() {
-                    @Override
-                    public void onPlayerError(PlaybackException error) {
+  private void playChannel(SourceManager.Channel channel) {
+    if (channel == null) return;
+    currentChannel = channel;
+    prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
+    prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
+    try {
+        if (player == null) {
+            DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+            player = new ExoPlayer.Builder(this)
+                    .setTrackSelector(trackSelector)
+                    .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                            .setBufferDurationsMs(50000, 80000, 2500, 5000)
+                            .build())
+                    .build();
+            playerView.setPlayer(player);
+            player.addListener(new Player.Listener() {
+                @Override
+                public void onPlayerError(PlaybackException error) {
+                    runOnUiThread(() -> {
+                        LogUtils.writeCrashLog(error);
+                        Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
+                        // 重连：重新prepare并播放
+                        if (player != null && currentChannel != null) {
+                            player.prepare();
+                            player.play();
+                        }
+                    });
+                }
+                @Override
+                public void onPlaybackStateChanged(int state) {
+                    if (state == Player.STATE_ENDED) {
                         runOnUiThread(() -> {
-                            LogUtils.writeCrashLog(error);
-                            Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
-                            // 重试：重新prepare并播放
                             if (player != null && currentChannel != null) {
                                 player.prepare();
                                 player.play();
                             }
                         });
                     }
-                    @Override
-                    public void onPlaybackStateChanged(int state) {
-                        if (state == Player.STATE_ENDED) {
-                            runOnUiThread(() -> {
-                                if (player != null && currentChannel != null) {
-                                    player.prepare();
-                                    player.play();
-                                }
-                            });
+                }
+            });
+        }
+        player.setMediaItem(MediaItem.fromUri(channel.url));
+        player.prepare();
+        player.play();
+        // 从缓存获取EPG并过滤当前节目
+        if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
+            List<EPGParser.EpgProgram> fullList = epgCacheMap.get(channel.name);
+            if (fullList != null && !fullList.isEmpty()) {
+                long now = System.currentTimeMillis();
+                // 复制一份，避免修改缓存
+                List<EPGParser.EpgProgram> filtered = new ArrayList<>();
+                // 找到当前节目及其之后的节目（从当前节目开始循环排序）
+                int currentIndex = 0;
+                for (int i = 0; i < fullList.size(); i++) {
+                    EPGParser.EpgProgram prog = fullList.get(i);
+                    if (prog.startTime <= now && prog.endTime > now) {
+                        currentIndex = i;
+                        break;
+                    }
+                }
+                // 如果没找到当前节目，找第一个未来的节目
+                if (currentIndex == 0 && fullList.get(0).endTime <= now) {
+                    for (int i = 0; i < fullList.size(); i++) {
+                        if (fullList.get(i).startTime > now) {
+                            currentIndex = i;
+                            break;
                         }
                     }
-                });
-            }
-            player.setMediaItem(MediaItem.fromUri(channel.url));
-            player.prepare();
-            player.play();
-            if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
-                List<EPGParser.EpgProgram> list = epgCacheMap.get(channel.name);
-                if (list != null && !list.isEmpty()) {
-                    currentEpgList = list;
                 }
+                // 从 currentIndex 开始循环添加到 filtered
+                for (int i = currentIndex; i < fullList.size(); i++) {
+                    filtered.add(fullList.get(i));
+                }
+                for (int i = 0; i < currentIndex; i++) {
+                    filtered.add(fullList.get(i));
+                }
+                currentEpgList = filtered;
+                // 刷新信息弹窗（如果有）
+                LogUtils.writeLog("当前节目EPG已加载，节目数: " + filtered.size());
+            } else {
+                currentEpgList = new ArrayList<>();
             }
-            LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
-        } catch (Exception e) {
-            LogUtils.writeCrashLog(e);
-            Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        } else {
+            currentEpgList = new ArrayList<>();
         }
+        LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
+    } catch (Exception e) {
+        LogUtils.writeCrashLog(e);
+        Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
     }
-
+}
     private void toggleFavorite(SourceManager.Channel channel) {
         try {
             if (favoriteSet.contains(channel.name)) {
