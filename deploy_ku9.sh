@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（完整修正版 - 台标+订阅即时加载）"
+echo "🔥 部署 witv 播放器（最终稳定版 - 台标+订阅即时加载+大缓冲）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -272,7 +272,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（纯净别名匹配，不做任何转换） ====================
+# ==================== EPGParser.java（增加图标映射，不改别名逻辑） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -309,11 +309,14 @@ import okhttp3.Response;
 
 public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
-    public interface OnAllEpgLoadedListener { void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId); void onError(String error); }
+    public interface OnAllEpgLoadedListener { 
+        void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId, Map<String, String> channelNameToIcon); 
+    }
 
     private static Map<String, String> sAliasMap = null;
     private static Map<String, List<EpgProgram>> sAllPrograms = null;
     private static Map<String, String> sChannelNameToId = null;
+    private static Map<String, String> sChannelNameToIcon = null;
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
@@ -374,8 +377,8 @@ public class EPGParser {
 
     public static void loadAllEpg(Context context, String url, OnAllEpgLoadedListener listener) {
         loadAliasMap(context);
-        if (sLoaded && sAllPrograms != null) {
-            listener.onLoaded(sAllPrograms, sChannelNameToId);
+        if (sLoaded && sAllPrograms != null && sChannelNameToIcon != null) {
+            listener.onLoaded(sAllPrograms, sChannelNameToId, sChannelNameToIcon);
             return;
         }
         sPendingListeners.add(listener);
@@ -477,9 +480,10 @@ public class EPGParser {
                 is.close();
                 sLoaded = true;
                 LogUtils.writeLog("EPG全量解析完成，共解析 " + (sAllPrograms != null ? sAllPrograms.size() : 0) + " 个频道");
+                LogUtils.writeLog("图标映射数量: " + (sChannelNameToIcon != null ? sChannelNameToIcon.size() : 0));
                 for (OnAllEpgLoadedListener l : sPendingListeners) {
                     android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                    mainHandler.post(() -> l.onLoaded(sAllPrograms, sChannelNameToId));
+                    mainHandler.post(() -> l.onLoaded(sAllPrograms, sChannelNameToId, sChannelNameToIcon));
                 }
                 sPendingListeners.clear();
             } catch (Exception e) {
@@ -496,10 +500,11 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 纯净解析：只使用原始名称，不做任何转换 ==========
+    // ========== 纯净解析：只使用原始名称，不做任何转换，同时记录图标 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
+        Map<String, String> channelNameToIcon = new HashMap<>();
 
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
@@ -577,9 +582,17 @@ public class EPGParser {
                                 for (String name : names) {
                                     name = name.trim();
                                     if (name.isEmpty()) continue;
-                                    // 只保留原始名称，不做任何转换
+                                    // 只保留原始名称
                                     channelNameToId.put(name, currentChannelId);
+                                    // 如果当前频道有图标，记录图标URL（只保留第一个）
+                                    if (currentIconUrl != null && !currentIconUrl.isEmpty() && !channelNameToIcon.containsKey(name)) {
+                                        channelNameToIcon.put(name, currentIconUrl);
+                                    }
                                 }
+                            }
+                            // 如果 display-name 为空，但 id 有图标，用 id 作为 key
+                            if (currentIconUrl != null && !currentIconUrl.isEmpty() && currentDisplayName == null) {
+                                channelNameToIcon.put(currentChannelId, currentIconUrl);
                             }
                         }
                     } else if ("programme".equals(parser.getName())) {
@@ -618,7 +631,7 @@ public class EPGParser {
             int successCount = 0;
             int failCount = 0;
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();          // 原始别名
+                String alias = entry.getKey();
                 String epgid = entry.getValue();
 
                 if (channelNameToId.containsKey(alias)) continue;
@@ -662,7 +675,8 @@ public class EPGParser {
 
         sAllPrograms = allPrograms;
         sChannelNameToId = channelNameToId;
-        LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
+        sChannelNameToIcon = channelNameToIcon;
+        LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size() + ", 图标映射=" + sChannelNameToIcon.size());
     }
 
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
@@ -678,9 +692,15 @@ public class EPGParser {
                 }
             }
         }
-        if (channelId == null) return new ArrayList<>();
+        if (channelId == null) {
+            LogUtils.writeLog("getProgramsForChannel: 未找到频道ID: " + channelName);
+            return new ArrayList<>();
+        }
         List<EpgProgram> result = sAllPrograms.get(channelId);
-        if (result == null) result = new ArrayList<>();
+        if (result == null) {
+            LogUtils.writeLog("getProgramsForChannel: 频道 " + channelName + " (id=" + channelId + ") 无节目数据");
+            return new ArrayList<>();
+        }
         long currentTime = System.currentTimeMillis();
         Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
         int currentIndex = 0;
@@ -696,6 +716,7 @@ public class EPGParser {
             for (int i = 0; i < currentIndex; i++) sortedList.add(result.get(i));
             result = sortedList;
         }
+        LogUtils.writeLog("getProgramsForChannel: " + channelName + " 返回 " + result.size() + " 个节目");
         return result;
     }
 
@@ -711,6 +732,10 @@ public class EPGParser {
             }
         }
         return nameMap;
+    }
+
+    public static Map<String, String> getChannelNameToIcon() {
+        return sChannelNameToIcon != null ? sChannelNameToIcon : new HashMap<>();
     }
 
     public static class EpgProgram {
@@ -731,7 +756,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（完整修正：含台标、订阅即时加载、断线重连） ====================
+# ==================== MainActivity.java（完整修正） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -831,7 +856,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_NEED_RELOAD = "need_reload";
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
-    private File logoRawDir; // 原始图片存放目录
+    private File logoRawDir;
     private Runnable hideOverlayRunnable;
     private boolean isLoading = false;
     private List<SubEntry> subEntryList = new ArrayList<>();
@@ -849,6 +874,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout dayTabs;
     private View leftClickArea;
     private Map<String, List<EPGParser.EpgProgram>> epgCacheMap = new HashMap<>();
+    private Map<String, String> epgIconMap = new HashMap<>();
     private boolean epgLoaded = false;
     private boolean isReconnecting = false;
     private int reconnectAttempts = 0;
@@ -1016,9 +1042,10 @@ public class MainActivity extends AppCompatActivity {
                 LogUtils.writeLog("开始全量加载EPG...");
                 EPGParser.loadAllEpg(this, epgUrl, new EPGParser.OnAllEpgLoadedListener() {
                     @Override
-                    public void onLoaded(Map<String, List<EPGParser.EpgProgram>> allPrograms, Map<String, String> channelNameToId) {
+                    public void onLoaded(Map<String, List<EPGParser.EpgProgram>> allPrograms, Map<String, String> channelNameToId, Map<String, String> channelNameToIcon) {
                         runOnUiThread(() -> {
                             epgCacheMap.clear();
+                            epgIconMap.clear();
                             for (Map.Entry<String, String> entry : channelNameToId.entrySet()) {
                                 String name = entry.getKey();
                                 String id = entry.getValue();
@@ -1028,8 +1055,9 @@ public class MainActivity extends AppCompatActivity {
                                     epgCacheMap.put(name, list);
                                 }
                             }
+                            epgIconMap.putAll(channelNameToIcon);
                             epgLoaded = true;
-                            LogUtils.writeLog("全量EPG加载完成，缓存频道数: " + epgCacheMap.size());
+                            LogUtils.writeLog("全量EPG加载完成，缓存频道数: " + epgCacheMap.size() + ", 图标数: " + epgIconMap.size());
                             channelAdapter.notifyDataSetChanged();
                             scheduleChannelAdapter.notifyDataSetChanged();
                             if (currentChannel != null && epgCacheMap.containsKey(currentChannel.name)) {
@@ -1187,6 +1215,12 @@ public class MainActivity extends AppCompatActivity {
                 list = groupMap.get(group);
                 if (list == null) list = new ArrayList<>();
             }
+            // 补充EPG中的图标
+            for (SourceManager.Channel ch : list) {
+                if ((ch.logoUrl == null || ch.logoUrl.isEmpty()) && epgIconMap.containsKey(ch.name)) {
+                    ch.logoUrl = epgIconMap.get(ch.name);
+                }
+            }
             currentChannelList = list;
             channelAdapter.updateData(currentChannelList);
             scheduleChannelAdapter.updateData(currentChannelList);
@@ -1222,16 +1256,22 @@ public class MainActivity extends AppCompatActivity {
         isReconnecting = false;
         prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
         prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
+        // 补充台标（如果从EPG获取到了）
+        if ((channel.logoUrl == null || channel.logoUrl.isEmpty()) && epgIconMap.containsKey(channel.name)) {
+            channel.logoUrl = epgIconMap.get(channel.name);
+        }
         // 下载并处理台标
         downloadAndProcessLogo(channel);
         try {
             if (player == null) {
                 DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+                // 增大缓冲区
+                androidx.media3.exoplayer.DefaultLoadControl loadControl = new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(120000, 180000, 5000, 10000)
+                        .build();
                 player = new ExoPlayer.Builder(this)
                         .setTrackSelector(trackSelector)
-                        .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                                .setBufferDurationsMs(50000, 80000, 2500, 5000)
-                                .build())
+                        .setLoadControl(loadControl)
                         .build();
                 playerView.setPlayer(player);
                 player.addListener(new Player.Listener() {
@@ -1285,11 +1325,11 @@ public class MainActivity extends AppCompatActivity {
 
     // ========== 台标下载与处理 ==========
     private void downloadAndProcessLogo(SourceManager.Channel channel) {
-        if (channel.logoUrl == null || channel.logoUrl.isEmpty()) {
+        String logoUrl = channel.logoUrl;
+        if (logoUrl == null || logoUrl.isEmpty()) {
             LogUtils.writeLog("频道 " + channel.name + " 无台标URL");
             return;
         }
-        // 用 epgid（即 channel.logoUrl 的哈希或直接用频道名）生成文件名，这里使用频道名hash
         String fileName = channel.name.hashCode() + ".png";
         File logoFile = new File(logoDir, fileName);
         if (logoFile.exists()) {
@@ -1297,22 +1337,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // 原始图片保存到 logoRaw 目录，命名为 epgid 的哈希（或直接用频道名）
         File rawFile = new File(logoRawDir, fileName);
         if (rawFile.exists()) {
-            // 如果原始文件存在但 logo 不存在，直接处理原始文件生成 logo
             processRawToLogo(rawFile, logoFile);
             return;
         }
 
-        // 下载
         new Thread(() -> {
             try {
                 OkHttpClient client = new OkHttpClient.Builder()
                         .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                         .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                         .build();
-                Request request = new Request.Builder().url(channel.logoUrl).build();
+                Request request = new Request.Builder().url(logoUrl).build();
                 Response response = client.newCall(request).execute();
                 if (response.code() == 200) {
                     InputStream is = response.body().byteStream();
@@ -1323,7 +1360,6 @@ public class MainActivity extends AppCompatActivity {
                     fos.close();
                     is.close();
                     LogUtils.writeLog("台标原始图片下载成功: " + rawFile.getAbsolutePath());
-                    // 处理为透明 PNG
                     processRawToLogo(rawFile, logoFile);
                 } else {
                     LogUtils.writeLog("台标下载失败: " + response.code());
@@ -1345,7 +1381,6 @@ public class MainActivity extends AppCompatActivity {
             Bitmap processed = src.copy(Bitmap.Config.ARGB_8888, true);
             int width = processed.getWidth();
             int height = processed.getHeight();
-            // 去除白色背景（阈值可调）
             for (int x = 0; x < width; x++) {
                 for (int y = 0; y < height; y++) {
                     int pixel = processed.getPixel(x, y);
@@ -1703,9 +1738,11 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         loadSubscriptions();
         subAdapter.updateData(subEntryList);
-        // 检查是否需要重新加载
+        // 检查是否需要重新加载订阅
         if (prefs.getBoolean(KEY_NEED_RELOAD, false)) {
             prefs.edit().remove(KEY_NEED_RELOAD).apply();
+            // 重新读取选中的订阅
+            selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
             if (!selectedSubs.isEmpty()) {
                 loadSelectedSources();
             }
@@ -2900,64 +2937,4 @@ sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
 sed -i '/implementation.*preference/d' "$APP_GRADLE"
-sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
-echo "✅ 依赖已添加"
-
-sed -i '/android.permission.INTERNET/d' "$MANIFEST"
-sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
-echo "✅ 权限和 cleartext 已添加"
-
-# ========== 设置应用图标 ==========
-cat > /tmp/fix_manifest.py <<'PYEOF'
-import sys, xml.etree.ElementTree as ET
-from xml.dom import minidom
-ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
-manifest_file = "app/src/main/AndroidManifest.xml"
-pkg = "com.whyun.witv"
-try:
-    tree = ET.parse(manifest_file); root = tree.getroot()
-except Exception as e:
-    print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
-app = root.find('application')
-if app is None:
-    print("未找到 application", file=sys.stderr); sys.exit(1)
-icon_attr = '{http://schemas.android.com/apk/res/android}icon'
-app.set(icon_attr, '@drawable/ic_launcher')
-for act in app.findall('activity'): app.remove(act)
-main_act = ET.Element('activity')
-main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
-main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-intent_filter = ET.SubElement(main_act, 'intent-filter')
-action = ET.SubElement(intent_filter, 'action')
-action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
-cat = ET.SubElement(intent_filter, 'category')
-cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
-app.append(main_act)
-settings_act = ET.Element('activity')
-settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
-settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-app.append(settings_act)
-xml_str = ET.tostring(root, encoding='unicode')
-dom = minidom.parseString(xml_str)
-pretty = dom.toprettyxml(indent="    ")
-pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f: f.write(pretty)
-print("✅ AndroidManifest 已更新")
-PYEOF
-
-python3 /tmp/fix_manifest.py
-rm -f /tmp/fix_manifest.py
-
-# ========== 构建 ==========
-echo "🧹 清理并构建..."
-./gradlew clean
-./gradlew assembleDebug
-
-echo ""
-echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 应用安装后会在外部存储 witv 目录下创建 logo 和 logo原始 文件夹"
-echo "🖼️ 台标逻辑：先检查 logo 目录，若无则从 logo原始 转换，若无则下载并处理"
-echo "🔁 断线重连默认开启（1秒），可在设置中关闭"
-echo "✅ 订阅选中后立即生效，无需重启应用"
+sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "
