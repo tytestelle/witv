@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（稳定版本，保留原有解析逻辑） ====================
+# ==================== EPGParser.java（完整稳定版） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -606,9 +606,161 @@ public class EPGParser {
 }
 EPGFULL
 
-# ==================== 第一条消息结束 ====================
-# 请继续复制第二条消息
-# ==================== MainActivity.java（修正 showInfoPopup 括号，添加节目单高亮） ====================
+# ==================== 新增：ConfigurationManager.java ====================
+mkdir -p "$TEMPLATE_DIR/src"
+cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'CONFIGEOF'
+package com.whyun.witv;
+
+import android.content.Context;
+import android.content.res.AssetManager;
+
+import org.json.JSONObject;
+
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
+public class ConfigurationManager {
+    private static ConfigurationManager instance;
+    private JSONObject config;
+
+    private ConfigurationManager(Context context) {
+        loadConfig(context);
+    }
+
+    public static synchronized ConfigurationManager getInstance(Context context) {
+        if (instance == null) {
+            instance = new ConfigurationManager(context);
+        }
+        return instance;
+    }
+
+    private void loadConfig(Context context) {
+        try {
+            AssetManager am = context.getAssets();
+            InputStream is = am.open("configuration.json");
+            byte[] buffer = new byte[is.available()];
+            is.read(buffer);
+            is.close();
+            String json = new String(buffer, StandardCharsets.UTF_8);
+            JSONObject root = new JSONObject(json);
+            config = root.getJSONObject("Configuration");
+        } catch (Exception e) {
+            config = new JSONObject();
+        }
+    }
+
+    public String getString(String key, String defaultValue) {
+        return config != null ? config.optString(key, defaultValue) : defaultValue;
+    }
+
+    public boolean getBoolean(String key, boolean defaultValue) {
+        return config != null ? config.optBoolean(key, defaultValue) : defaultValue;
+    }
+
+    public int getInt(String key, int defaultValue) {
+        return config != null ? config.optInt(key, defaultValue) : defaultValue;
+    }
+}
+CONFIGEOF
+
+# ==================== 新增：PlayerConfigManager.java ====================
+mkdir -p "$TEMPLATE_DIR/src/player"
+cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'PLAYERCONFIGEOF'
+package com.whyun.witv.player;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+
+public class PlayerConfigManager {
+    private static final String KEY_DECODER = "decoder_index";
+    private static final String KEY_ASPECT = "aspect_ratio";
+    private static SharedPreferences prefs;
+
+    public static void init(Context context) {
+        if (prefs == null) {
+            prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        }
+    }
+
+    public static int getDecoder() {
+        return prefs != null ? prefs.getInt(KEY_DECODER, 0) : 0;
+    }
+
+    public static void setDecoder(int index) {
+        if (prefs != null) {
+            prefs.edit().putInt(KEY_DECODER, index).apply();
+        }
+    }
+
+    public static String getAspectRatio() {
+        return prefs != null ? prefs.getString(KEY_ASPECT, "默认") : "默认";
+    }
+
+    public static void setAspectRatio(String aspect) {
+        if (prefs != null) {
+            prefs.edit().putString(KEY_ASPECT, aspect).apply();
+        }
+    }
+}
+PLAYERCONFIGEOF
+
+# ==================== 新增：FavoriteManager.java ====================
+mkdir -p "$TEMPLATE_DIR/src/favorite"
+cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'FAVEOF'
+package com.whyun.witv.favorite;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+
+import java.util.HashSet;
+import java.util.Set;
+
+public class FavoriteManager {
+    private static final String KEY_FAVORITES = "favorites";
+    private static SharedPreferences prefs;
+
+    public static void init(Context context) {
+        if (prefs == null) {
+            prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        }
+    }
+
+    public static Set<String> getFavorites() {
+        if (prefs == null) return new HashSet<>();
+        return new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
+    }
+
+    public static void setFavorites(Set<String> favorites) {
+        if (prefs != null) {
+            prefs.edit().putStringSet(KEY_FAVORITES, favorites).apply();
+        }
+    }
+
+    public static void addFavorite(String channelName) {
+        if (prefs != null) {
+            Set<String> set = getFavorites();
+            set.add(channelName);
+            setFavorites(set);
+        }
+    }
+
+    public static void removeFavorite(String channelName) {
+        if (prefs != null) {
+            Set<String> set = getFavorites();
+            set.remove(channelName);
+            setFavorites(set);
+        }
+    }
+
+    public static boolean isFavorite(String channelName) {
+        return getFavorites().contains(channelName);
+    }
+}
+FAVEOF
+
+# ==================== MainActivity.java（包含节目单高亮） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -1732,9 +1884,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAINEOF
 
-# ==================== 第二条消息结束 ====================
-# 请继续复制第三条消息
-# ==================== SettingsActivity.java ====================
+# ==================== SettingsActivity.java（已修复导入） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETEOF'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -2103,7 +2253,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件（保持不变） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2280,7 +2430,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
-# ==================== 其他布局文件（item_channel.xml, popup_info.xml 等） ====================
 cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2622,9 +2771,6 @@ mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/a
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
 echo "✅ 文件复制完成"
-
-# 修复 SettingsActivity import
-sed -i '/^package com.whyun.witv;/a import com.whyun.witv.player.PlayerConfigManager;' app/src/main/java/com/whyun/witv/SettingsActivity.java
 
 # ========== 自定义图标 ==========
 if [ -f "apk ico.jpeg" ]; then
