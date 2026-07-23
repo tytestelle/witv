@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 基于稳定版本）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 基于稳定版本 + EPG 增强解析）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -272,7 +272,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（增强解析规则） ====================
+# ==================== EPGParser.java（增强版） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -473,7 +473,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 增强解析（核心改动：多维度变体映射） ==========
+    // ========== 增强解析（核心改动：强制所有channel id加入映射，多分隔符拆分别名，去除常见后缀） ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -547,76 +547,35 @@ public class EPGParser {
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
                         if (currentChannelId != null && !currentChannelId.isEmpty()) {
-                            // 1. 基础映射：id 本身及其归一化
-                            String normalizedId = normalizeChannelName(currentChannelId);
-                            if (!normalizedId.isEmpty()) channelNameToId.put(normalizedId, currentChannelId);
-                            channelNameToId.put(currentChannelId, currentChannelId);
+                            // 强制加入 id 本身和归一化 id
+                            addMapping(channelNameToId, currentChannelId, currentChannelId);
+                            String normId = normalizeChannelName(currentChannelId);
+                            if (!normId.isEmpty()) addMapping(channelNameToId, normId, currentChannelId);
 
                             if (currentDisplayName != null && !currentDisplayName.isEmpty()) {
-                                String[] names = currentDisplayName.split(",");
-                                for (String name : names) {
-                                    name = name.trim();
+                                // 使用多分隔符拆分 display-name（支持逗号、中文逗号、顿号、连字符、空格）
+                                String[] rawNames = currentDisplayName.split("[,，、\\-\\s]+");
+                                for (String raw : rawNames) {
+                                    String name = raw.trim();
                                     if (name.isEmpty()) continue;
-
-                                    // ---------- 生成所有变体 ----------
-                                    // 2. 原始名称
-                                    channelNameToId.put(name, currentChannelId);
-
-                                    // 3. 去除括号内容（中英文括号）
-                                    String noBracket = name.replaceAll("\\(.*?\\)", "").replaceAll("（.*?）", "").trim();
-                                    if (!noBracket.isEmpty() && !noBracket.equals(name)) {
-                                        channelNameToId.put(noBracket, currentChannelId);
+                                    // 原始名
+                                    addMapping(channelNameToId, name, currentChannelId);
+                                    // 归一化名（去特殊符号）
+                                    String norm = normalizeChannelName(name);
+                                    if (!norm.isEmpty()) addMapping(channelNameToId, norm, currentChannelId);
+                                    // 去除常见清晰度/分辨率后缀（与 normalizeChannelName 一致）
+                                    String noSuffix = name.replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "").trim();
+                                    if (!noSuffix.isEmpty() && !noSuffix.equals(name)) {
+                                        addMapping(channelNameToId, noSuffix, currentChannelId);
+                                        String normNoSuffix = normalizeChannelName(noSuffix);
+                                        if (!normNoSuffix.isEmpty()) addMapping(channelNameToId, normNoSuffix, currentChannelId);
                                     }
-
-                                    // 4. 去除清晰度标识（高清、HD、标清、SD、4K、8K、超清、FHD、UHD、数字+p）
-                                    String noQuality = name.replaceAll("(?i)\\s*(高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p)\\s*", "").trim();
-                                    if (!noQuality.isEmpty() && !noQuality.equals(name)) {
-                                        channelNameToId.put(noQuality, currentChannelId);
-                                    }
-
-                                    // 5. 组合去括号+去清晰度
-                                    String clean = noBracket;
-                                    clean = clean.replaceAll("(?i)\\s*(高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p)\\s*", "").trim();
-                                    if (!clean.isEmpty() && !clean.equals(name) && !clean.equals(noBracket) && !clean.equals(noQuality)) {
-                                        channelNameToId.put(clean, currentChannelId);
-                                    }
-
-                                    // 6. 取第一个空格前的核心词（如 "CCTV-1 综合" → "CCTV-1"）
-                                    int spaceIdx = name.indexOf(' ');
-                                    if (spaceIdx > 0) {
-                                        String core = name.substring(0, spaceIdx).trim();
-                                        if (!core.isEmpty() && !core.equals(name)) {
-                                            channelNameToId.put(core, currentChannelId);
-                                        }
-                                    }
-                                    // 对 clean 也取核心
-                                    if (clean.contains(" ")) {
-                                        String coreClean = clean.substring(0, clean.indexOf(' ')).trim();
-                                        if (!coreClean.isEmpty() && !coreClean.equals(clean)) {
-                                            channelNameToId.put(coreClean, currentChannelId);
-                                        }
-                                    }
-
-                                    // 7. 去掉所有空格、连字符、下划线等（保留字母数字）
-                                    String noSymbol = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
-                                    if (!noSymbol.isEmpty() && !noSymbol.equals(name)) {
-                                        channelNameToId.put(noSymbol, currentChannelId);
-                                    }
-                                    // 对 clean 也去符号
-                                    String cleanNoSymbol = clean.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
-                                    if (!cleanNoSymbol.isEmpty() && !cleanNoSymbol.equals(clean) && !cleanNoSymbol.equals(noSymbol)) {
-                                        channelNameToId.put(cleanNoSymbol, currentChannelId);
-                                    }
-
-                                    // 8. 归一化（小写 + 去符号 + 去清晰度）
-                                    String normalized = normalizeChannelName(name);
-                                    if (!normalized.isEmpty()) {
-                                        channelNameToId.put(normalized, currentChannelId);
-                                    }
-                                    // 对 clean 归一化
-                                    String normalizedClean = normalizeChannelName(clean);
-                                    if (!normalizedClean.isEmpty() && !normalizedClean.equals(normalized)) {
-                                        channelNameToId.put(normalizedClean, currentChannelId);
+                                    // 简化版本（去所有特殊字符）
+                                    String simple = name.replaceAll("[\\s\\-_()（）【】\\[\\]·:：]", "");
+                                    if (!simple.equals(name) && !simple.isEmpty()) {
+                                        addMapping(channelNameToId, simple, currentChannelId);
+                                        String normSimple = normalizeChannelName(simple);
+                                        if (!normSimple.isEmpty()) addMapping(channelNameToId, normSimple, currentChannelId);
                                     }
                                 }
                             }
@@ -645,18 +604,14 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 确保每个 id 都有映射
+        // 确保每个 id 都有映射（已经做过，但再强化一次）
         for (String id : allChannelIds) {
-            if (!channelNameToId.containsValue(id)) {
-                channelNameToId.put(id, id);
-                String normId = normalizeChannelName(id);
-                if (!normId.isEmpty() && !channelNameToId.containsKey(normId)) {
-                    channelNameToId.put(normId, id);
-                }
-            }
+            addMapping(channelNameToId, id, id);
+            String normId = normalizeChannelName(id);
+            if (!normId.isEmpty()) addMapping(channelNameToId, normId, id);
         }
 
-        // 应用别名映射（来自 epg_data.json）
+        // 应用别名映射
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
@@ -672,13 +627,60 @@ public class EPGParser {
         LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
     }
 
+    // 辅助方法：避免覆盖已有映射（保留第一个出现的 id）
+    private static void addMapping(Map<String, String> map, String key, String value) {
+        if (key == null || key.isEmpty()) return;
+        if (!map.containsKey(key)) {
+            map.put(key, value);
+        }
+    }
+
+    private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
+        try {
+            if (iconUrl == null || iconUrl.isEmpty()) return;
+            String decoded = URLDecoder.decode(iconUrl, "UTF-8");
+            File logoFolder = new File(logoDir);
+            if (!logoFolder.exists()) logoFolder.mkdirs();
+            String fileName = channelName.hashCode() + ".png";
+            File logoFile = new File(logoFolder, fileName);
+            if (logoFile.exists()) { LogUtils.writeLog("图标已存在: " + logoFile.getAbsolutePath()); return; }
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build();
+            Request request = new Request.Builder().url(decoded).build();
+            Response response = client.newCall(request).execute();
+            if (response.code() != 200) { LogUtils.writeLog("下载图标失败: " + response.code()); return; }
+            InputStream is = response.body().byteStream();
+            FileOutputStream fos = new FileOutputStream(logoFile);
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
+            fos.close();
+            is.close();
+            LogUtils.writeLog("图标下载成功: " + logoFile.getAbsolutePath());
+        } catch (Exception e) {
+            LogUtils.writeLog("下载图标异常: " + e.getMessage());
+        }
+    }
+
+    private static String normalizeChannelName(String name) {
+        if (name == null) return "";
+        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
+                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
+                .toLowerCase(Locale.getDefault());
+        if (normalized.length() < 2) {
+            return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
+        }
+        return normalized;
+    }
+
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
         if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
         String normalized = normalizeChannelName(channelName);
         String channelId = sChannelNameToId.get(normalized);
         if (channelId == null) channelId = sChannelNameToId.get(channelName);
         if (channelId == null) {
-            // 模糊匹配：尝试包含关系
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
                 if (key.contains(normalized) || normalized.contains(key)) {
@@ -722,47 +724,6 @@ public class EPGParser {
         return nameMap;
     }
 
-    private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
-        try {
-            if (iconUrl == null || iconUrl.isEmpty()) return;
-            String decoded = URLDecoder.decode(iconUrl, "UTF-8");
-            File logoFolder = new File(logoDir);
-            if (!logoFolder.exists()) logoFolder.mkdirs();
-            String fileName = channelName.hashCode() + ".png";
-            File logoFile = new File(logoFolder, fileName);
-            if (logoFile.exists()) { LogUtils.writeLog("图标已存在: " + logoFile.getAbsolutePath()); return; }
-            OkHttpClient client = new OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .build();
-            Request request = new Request.Builder().url(decoded).build();
-            Response response = client.newCall(request).execute();
-            if (response.code() != 200) { LogUtils.writeLog("下载图标失败: " + response.code()); return; }
-            InputStream is = response.body().byteStream();
-            FileOutputStream fos = new FileOutputStream(logoFile);
-            byte[] buf = new byte[8192];
-            int len;
-            while ((len = is.read(buf)) != -1) fos.write(buf, 0, len);
-            fos.close();
-            is.close();
-            LogUtils.writeLog("图标下载成功: " + logoFile.getAbsolutePath());
-        } catch (Exception e) {
-            LogUtils.writeLog("下载图标异常: " + e.getMessage());
-        }
-    }
-
-    // ========== 增强的归一化方法 ==========
-    private static String normalizeChannelName(String name) {
-        if (name == null) return "";
-        // 1. 去除括号内容（中英文）
-        name = name.replaceAll("\\(.*?\\)", "").replaceAll("（.*?）", "");
-        // 2. 去除清晰度标识
-        name = name.replaceAll("(?i)\\s*(高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p)\\s*", "");
-        // 3. 去除空格、连字符、下划线、括号等符号（仅保留字母数字）
-        name = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
-        return name.toLowerCase(Locale.getDefault());
-    }
-
     public static class EpgProgram {
         public long startTime;
         public long endTime;
@@ -779,6 +740,7 @@ public class EPGParser {
         }
     }
 }
+EPG
 
 # ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
@@ -2869,3 +2831,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
+echo "🔧 EPG增强解析：支持多分隔符拆分别名、自动去除高清/HD等后缀、强制id映射，匹配更精准。"
