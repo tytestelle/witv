@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - EPG增强解析：自动选择节目最全的id）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 基于epg_data.json精确匹配，与酷9一致）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,8 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-
-# ==================== EPGParser.java（增强解析：多别名选择节目最全id） ====================
+# ==================== EPGParser.java（基于epg_data.json精确匹配，与酷9一致） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -312,8 +311,8 @@ public class EPGParser {
     public interface OnAllEpgLoadedListener { void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId); void onError(String error); }
 
     private static Map<String, String> sAliasMap = null;
-    private static Map<String, List<EpgProgram>> sAllPrograms = null;          // key: channel id
-    private static Map<String, String> sChannelNameToId = null;               // 频道名称 -> 选中的最佳 id
+    private static Map<String, List<EpgProgram>> sAllPrograms = null;
+    private static Map<String, String> sChannelNameToId = null;
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
@@ -335,11 +334,22 @@ public class EPGParser {
                 String nameStr = obj.getString("name");
                 String[] names = nameStr.split(",");
                 for (String name : names) {
-                    String normalized = normalizeChannelName(name.trim());
-                    if (!normalized.isEmpty()) map.put(normalized, epgid);
+                    String trimmed = name.trim();
+                    if (trimmed.isEmpty()) continue;
+                    map.put(trimmed, epgid);
+                    String norm = normalizeChannelName(trimmed);
+                    if (!norm.isEmpty() && !norm.equals(trimmed)) {
+                        map.put(norm, epgid);
+                    }
+                    String simple = trimmed.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
+                    if (!simple.isEmpty() && !simple.equals(trimmed)) {
+                        map.put(simple, epgid);
+                        String normSimple = normalizeChannelName(simple);
+                        if (!normSimple.isEmpty()) {
+                            map.put(normSimple, epgid);
+                        }
+                    }
                 }
-                String normalizedEpgid = normalizeChannelName(epgid);
-                if (!normalizedEpgid.isEmpty()) map.put(normalizedEpgid, epgid);
             }
             LogUtils.writeLog("别名映射加载完成，条目数: " + map.size());
         } catch (Exception e) {
@@ -453,7 +463,7 @@ public class EPGParser {
                 parseAllData(is);
                 is.close();
                 sLoaded = true;
-                LogUtils.writeLog("EPG全量解析完成，有节目的频道数: " + (sAllPrograms != null ? sAllPrograms.size() : 0) + "，总频道数（含无节目）请查看日志");
+                LogUtils.writeLog("EPG全量解析完成，有效epgid数: " + (sAllPrograms != null ? sAllPrograms.size() : 0));
                 for (OnAllEpgLoadedListener l : sPendingListeners) {
                     android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
                     mainHandler.post(() -> l.onLoaded(sAllPrograms, sChannelNameToId));
@@ -473,14 +483,10 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 增强解析（核心改动：收集所有id及其别名，为每个别名选择节目数最多的id） ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
-        // 存储每个 id 的节目列表
-        Map<String, List<EpgProgram>> idToPrograms = new HashMap<>();
-        // 存储每个 id 的原始 display-name 拆分后的别名集合
-        Map<String, Set<String>> idToNames = new HashMap<>();
-        // 所有 channel id 集合
-        Set<String> allChannelIds = new HashSet<>();
+        Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>();
+        Map<String, Set<String>> xmlIdToNames = new HashMap<>();
+        Set<String> allXmlIds = new HashSet<>();
 
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
@@ -508,8 +514,8 @@ public class EPGParser {
                         currentChannelId = parser.getAttributeValue(null, "id");
                         if (currentChannelId != null) {
                             currentChannelId = currentChannelId.trim();
-                            allChannelIds.add(currentChannelId);
-                            idToNames.putIfAbsent(currentChannelId, new HashSet<>());
+                            allXmlIds.add(currentChannelId);
+                            xmlIdToNames.putIfAbsent(currentChannelId, new HashSet<>());
                         }
                         currentDisplayName = null;
                     } else if (inChannel && "display-name".equals(currentTag)) {
@@ -546,25 +552,24 @@ public class EPGParser {
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
                         if (currentChannelId != null && !currentChannelId.isEmpty() && currentDisplayName != null) {
-                            // 拆分 display-name（支持逗号、中文逗号、顿号、连字符、空格）
                             String[] rawNames = currentDisplayName.split("[,，、\\-\\s]+");
                             for (String raw : rawNames) {
                                 String name = raw.trim();
-                                if (!name.isEmpty()) {
-                                    idToNames.get(currentChannelId).add(name);
-                                    // 去常见后缀变体
-                                    String noSuffix = name.replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "").trim();
-                                    if (!noSuffix.isEmpty() && !noSuffix.equals(name)) {
-                                        idToNames.get(currentChannelId).add(noSuffix);
-                                    }
-                                    // 归一化变体
-                                    String norm = normalizeChannelName(name);
-                                    if (!norm.isEmpty()) idToNames.get(currentChannelId).add(norm);
-                                    // 简化变体
-                                    String simple = name.replaceAll("[\\s\\-_()（）【】\\[\\]·:：]", "");
-                                    if (!simple.isEmpty() && !simple.equals(name)) {
-                                        idToNames.get(currentChannelId).add(simple);
-                                    }
+                                if (name.isEmpty()) continue;
+                                xmlIdToNames.get(currentChannelId).add(name);
+                                String norm = normalizeChannelName(name);
+                                if (!norm.isEmpty()) xmlIdToNames.get(currentChannelId).add(norm);
+                                String simple = name.replaceAll("[\\s\\-_()（）【】\\[\\]·:：]", "");
+                                if (!simple.isEmpty() && !simple.equals(name)) {
+                                    xmlIdToNames.get(currentChannelId).add(simple);
+                                    String normSimple = normalizeChannelName(simple);
+                                    if (!normSimple.isEmpty()) xmlIdToNames.get(currentChannelId).add(normSimple);
+                                }
+                                String noSuffix = name.replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "").trim();
+                                if (!noSuffix.isEmpty() && !noSuffix.equals(name)) {
+                                    xmlIdToNames.get(currentChannelId).add(noSuffix);
+                                    String normNoSuffix = normalizeChannelName(noSuffix);
+                                    if (!normNoSuffix.isEmpty()) xmlIdToNames.get(currentChannelId).add(normNoSuffix);
                                 }
                             }
                         }
@@ -582,7 +587,7 @@ public class EPGParser {
                                 try { prog.endTime = sdfWithZone.parse(progStop).getTime(); }
                                 catch (ParseException e) { try { prog.endTime = sdfNoZone.parse(progStop).getTime(); } catch (ParseException ignored) {} }
                             }
-                            idToPrograms.computeIfAbsent(progChannelId, k -> new ArrayList<>()).add(prog);
+                            xmlIdToPrograms.computeIfAbsent(progChannelId, k -> new ArrayList<>()).add(prog);
                         }
                     }
                     break;
@@ -590,87 +595,128 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        LogUtils.writeLog("解析完成，总频道数: " + allChannelIds.size() + ", 有节目的频道数: " + idToPrograms.size());
+        LogUtils.writeLog("XML解析完成，总频道数: " + allXmlIds.size() + ", 有节目的频道数: " + xmlIdToPrograms.size());
 
-        // ---------- 构建最终映射：对每个别名，选择节目最多的 id ----------
-        // 1. 构建 别名 -> 所有关联 id 的映射
-        Map<String, Set<String>> nameToIds = new HashMap<>();
-        for (Map.Entry<String, Set<String>> entry : idToNames.entrySet()) {
-            String id = entry.getKey();
-            for (String name : entry.getValue()) {
-                nameToIds.computeIfAbsent(name, k -> new HashSet<>()).add(id);
-            }
-        }
-
-        // 2. 对每个别名，选择节目数量最多的 id
-        Map<String, String> bestIdForName = new HashMap<>();
-        for (Map.Entry<String, Set<String>> entry : nameToIds.entrySet()) {
-            String name = entry.getKey();
-            Set<String> ids = entry.getValue();
-            String bestId = null;
-            int maxCount = -1;
-            for (String id : ids) {
-                List<EpgProgram> progs = idToPrograms.get(id);
-                int count = (progs == null) ? 0 : progs.size();
-                if (count > maxCount) {
-                    maxCount = count;
-                    bestId = id;
+        Map<String, String> xmlIdToEpgId = new HashMap<>();
+        for (String xmlId : allXmlIds) {
+            Set<String> names = xmlIdToNames.get(xmlId);
+            if (names == null) continue;
+            String foundEpgId = null;
+            for (String name : names) {
+                String epgid = sAliasMap.get(name);
+                if (epgid != null) {
+                    foundEpgId = epgid;
+                    break;
+                }
+                String norm = normalizeChannelName(name);
+                if (!norm.equals(name)) {
+                    epgid = sAliasMap.get(norm);
+                    if (epgid != null) {
+                        foundEpgId = epgid;
+                        break;
+                    }
                 }
             }
-            if (bestId != null) {
-                bestIdForName.put(name, bestId);
-                // 可选：输出日志（太多可注释）
-                // LogUtils.writeLog("别名 '" + name + "' 选择 id=" + bestId + " (节目数=" + maxCount + ")");
+            if (foundEpgId != null) {
+                xmlIdToEpgId.put(xmlId, foundEpgId);
             }
         }
 
-        // 3. 构建 channelNameToId
+        LogUtils.writeLog("匹配到epgid的xml频道数: " + xmlIdToEpgId.size());
+
+        Map<String, List<EpgProgram>> epgIdToPrograms = new HashMap<>();
+        for (Map.Entry<String, String> entry : xmlIdToEpgId.entrySet()) {
+            String xmlId = entry.getKey();
+            String epgid = entry.getValue();
+            List<EpgProgram> progs = xmlIdToPrograms.get(xmlId);
+            if (progs != null) {
+                epgIdToPrograms.computeIfAbsent(epgid, k -> new ArrayList<>()).addAll(progs);
+            }
+        }
+
         Map<String, String> channelNameToId = new HashMap<>();
-        // 3.1 强制所有 id 自身映射
-        for (String id : allChannelIds) {
-            addMapping(channelNameToId, id, id);
-            String normId = normalizeChannelName(id);
-            if (!normId.isEmpty()) addMapping(channelNameToId, normId, id);
+        for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
+            channelNameToId.put(entry.getKey(), entry.getValue());
         }
-        // 3.2 将每个别名映射到最佳 id
-        for (Map.Entry<String, String> entry : bestIdForName.entrySet()) {
-            String name = entry.getKey();
-            String bestId = entry.getValue();
-            addMapping(channelNameToId, name, bestId);
-            // 归一化变体
-            String normName = normalizeChannelName(name);
-            if (!normName.isEmpty() && !normName.equals(name)) {
-                addMapping(channelNameToId, normName, bestId);
+        for (String xmlId : allXmlIds) {
+            if (!channelNameToId.containsKey(xmlId) && xmlIdToEpgId.containsKey(xmlId)) {
+                channelNameToId.put(xmlId, xmlIdToEpgId.get(xmlId));
+            }
+        }
+        for (String epgid : epgIdToPrograms.keySet()) {
+            if (!channelNameToId.containsKey(epgid)) {
+                channelNameToId.put(epgid, epgid);
             }
         }
 
-        // 4. 应用 epg_data.json 别名（覆盖已有映射？只添加不存在的）
-        if (sAliasMap != null) {
-            for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();
-                String epgid = entry.getValue();
-                if (!channelNameToId.containsKey(alias) && allChannelIds.contains(epgid)) {
-                    channelNameToId.put(alias, epgid);
-                }
-            }
-        }
-
-        // 5. 存储所有有节目的 id -> programs（只保留有节目的）
-        sAllPrograms = idToPrograms;   // 只包含有节目的 id
+        sAllPrograms = epgIdToPrograms;
         sChannelNameToId = channelNameToId;
 
-        LogUtils.writeLog("缓存构建完成：有节目频道数=" + sAllPrograms.size() + ", 名称映射总数=" + sChannelNameToId.size());
+        LogUtils.writeLog("最终映射构建完成：有效epgid数=" + sAllPrograms.size() + ", 名称映射总数=" + sChannelNameToId.size());
     }
 
-    // 辅助：安全添加映射，不覆盖已有值
-    private static void addMapping(Map<String, String> map, String key, String value) {
-        if (key == null || key.isEmpty()) return;
-        if (!map.containsKey(key)) {
-            map.put(key, value);
+    private static String normalizeChannelName(String name) {
+        if (name == null) return "";
+        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
+                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
+                .toLowerCase(Locale.getDefault());
+        if (normalized.length() < 2) {
+            return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
         }
+        return normalized;
     }
 
-    // ========== 其他已有方法 ==========
+    public static List<EpgProgram> getProgramsForChannel(String channelName) {
+        if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
+        String epgid = sChannelNameToId.get(channelName);
+        if (epgid == null) {
+            String norm = normalizeChannelName(channelName);
+            epgid = sChannelNameToId.get(norm);
+        }
+        if (epgid == null) {
+            for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
+                String key = entry.getKey();
+                if (key.contains(channelName) || channelName.contains(key)) {
+                    epgid = entry.getValue();
+                    break;
+                }
+            }
+        }
+        if (epgid == null) return new ArrayList<>();
+        List<EpgProgram> result = sAllPrograms.get(epgid);
+        if (result == null) return new ArrayList<>();
+        long currentTime = System.currentTimeMillis();
+        Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
+        int currentIndex = 0;
+        for (int i = 0; i < result.size(); i++) {
+            if (result.get(i).endTime > currentTime) {
+                currentIndex = i;
+                break;
+            }
+        }
+        if (currentIndex > 0 && currentIndex < result.size()) {
+            List<EpgProgram> sortedList = new ArrayList<>();
+            for (int i = currentIndex; i < result.size(); i++) sortedList.add(result.get(i));
+            for (int i = 0; i < currentIndex; i++) sortedList.add(result.get(i));
+            result = sortedList;
+        }
+        return result;
+    }
+
+    public static Map<String, List<EpgProgram>> getAllPrograms() {
+        if (sAllPrograms == null || sChannelNameToId == null) return new HashMap<>();
+        Map<String, List<EpgProgram>> nameMap = new HashMap<>();
+        for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
+            String channelName = entry.getKey();
+            String epgid = entry.getValue();
+            List<EpgProgram> list = sAllPrograms.get(epgid);
+            if (list != null) {
+                nameMap.put(channelName, list);
+            }
+        }
+        return nameMap;
+    }
+
     private static void downloadIcon(String iconUrl, String channelName, String logoDir) {
         try {
             if (iconUrl == null || iconUrl.isEmpty()) return;
@@ -698,67 +744,6 @@ public class EPGParser {
         } catch (Exception e) {
             LogUtils.writeLog("下载图标异常: " + e.getMessage());
         }
-    }
-
-    private static String normalizeChannelName(String name) {
-        if (name == null) return "";
-        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
-                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
-                .toLowerCase(Locale.getDefault());
-        if (normalized.length() < 2) {
-            return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
-        }
-        return normalized;
-    }
-
-    // ========== 对外接口 ==========
-    public static List<EpgProgram> getProgramsForChannel(String channelName) {
-        if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
-        String normalized = normalizeChannelName(channelName);
-        String channelId = sChannelNameToId.get(normalized);
-        if (channelId == null) channelId = sChannelNameToId.get(channelName);
-        if (channelId == null) {
-            for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
-                String key = entry.getKey();
-                if (key.contains(normalized) || normalized.contains(key)) {
-                    channelId = entry.getValue();
-                    break;
-                }
-            }
-        }
-        if (channelId == null) return new ArrayList<>();
-        List<EpgProgram> result = sAllPrograms.get(channelId);
-        if (result == null) result = new ArrayList<>();
-        long currentTime = System.currentTimeMillis();
-        Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
-        int currentIndex = 0;
-        for (int i = 0; i < result.size(); i++) {
-            if (result.get(i).endTime > currentTime) {
-                currentIndex = i;
-                break;
-            }
-        }
-        if (currentIndex > 0 && currentIndex < result.size()) {
-            List<EpgProgram> sortedList = new ArrayList<>();
-            for (int i = currentIndex; i < result.size(); i++) sortedList.add(result.get(i));
-            for (int i = 0; i < currentIndex; i++) sortedList.add(result.get(i));
-            result = sortedList;
-        }
-        return result;
-    }
-
-    public static Map<String, List<EpgProgram>> getAllPrograms() {
-        if (sAllPrograms == null || sChannelNameToId == null) return new HashMap<>();
-        Map<String, List<EpgProgram>> nameMap = new HashMap<>();
-        for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
-            String channelName = entry.getKey();
-            String channelId = entry.getValue();
-            List<EpgProgram> list = sAllPrograms.get(channelId);
-            if (list != null) {
-                nameMap.put(channelName, list);
-            }
-        }
-        return nameMap;
     }
 
     public static class EpgProgram {
@@ -2868,4 +2853,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "🔧 EPG增强解析：自动为每个别名选择节目数量最多的id，解决同频道多id导致无节目问题。"
+echo "🔧 EPG解析完全基于 epg_data.json 映射，与酷9一致，您只需维护该文件即可。"
