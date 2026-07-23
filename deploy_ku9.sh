@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 基于 epg_data.json 精确匹配）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 基于 epg_data.json 精准匹配，已优化变体映射）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,7 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（精确优先匹配，基于 epg_data.json） ====================
+# ==================== EPGParser.java（精准匹配，包含XML变体映射） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -483,7 +483,19 @@ public class EPGParser {
         }).start();
     }
 
-    // ===================== 核心解析：精确优先，包含匹配为辅 =====================
+    // ===================== 辅助方法 =====================
+    private static String normalizeChannelName(String name) {
+        if (name == null) return "";
+        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
+                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
+                .toLowerCase(Locale.getDefault());
+        if (normalized.length() < 2) {
+            return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
+        }
+        return normalized;
+    }
+
+    // ===================== 核心解析：精确优先，包含匹配为辅，并确保所有有节目的XML频道都被映射 =====================
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         // 1. 从XML中提取所有channel的信息
         Map<String, Set<String>> xmlIdToVariants = new HashMap<>();
@@ -656,9 +668,9 @@ public class EPGParser {
             }
         }
 
-        // 4. 构建最终映射：将所有别名（包括epgid自身）映射到epgid
+        // 4. 构建最终映射：将所有别名（包括epgid自身）映射到epgid，并且将匹配到epgid且有节目的XML频道的display-name变体也加入映射
         Map<String, String> channelNameToId = new HashMap<>();
-        // 先加入所有别名，但只保留那些在epgIdToPrograms中有节目的epgid
+        // 4.1 加入所有别名（来自epg_data.json），但只保留那些在epgIdToPrograms中有节目的epgid
         for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
             String alias = entry.getKey();
             String epgid = entry.getValue();
@@ -666,10 +678,28 @@ public class EPGParser {
                 channelNameToId.put(alias, epgid);
             }
         }
-        // 补充epgid自身
+        // 4.2 补充epgid自身
         for (String epgid : epgIdToPrograms.keySet()) {
             if (!channelNameToId.containsKey(epgid)) {
                 channelNameToId.put(epgid, epgid);
+            }
+        }
+        // 4.3 为每个有节目且已匹配到epgid的XML频道，将其display-name变体也加入映射（映射到对应的epgid）
+        //     这样即使epg_data.json中没有这些变体，M3U中的频道名也能命中
+        for (Map.Entry<String, String> entry : xmlIdToEpgId.entrySet()) {
+            String xmlId = entry.getKey();
+            String epgid = entry.getValue();
+            // 只有该epgid有节目时才添加
+            if (epgIdToPrograms.containsKey(epgid)) {
+                Set<String> variants = xmlIdToVariants.get(xmlId);
+                if (variants != null) {
+                    for (String variant : variants) {
+                        // 避免覆盖已有的映射（优先保留epg_data.json中的）
+                        if (!channelNameToId.containsKey(variant)) {
+                            channelNameToId.put(variant, epgid);
+                        }
+                    }
+                }
             }
         }
 
@@ -677,18 +707,6 @@ public class EPGParser {
         sChannelNameToId = channelNameToId;
 
         LogUtils.writeLog("最终映射构建完成：总epgid数=" + sAllPrograms.size() + ", 名称映射总数=" + sChannelNameToId.size());
-    }
-
-    // ===================== 辅助方法 =====================
-    private static String normalizeChannelName(String name) {
-        if (name == null) return "";
-        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
-                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
-                .toLowerCase(Locale.getDefault());
-        if (normalized.length() < 2) {
-            return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
-        }
-        return normalized;
     }
 
     // ===================== 对外查询接口 =====================
@@ -2879,4 +2897,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "🔧 EPG解析精确优先匹配，基于 epg_data.json，与酷9一致。"
+echo "🔧 EPG解析精准匹配，并自动添加XML频道变体，确保M3U频道名正确命中EPG。"
