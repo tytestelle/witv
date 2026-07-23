@@ -2867,4 +2867,9 @@ echo "🧹 清理并构建..."
 ./gradlew assembleDebug
 
 echo ""
-echo "🎉 构建完成！APK 位于 app/build/outputs/apk
+echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
+echo "📌 模板已生成到 ./config/ 目录"
+echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
+echo "📋 日志文件位置会在应用启动时 Toast 显示"
+echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
+echo "🔧 EPG解析以XML频道为单位，所有有节目的XML频道都可通过其display-name变体和epg_data.json别名访问。"
