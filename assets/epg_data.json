@@ -409,10 +409,6 @@
       "name": "杭州文化,杭州文化 HD,杭州文化 超清,杭州文化 高清,杭州文化(HD),杭州文化-4K,杭州文化-HD,杭州文化-高清,杭州文化HD,"
     },
     {
-      "epgid": "欢笑剧场",
-      "name": "欢笑剧场,欢笑剧场 HD,欢笑剧场 超清,欢笑剧场 高清,欢笑剧场(HD),欢笑剧场-4K,欢笑剧场-HD,欢笑剧场-高清,欢笑剧场HD,"
-    },
-    {
       "epgid": "CHC动作电影",
       "name": "CHC动作电影,CHC动作电影 HD,CHC动作电影 超清,CHC动作电影 高清,CHC动作电影(HD),CHC动作电影-4K,CHC动作电影-HD,CHC动作电影-高清,CHC动作电影HD,"
     },
@@ -427,10 +423,6 @@
     {
       "epgid": "CGTN阿语",
       "name": "CGTN阿语,CGTN阿语 HD,CGTN阿语 超清,CGTN阿语 高清,CGTN阿语(HD),CGTN阿语-4K,CGTN阿语-HD,CGTN阿语-高清,CGTN阿语HD,"
-    },
-    {
-      "epgid": "经典剧场",
-      "name": "经典剧场,经典剧场 HD,经典剧场 超清,经典剧场 高清,经典剧场(HD),经典剧场-4K,经典剧场-HD,经典剧场-高清,经典剧场HD,"
     },
     {
       "epgid": "南京少儿",
@@ -783,10 +775,6 @@
     {
       "epgid": "四大名著剧场",
       "name": "四大名著剧场,四大名著剧场 HD,四大名著剧场 超清,四大名著剧场 高清,四大名著剧场(HD),四大名著剧场-4K,四大名著剧场-HD,四大名著剧场-高清,四大名著剧场HD,"
-    },
-    {
-      "epgid": "深圳电视剧",
-      "name": "深圳电视剧,深圳电视剧 HD,深圳电视剧 超清,深圳电视剧 高清,深圳电视剧(HD),深圳电视剧-4K,深圳电视剧-HD,深圳电视剧-高清,深圳电视剧HD,"
     },
     {
       "epgid": "河北影视",
@@ -1549,10 +1537,6 @@
       "name": "锦州都市,锦州都市 HD,锦州都市 超清,锦州都市 高清,锦州都市(HD),锦州都市-4K,锦州都市-HD,锦州都市-高清,锦州都市HD,"
     },
     {
-      "epgid": "滨州民生",
-      "name": "滨州民生,滨州民生 HD,滨州民生 超清,滨州民生 高清,滨州民生(HD),滨州民生-4K,滨州民生-HD,滨州民生-高清,滨州民生HD,"
-    },
-    {
       "epgid": "广元公共",
       "name": "广元公共,广元公共 HD,广元公共 超清,广元公共 高清,广元公共(HD),广元公共-4K,广元公共-HD,广元公共-高清,广元公共HD,"
     },
@@ -1929,6 +1913,10 @@
       "name": "BRTV卡酷少儿,BRTV卡酷少儿 HD,BRTV卡酷少儿 超清,BRTV卡酷少儿 高清,BRTV卡酷少儿(HD),BRTV卡酷少儿-4K,BRTV卡酷少儿-HD,BRTV卡酷少儿-高清,BRTV卡酷少儿HD,"
     },
     {
+      "epgid": "旅游卫视",
+      "name": "旅游卫视,旅游卫视 HD,旅游卫视 超清,旅游卫视 高清,旅游卫视(HD),旅游卫视-4K,旅游卫视-HD,旅游卫视-高清,旅游卫视HD,"
+    },
+    {
       "epgid": "XSJZTV1",
       "name": "XSJZTV1,XSJZTV1 HD,XSJZTV1 超清,XSJZTV1 高清,XSJZTV1(HD),XSJZTV1-4K,XSJZTV1-HD,XSJZTV1-高清,XSJZTV1HD,"
     },
@@ -1937,20 +1925,8 @@
       "name": "环球旅游,环球旅游 HD,环球旅游 超清,环球旅游 高清,环球旅游(HD),环球旅游-4K,环球旅游-HD,环球旅游-高清,环球旅游HD,"
     },
     {
-      "epgid": "无锡生活",
-      "name": "无锡生活,无锡生活 HD,无锡生活 超清,无锡生活 高清,无锡生活(HD),无锡生活-4K,无锡生活-HD,无锡生活-高清,无锡生活HD,"
-    },
-    {
       "epgid": "金色学堂",
       "name": "金色学堂,金色学堂 HD,金色学堂 超清,金色学堂 高清,金色学堂(HD),金色学堂-4K,金色学堂-HD,金色学堂-高清,金色学堂HD,"
-    },
-    {
-      "epgid": "无锡经济",
-      "name": "无锡经济,无锡经济 HD,无锡经济 超清,无锡经济 高清,无锡经济(HD),无锡经济-4K,无锡经济-HD,无锡经济-高清,无锡经济HD,"
-    },
-    {
-      "epgid": "无锡娱乐",
-      "name": "无锡娱乐,无锡娱乐 HD,无锡娱乐 超清,无锡娱乐 高清,无锡娱乐(HD),无锡娱乐-4K,无锡娱乐-HD,无锡娱乐-高清,无锡娱乐HD,"
     },
     {
       "epgid": "山东教育台",
@@ -1959,158 +1935,6 @@
     {
       "epgid": "CCTV4K",
       "name": "CCTV4K,CCTV4K HD,CCTV4K 超清,CCTV4K 高清,CCTV4K(HD),CCTV4K-4K,CCTV4K-HD,CCTV4K-高清,CCTV4KHD,"
-    },
-    {
-      "epgid": "广西国际",
-      "name": "广西国际,广西国际 HD,广西国际 超清,广西国际 高清,广西国际(HD),广西国际-4K,广西国际-HD,广西国际-高清,广西国际HD,"
-    },
-    {
-      "epgid": "广东珠江",
-      "name": "广东珠江,广东珠江 HD,广东珠江 超清,广东珠江 高清,广东珠江(HD),广东珠江-4K,广东珠江-HD,广东珠江-高清,广东珠江HD,"
-    },
-    {
-      "epgid": "睛彩中原",
-      "name": "睛彩中原,睛彩中原 HD,睛彩中原 超清,睛彩中原 高清,睛彩中原(HD),睛彩中原-4K,睛彩中原-HD,睛彩中原-高清,睛彩中原HD,"
-    },
-    {
-      "epgid": "厦门移动",
-      "name": "厦门移动,厦门移动 HD,厦门移动 超清,厦门移动 高清,厦门移动(HD),厦门移动-4K,厦门移动-HD,厦门移动-高清,厦门移动HD,"
-    },
-    {
-      "epgid": "广东国际",
-      "name": "广东国际,广东国际 HD,广东国际 超清,广东国际 高清,广东国际(HD),广东国际-4K,广东国际-HD,广东国际-高清,广东国际HD,"
-    },
-    {
-      "epgid": "上海艺术人文",
-      "name": "上海艺术人文,上海艺术人文 HD,上海艺术人文 超清,上海艺术人文 高清,上海艺术人文(HD),上海艺术人文-4K,上海艺术人文-HD,上海艺术人文-高清,上海艺术人文HD,"
-    },
-    {
-      "epgid": "LSTIME电影台",
-      "name": "LSTIME电影台,LSTIME电影台 HD,LSTIME电影台 超清,LSTIME电影台 高清,LSTIME电影台(HD),LSTIME电影台-4K,LSTIME电影台-HD,LSTIME电影台-高清,LSTIME电影台HD,"
-    },
-    {
-      "epgid": "河南梨园",
-      "name": "河南梨园,河南梨园 HD,河南梨园 超清,河南梨园 高清,河南梨园(HD),河南梨园-4K,河南梨园-HD,河南梨园-高清,河南梨园HD,"
-    },
-    {
-      "epgid": "文物宝库",
-      "name": "文物宝库,文物宝库 HD,文物宝库 超清,文物宝库 高清,文物宝库(HD),文物宝库-4K,文物宝库-HD,文物宝库-高清,文物宝库HD,"
-    },
-    {
-      "epgid": "海南文旅",
-      "name": "海南文旅,海南文旅 HD,海南文旅 超清,海南文旅 高清,海南文旅(HD),海南文旅-4K,海南文旅-HD,海南文旅-高清,海南文旅HD,"
-    },
-    {
-      "epgid": "海南少儿",
-      "name": "海南少儿,海南少儿 HD,海南少儿 超清,海南少儿 高清,海南少儿(HD),海南少儿-4K,海南少儿-HD,海南少儿-高清,海南少儿HD,"
-    },
-    {
-      "epgid": "卫生健康",
-      "name": "卫生健康,卫生健康 HD,卫生健康 超清,卫生健康 高清,卫生健康(HD),卫生健康-4K,卫生健康-HD,卫生健康-高清,卫生健康HD,"
-    },
-    {
-      "epgid": "海南新闻",
-      "name": "海南新闻,海南新闻 HD,海南新闻 超清,海南新闻 高清,海南新闻(HD),海南新闻-4K,海南新闻-HD,海南新闻-高清,海南新闻HD,"
-    },
-    {
-      "epgid": "国学",
-      "name": "国学,国学 HD,国学 超清,国学 高清,国学(HD),国学-4K,国学-HD,国学-高清,国学HD,"
-    },
-    {
-      "epgid": "广东体育",
-      "name": "广东体育,广东体育 HD,广东体育 超清,广东体育 高清,广东体育(HD),广东体育-4K,广东体育-HD,广东体育-高清,广东体育HD,"
-    },
-    {
-      "epgid": "武术世界",
-      "name": "武术世界,武术世界 HD,武术世界 超清,武术世界 高清,武术世界(HD),武术世界-4K,武术世界-HD,武术世界-高清,武术世界HD,"
-    },
-    {
-      "epgid": "南方影视",
-      "name": "南方影视,南方影视 HD,南方影视 超清,南方影视 高清,南方影视(HD),南方影视-4K,南方影视-HD,南方影视-高清,南方影视HD,"
-    },
-    {
-      "epgid": "上海第一财经",
-      "name": "上海第一财经,上海第一财经 HD,上海第一财经 超清,上海第一财经 高清,上海第一财经(HD),上海第一财经-4K,上海第一财经-HD,上海第一财经-高清,上海第一财经HD,"
-    },
-    {
-      "epgid": "广东少儿",
-      "name": "广东少儿,广东少儿 HD,广东少儿 超清,广东少儿 高清,广东少儿(HD),广东少儿-4K,广东少儿-HD,广东少儿-高清,广东少儿HD,"
-    },
-    {
-      "epgid": "广东公共",
-      "name": "广东公共,广东公共 HD,广东公共 超清,广东公共 高清,广东公共(HD),广东公共-4K,广东公共-HD,广东公共-高清,广东公共HD,"
-    },
-    {
-      "epgid": "广东新闻",
-      "name": "广东新闻,广东新闻 HD,广东新闻 超清,广东新闻 高清,广东新闻(HD),广东新闻-4K,广东新闻-HD,广东新闻-高清,广东新闻HD,"
-    },
-    {
-      "epgid": "厦门一套",
-      "name": "厦门一套,厦门一套 HD,厦门一套 超清,厦门一套 高清,厦门一套(HD),厦门一套-4K,厦门一套-HD,厦门一套-高清,厦门一套HD,"
-    },
-    {
-      "epgid": "南方经济",
-      "name": "南方经济,南方经济 HD,南方经济 超清,南方经济 高清,南方经济(HD),南方经济-4K,南方经济-HD,南方经济-高清,南方经济HD,"
-    },
-    {
-      "epgid": "东方电影",
-      "name": "东方电影,东方电影 HD,东方电影 超清,东方电影 高清,东方电影(HD),东方电影-4K,东方电影-HD,东方电影-高清,东方电影HD,"
-    },
-    {
-      "epgid": "南方综艺",
-      "name": "南方综艺,南方综艺 HD,南方综艺 超清,南方综艺 高清,南方综艺(HD),南方综艺-4K,南方综艺-HD,南方综艺-高清,南方综艺HD,"
-    },
-    {
-      "epgid": "浙江数码时代",
-      "name": "浙江数码时代,浙江数码时代 HD,浙江数码时代 超清,浙江数码时代 高清,浙江数码时代(HD),浙江数码时代-4K,浙江数码时代-HD,浙江数码时代-高清,浙江数码时代HD,"
-    },
-    {
-      "epgid": "河南乡村",
-      "name": "河南乡村,河南乡村 HD,河南乡村 超清,河南乡村 高清,河南乡村(HD),河南乡村-4K,河南乡村-HD,河南乡村-高清,河南乡村HD,"
-    },
-    {
-      "epgid": "浙江国际",
-      "name": "浙江国际,浙江国际 HD,浙江国际 超清,浙江国际 高清,浙江国际(HD),浙江国际-4K,浙江国际-HD,浙江国际-高清,浙江国际HD,"
-    },
-    {
-      "epgid": "上海都市",
-      "name": "上海都市,上海都市 HD,上海都市 超清,上海都市 高清,上海都市(HD),上海都市-4K,上海都市-HD,上海都市-高清,上海都市HD,"
-    },
-    {
-      "epgid": "福建教育",
-      "name": "福建教育,福建教育 HD,福建教育 超清,福建教育 高清,福建教育(HD),福建教育-4K,福建教育-HD,福建教育-高清,福建教育HD,"
-    },
-    {
-      "epgid": "广东综艺",
-      "name": "广东综艺,广东综艺 HD,广东综艺 超清,广东综艺 高清,广东综艺(HD),广东综艺-4K,广东综艺-HD,广东综艺-高清,广东综艺HD,"
-    },
-    {
-      "epgid": "上海星尚",
-      "name": "上海星尚,上海星尚 HD,上海星尚 超清,上海星尚 高清,上海星尚(HD),上海星尚-4K,上海星尚-HD,上海星尚-高清,上海星尚HD,"
-    },
-    {
-      "epgid": "河南都市",
-      "name": "河南都市,河南都市 HD,河南都市 超清,河南都市 高清,河南都市(HD),河南都市-4K,河南都市-HD,河南都市-高清,河南都市HD,"
-    },
-    {
-      "epgid": "海南公共",
-      "name": "海南公共,海南公共 HD,海南公共 超清,海南公共 高清,海南公共(HD),海南公共-4K,海南公共-HD,海南公共-高清,海南公共HD,"
-    },
-    {
-      "epgid": "南方少儿",
-      "name": "南方少儿,南方少儿 HD,南方少儿 超清,南方少儿 高清,南方少儿(HD),南方少儿-4K,南方少儿-HD,南方少儿-高清,南方少儿HD,"
-    },
-    {
-      "epgid": "上海新闻综合",
-      "name": "上海新闻综合,上海新闻综合 HD,上海新闻综合 超清,上海新闻综合 高清,上海新闻综合(HD),上海新闻综合-4K,上海新闻综合-HD,上海新闻综合-高清,上海新闻综合HD,"
-    },
-    {
-      "epgid": "浙江民生休闲",
-      "name": "浙江民生休闲,浙江民生休闲 HD,浙江民生休闲 超清,浙江民生休闲 高清,浙江民生休闲(HD),浙江民生休闲-4K,浙江民生休闲-HD,浙江民生休闲-高清,浙江民生休闲HD,"
-    },
-    {
-      "epgid": "象视界",
-      "name": "象视界,象视界 HD,象视界 超清,象视界 高清,象视界(HD),象视界-4K,象视界-HD,象视界-高清,象视界HD,"
     },
     {
       "epgid": "CCTV-7 国防军事",
@@ -2133,20 +1957,8 @@
       "name": "CCTV-15 高清,CCTV-15 高清 HD,CCTV-15 高清 超清,CCTV-15 高清 高清,CCTV-15 高清(HD),CCTV-15 高清-4K,CCTV-15 高清-HD,CCTV-15 高清-高清,CCTV-15 高清HD,"
     },
     {
-      "epgid": "旅游卫视",
-      "name": "旅游卫视,旅游卫视 HD,旅游卫视 超清,旅游卫视 高清,旅游卫视(HD),旅游卫视-4K,旅游卫视-HD,旅游卫视-高清,旅游卫视HD,"
-    },
-    {
       "epgid": "山东卫视 高清",
       "name": "山东卫视 高清,山东卫视 高清 HD,山东卫视 高清 超清,山东卫视 高清 高清,山东卫视 高清(HD),山东卫视 高清-4K,山东卫视 高清-HD,山东卫视 高清-高清,山东卫视 高清HD,"
-    },
-    {
-      "epgid": "广东移动",
-      "name": "广东移动,广东移动 HD,广东移动 超清,广东移动 高清,广东移动(HD),广东移动-4K,广东移动-HD,广东移动-高清,广东移动HD,"
-    },
-    {
-      "epgid": "厦门二套",
-      "name": "厦门二套,厦门二套 HD,厦门二套 超清,厦门二套 高清,厦门二套(HD),厦门二套-4K,厦门二套-HD,厦门二套-高清,厦门二套HD,"
     },
     {
       "epgid": "珠江频道",
@@ -2307,214 +2119,6 @@
     {
       "epgid": "CCTV-5 高清",
       "name": "CCTV-5 高清,CCTV-5 高清 HD,CCTV-5 高清 超清,CCTV-5 高清 高清,CCTV-5 高清(HD),CCTV-5 高清-4K,CCTV-5 高清-HD,CCTV-5 高清-高清,CCTV-5 高清HD,"
-    },
-    {
-      "epgid": "CCTV1",
-      "name": "CCTV1,CCTV1 HD,CCTV1 超清,CCTV1 高清,CCTV1(HD),CCTV1-4K,CCTV1-HD,CCTV1-高清,CCTV1HD,"
-    },
-    {
-      "epgid": "CCTV2",
-      "name": "CCTV2,CCTV2 HD,CCTV2 超清,CCTV2 高清,CCTV2(HD),CCTV2-4K,CCTV2-HD,CCTV2-高清,CCTV2HD,"
-    },
-    {
-      "epgid": "CCTV3",
-      "name": "CCTV3,CCTV3 HD,CCTV3 超清,CCTV3 高清,CCTV3(HD),CCTV3-4K,CCTV3-HD,CCTV3-高清,CCTV3HD,"
-    },
-    {
-      "epgid": "CCTV4",
-      "name": "CCTV4,CCTV4 HD,CCTV4 超清,CCTV4 高清,CCTV4(HD),CCTV4-4K,CCTV4-HD,CCTV4-高清,CCTV4HD,"
-    },
-    {
-      "epgid": "CCTV5",
-      "name": "CCTV5,CCTV5 HD,CCTV5 超清,CCTV5 高清,CCTV5(HD),CCTV5-4K,CCTV5-HD,CCTV5-高清,CCTV5HD,"
-    },
-    {
-      "epgid": "CCTV6",
-      "name": "CCTV6,CCTV6 HD,CCTV6 超清,CCTV6 高清,CCTV6(HD),CCTV6-4K,CCTV6-HD,CCTV6-高清,CCTV6HD,"
-    },
-    {
-      "epgid": "CCTV7",
-      "name": "CCTV7,CCTV7 HD,CCTV7 超清,CCTV7 高清,CCTV7(HD),CCTV7-4K,CCTV7-HD,CCTV7-高清,CCTV7HD,"
-    },
-    {
-      "epgid": "CCTV8",
-      "name": "CCTV8,CCTV8 HD,CCTV8 超清,CCTV8 高清,CCTV8(HD),CCTV8-4K,CCTV8-HD,CCTV8-高清,CCTV8HD,"
-    },
-    {
-      "epgid": "CCTV9",
-      "name": "CCTV9,CCTV9 HD,CCTV9 超清,CCTV9 高清,CCTV9(HD),CCTV9-4K,CCTV9-HD,CCTV9-高清,CCTV9HD,"
-    },
-    {
-      "epgid": "CCTV10",
-      "name": "CCTV10,CCTV10 HD,CCTV10 超清,CCTV10 高清,CCTV10(HD),CCTV10-4K,CCTV10-HD,CCTV10-高清,CCTV10HD,"
-    },
-    {
-      "epgid": "CCTV11",
-      "name": "CCTV11,CCTV11 HD,CCTV11 超清,CCTV11 高清,CCTV11(HD),CCTV11-4K,CCTV11-HD,CCTV11-高清,CCTV11HD,"
-    },
-    {
-      "epgid": "CCTV12",
-      "name": "CCTV12,CCTV12 HD,CCTV12 超清,CCTV12 高清,CCTV12(HD),CCTV12-4K,CCTV12-HD,CCTV12-高清,CCTV12HD,"
-    },
-    {
-      "epgid": "CCTV13",
-      "name": "CCTV13,CCTV13 HD,CCTV13 超清,CCTV13 高清,CCTV13(HD),CCTV13-4K,CCTV13-HD,CCTV13-高清,CCTV13HD,"
-    },
-    {
-      "epgid": "CCTV14",
-      "name": "CCTV14,CCTV14 HD,CCTV14 超清,CCTV14 高清,CCTV14(HD),CCTV14-4K,CCTV14-HD,CCTV14-高清,CCTV14HD,"
-    },
-    {
-      "epgid": "CCTV15",
-      "name": "CCTV15,CCTV15 HD,CCTV15 超清,CCTV15 高清,CCTV15(HD),CCTV15-4K,CCTV15-HD,CCTV15-高清,CCTV15HD,"
-    },
-    {
-      "epgid": "CCTV17",
-      "name": "CCTV17,CCTV17 HD,CCTV17 超清,CCTV17 高清,CCTV17(HD),CCTV17-4K,CCTV17-HD,CCTV17-高清,CCTV17HD,"
-    },
-    {
-      "epgid": "CCTV4EUO",
-      "name": "CCTV4EUO,CCTV4EUO HD,CCTV4EUO 超清,CCTV4EUO 高清,CCTV4EUO(HD),CCTV4EUO-4K,CCTV4EUO-HD,CCTV4EUO-高清,CCTV4EUOHD,"
-    },
-    {
-      "epgid": "CCTV4AME",
-      "name": "CCTV4AME,CCTV4AME HD,CCTV4AME 超清,CCTV4AME 高清,CCTV4AME(HD),CCTV4AME-4K,CCTV4AME-HD,CCTV4AME-高清,CCTV4AMEHD,"
-    },
-    {
-      "epgid": "哈哈炫动",
-      "name": "哈哈炫动,哈哈炫动 HD,哈哈炫动 超清,哈哈炫动 高清,哈哈炫动(HD),哈哈炫动-4K,哈哈炫动-HD,哈哈炫动-高清,哈哈炫动HD,"
-    },
-    {
-      "epgid": "金鹰卡通",
-      "name": "金鹰卡通,金鹰卡通 HD,金鹰卡通 超清,金鹰卡通 高清,金鹰卡通(HD),金鹰卡通-4K,金鹰卡通-HD,金鹰卡通-高清,金鹰卡通HD,"
-    },
-    {
-      "epgid": "中国教育1台",
-      "name": "中国教育1台,中国教育1台 HD,中国教育1台 超清,中国教育1台 高清,中国教育1台(HD),中国教育1台-4K,中国教育1台-HD,中国教育1台-高清,中国教育1台HD,"
-    },
-    {
-      "epgid": "CHC高清电影",
-      "name": "CHC高清电影,CHC高清电影 HD,CHC高清电影 超清,CHC高清电影 高清,CHC高清电影(HD),CHC高清电影-4K,CHC高清电影-HD,CHC高清电影-高清,CHC高清电影HD,"
-    },
-    {
-      "epgid": "CHC家庭电影",
-      "name": "CHC家庭电影,CHC家庭电影 HD,CHC家庭电影 超清,CHC家庭电影 高清,CHC家庭电影(HD),CHC家庭电影-4K,CHC家庭电影-HD,CHC家庭电影-高清,CHC家庭电影HD,"
-    },
-    {
-      "epgid": "风云音乐",
-      "name": "风云音乐,风云音乐 HD,风云音乐 超清,风云音乐 高清,风云音乐(HD),风云音乐-4K,风云音乐-HD,风云音乐-高清,风云音乐HD,"
-    },
-    {
-      "epgid": "第一剧场",
-      "name": "第一剧场,第一剧场 HD,第一剧场 超清,第一剧场 高清,第一剧场(HD),第一剧场-4K,第一剧场-HD,第一剧场-高清,第一剧场HD,"
-    },
-    {
-      "epgid": "风云剧场",
-      "name": "风云剧场,风云剧场 HD,风云剧场 超清,风云剧场 高清,风云剧场(HD),风云剧场-4K,风云剧场-HD,风云剧场-高清,风云剧场HD,"
-    },
-    {
-      "epgid": "世界地理",
-      "name": "世界地理,世界地理 HD,世界地理 超清,世界地理 高清,世界地理(HD),世界地理-4K,世界地理-HD,世界地理-高清,世界地理HD,"
-    },
-    {
-      "epgid": "怀旧剧场",
-      "name": "怀旧剧场,怀旧剧场 HD,怀旧剧场 超清,怀旧剧场 高清,怀旧剧场(HD),怀旧剧场-4K,怀旧剧场-HD,怀旧剧场-高清,怀旧剧场HD,"
-    },
-    {
-      "epgid": "兵器科技",
-      "name": "兵器科技,兵器科技 HD,兵器科技 超清,兵器科技 高清,兵器科技(HD),兵器科技-4K,兵器科技-HD,兵器科技-高清,兵器科技HD,"
-    },
-    {
-      "epgid": "女性时尚",
-      "name": "女性时尚,女性时尚 HD,女性时尚 超清,女性时尚 高清,女性时尚(HD),女性时尚-4K,女性时尚-HD,女性时尚-高清,女性时尚HD,"
-    },
-    {
-      "epgid": "央视精品",
-      "name": "央视精品,央视精品 HD,央视精品 超清,央视精品 高清,央视精品(HD),央视精品-4K,央视精品-HD,央视精品-高清,央视精品HD,"
-    },
-    {
-      "epgid": "求索记录",
-      "name": "求索记录,求索记录 HD,求索记录 超清,求索记录 高清,求索记录(HD),求索记录-4K,求索记录-HD,求索记录-高清,求索记录HD,"
-    },
-    {
-      "epgid": "天元围棋",
-      "name": "天元围棋,天元围棋 HD,天元围棋 超清,天元围棋 高清,天元围棋(HD),天元围棋-4K,天元围棋-HD,天元围棋-高清,天元围棋HD,"
-    },
-    {
-      "epgid": "早期教育",
-      "name": "早期教育,早期教育 HD,早期教育 超清,早期教育 高清,早期教育(HD),早期教育-4K,早期教育-HD,早期教育-高清,早期教育HD,"
-    },
-    {
-      "epgid": "证券资讯",
-      "name": "证券资讯,证券资讯 HD,证券资讯 超清,证券资讯 高清,证券资讯(HD),证券资讯-4K,证券资讯-HD,证券资讯-高清,证券资讯HD,"
-    },
-    {
-      "epgid": "央视台球",
-      "name": "央视台球,央视台球 HD,央视台球 超清,央视台球 高清,央视台球(HD),央视台球-4K,央视台球-HD,央视台球-高清,央视台球HD,"
-    },
-    {
-      "epgid": "凤凰中文",
-      "name": "凤凰中文,凤凰中文 HD,凤凰中文 超清,凤凰中文 高清,凤凰中文(HD),凤凰中文-4K,凤凰中文-HD,凤凰中文-高清,凤凰中文HD,"
-    },
-    {
-      "epgid": "凤凰资讯",
-      "name": "凤凰资讯,凤凰资讯 HD,凤凰资讯 超清,凤凰资讯 高清,凤凰资讯(HD),凤凰资讯-4K,凤凰资讯-HD,凤凰资讯-高清,凤凰资讯HD,"
-    },
-    {
-      "epgid": "凤凰香港",
-      "name": "凤凰香港,凤凰香港 HD,凤凰香港 超清,凤凰香港 高清,凤凰香港(HD),凤凰香港-4K,凤凰香港-HD,凤凰香港-高清,凤凰香港HD,"
-    },
-    {
-      "epgid": "老故事",
-      "name": "老故事,老故事 HD,老故事 超清,老故事 高清,老故事(HD),老故事-4K,老故事-HD,老故事-高清,老故事HD,"
-    },
-    {
-      "epgid": "快乐垂钓",
-      "name": "快乐垂钓,快乐垂钓 HD,快乐垂钓 超清,快乐垂钓 高清,快乐垂钓(HD),快乐垂钓-4K,快乐垂钓-HD,快乐垂钓-高清,快乐垂钓HD,"
-    },
-    {
-      "epgid": "书画频道",
-      "name": "书画频道,书画频道 HD,书画频道 超清,书画频道 高清,书画频道(HD),书画频道-4K,书画频道-HD,书画频道-高清,书画频道HD,"
-    },
-    {
-      "epgid": "四海钓鱼",
-      "name": "四海钓鱼,四海钓鱼 HD,四海钓鱼 超清,四海钓鱼 高清,四海钓鱼(HD),四海钓鱼-4K,四海钓鱼-HD,四海钓鱼-高清,四海钓鱼HD,"
-    },
-    {
-      "epgid": "财富天下",
-      "name": "财富天下,财富天下 HD,财富天下 超清,财富天下 高清,财富天下(HD),财富天下-4K,财富天下-HD,财富天下-高清,财富天下HD,"
-    },
-    {
-      "epgid": "HKS",
-      "name": "HKS,HKS HD,HKS 超清,HKS 高清,HKS(HD),HKS-4K,HKS-HD,HKS-高清,HKSHD,"
-    },
-    {
-      "epgid": "noepg",
-      "name": "noepg,noepg HD,noepg 超清,noepg 高清,noepg(HD),noepg-4K,noepg-HD,noepg-高清,noepgHD,"
-    },
-    {
-      "epgid": "CCTV16",
-      "name": "CCTV16,CCTV16 HD,CCTV16 超清,CCTV16 高清,CCTV16(HD),CCTV16-4K,CCTV16-HD,CCTV16-高清,CCTV16HD,"
-    },
-    {
-      "epgid": "发现之旅",
-      "name": "发现之旅,发现之旅 HD,发现之旅 超清,发现之旅 高清,发现之旅(HD),发现之旅-4K,发现之旅-HD,发现之旅-高清,发现之旅HD,"
-    },
-    {
-      "epgid": "环球奇观",
-      "name": "环球奇观,环球奇观 HD,环球奇观 超清,环球奇观 高清,环球奇观(HD),环球奇观-4K,环球奇观-HD,环球奇观-高清,环球奇观HD,"
-    },
-    {
-      "epgid": "风云足球",
-      "name": "风云足球,风云足球 HD,风云足球 超清,风云足球 高清,风云足球(HD),风云足球-4K,风云足球-HD,风云足球-高清,风云足球HD,"
-    },
-    {
-      "epgid": "CHC影迷电影",
-      "name": "CHC影迷电影,CHC影迷电影 HD,CHC影迷电影 超清,CHC影迷电影 高清,CHC影迷电影(HD),CHC影迷电影-4K,CHC影迷电影-HD,CHC影迷电影-高清,CHC影迷电影HD,"
-    },
-    {
-      "epgid": "山东文旅",
-      "name": "山东文旅,山东文旅 HD,山东文旅 超清,山东文旅 高清,山东文旅(HD),山东文旅-4K,山东文旅-HD,山东文旅-高清,山东文旅HD,"
     },
     {
       "epgid": "民視第一台",
@@ -3741,12 +3345,28 @@
       "name": "愛爾達體育4台,愛爾達體育4台 HD,愛爾達體育4台 超清,愛爾達體育4台 高清,愛爾達體育4台(HD),愛爾達體育4台-4K,愛爾達體育4台-HD,愛爾達體育4台-高清,愛爾達體育4台HD,"
     },
     {
+      "epgid": "博斯高球一台",
+      "name": "博斯高球一台,博斯高球一台 HD,博斯高球一台 超清,博斯高球一台 高清,博斯高球一台(HD),博斯高球一台-4K,博斯高球一台-HD,博斯高球一台-高清,博斯高球一台HD,"
+    },
+    {
+      "epgid": "博斯魅力HD",
+      "name": "博斯魅力HD,博斯魅力HD HD,博斯魅力HD 超清,博斯魅力HD 高清,博斯魅力HD(HD),博斯魅力HD-4K,博斯魅力HD-HD,博斯魅力HD-高清,博斯魅力HDHD,"
+    },
+    {
+      "epgid": "博斯無限台HD",
+      "name": "博斯無限台HD,博斯無限台HD HD,博斯無限台HD 超清,博斯無限台HD 高清,博斯無限台HD(HD),博斯無限台HD-4K,博斯無限台HD-HD,博斯無限台HD-高清,博斯無限台HDHD,"
+    },
+    {
       "epgid": "TRACE Sport Stars HD",
       "name": "TRACE Sport Stars HD,TRACE Sport Stars HD HD,TRACE Sport Stars HD 超清,TRACE Sport Stars HD 高清,TRACE Sport Stars HD(HD),TRACE Sport Stars HD-4K,TRACE Sport Stars HD-HD,TRACE Sport Stars HD-高清,TRACE Sport Stars HDHD,"
     },
     {
       "epgid": "DAZN 3",
       "name": "DAZN 3,DAZN 3 HD,DAZN 3 超清,DAZN 3 高清,DAZN 3(HD),DAZN 3-4K,DAZN 3-HD,DAZN 3-高清,DAZN 3HD,"
+    },
+    {
+      "epgid": "博斯運動二台HD",
+      "name": "博斯運動二台HD,博斯運動二台HD HD,博斯運動二台HD 超清,博斯運動二台HD 高清,博斯運動二台HD(HD),博斯運動二台HD-4K,博斯運動二台HD-HD,博斯運動二台HD-高清,博斯運動二台HDHD,"
     },
     {
       "epgid": "智林體育HD",
@@ -4085,10 +3705,6 @@
       "name": "德國之聲,德國之聲 HD,德國之聲 超清,德國之聲 高清,德國之聲(HD),德國之聲-4K,德國之聲-HD,德國之聲-高清,德國之聲HD,"
     },
     {
-      "epgid": "FRANCE24E HD",
-      "name": "FRANCE24E HD,FRANCE24E HD HD,FRANCE24E HD 超清,FRANCE24E HD 高清,FRANCE24E HD(HD),FRANCE24E HD-4K,FRANCE24E HD-HD,FRANCE24E HD-高清,FRANCE24E HDHD,"
-    },
-    {
       "epgid": "NHK新聞資訊台HD",
       "name": "NHK新聞資訊台HD,NHK新聞資訊台HD HD,NHK新聞資訊台HD 超清,NHK新聞資訊台HD 高清,NHK新聞資訊台HD(HD),NHK新聞資訊台HD-4K,NHK新聞資訊台HD-HD,NHK新聞資訊台HD-高清,NHK新聞資訊台HDHD,"
     },
@@ -4265,24 +3881,12 @@
       "name": "ABC Australia 澳洲公廣頻道,ABC Australia 澳洲公廣頻道 HD,ABC Australia 澳洲公廣頻道 超清,ABC Australia 澳洲公廣頻道 高清,ABC Australia 澳洲公廣頻道(HD),ABC Australia 澳洲公廣頻道-4K,ABC Australia 澳洲公廣頻道-HD,ABC Australia 澳洲公廣頻道-高清,ABC Australia 澳洲公廣頻道HD,"
     },
     {
-      "epgid": "博斯高球一台",
-      "name": "博斯高球一台,博斯高球一台 HD,博斯高球一台 超清,博斯高球一台 高清,博斯高球一台(HD),博斯高球一台-4K,博斯高球一台-HD,博斯高球一台-高清,博斯高球一台HD,"
+      "epgid": "FRANCE24E HD",
+      "name": "FRANCE24E HD,FRANCE24E HD HD,FRANCE24E HD 超清,FRANCE24E HD 高清,FRANCE24E HD(HD),FRANCE24E HD-4K,FRANCE24E HD-HD,FRANCE24E HD-高清,FRANCE24E HDHD,"
     },
     {
       "epgid": "博斯網球HD",
       "name": "博斯網球HD,博斯網球HD HD,博斯網球HD 超清,博斯網球HD 高清,博斯網球HD(HD),博斯網球HD-4K,博斯網球HD-HD,博斯網球HD-高清,博斯網球HDHD,"
-    },
-    {
-      "epgid": "博斯魅力HD",
-      "name": "博斯魅力HD,博斯魅力HD HD,博斯魅力HD 超清,博斯魅力HD 高清,博斯魅力HD(HD),博斯魅力HD-4K,博斯魅力HD-HD,博斯魅力HD-高清,博斯魅力HDHD,"
-    },
-    {
-      "epgid": "博斯無限台HD",
-      "name": "博斯無限台HD,博斯無限台HD HD,博斯無限台HD 超清,博斯無限台HD 高清,博斯無限台HD(HD),博斯無限台HD-4K,博斯無限台HD-HD,博斯無限台HD-高清,博斯無限台HDHD,"
-    },
-    {
-      "epgid": "博斯運動二台HD",
-      "name": "博斯運動二台HD,博斯運動二台HD HD,博斯運動二台HD 超清,博斯運動二台HD 高清,博斯運動二台HD(HD),博斯運動二台HD-4K,博斯運動二台HD-HD,博斯運動二台HD-高清,博斯運動二台HDHD,"
     },
     {
       "epgid": "民視HD",
@@ -4299,182 +3903,6 @@
     {
       "epgid": "Arirang TV HD",
       "name": "Arirang TV HD,Arirang TV HD HD,Arirang TV HD 超清,Arirang TV HD 高清,Arirang TV HD(HD),Arirang TV HD-4K,Arirang TV HD-HD,Arirang TV HD-高清,Arirang TV HDHD,"
-    },
-    {
-      "epgid": "PopC",
-      "name": "PopC,PopC HD,PopC 超清,PopC 高清,PopC(HD),PopC-4K,PopC-HD,PopC-高清,PopCHD,"
-    },
-    {
-      "epgid": "娛樂新聞台",
-      "name": "娛樂新聞台,娛樂新聞台 HD,娛樂新聞台 超清,娛樂新聞台 高清,娛樂新聞台(HD),娛樂新聞台-4K,娛樂新聞台-HD,娛樂新聞台-高清,娛樂新聞台HD,"
-    },
-    {
-      "epgid": "千禧經典台",
-      "name": "千禧經典台,千禧經典台 HD,千禧經典台 超清,千禧經典台 高清,千禧經典台(HD),千禧經典台-4K,千禧經典台-HD,千禧經典台-高清,千禧經典台HD,"
-    },
-    {
-      "epgid": "半島電視台英語頻道",
-      "name": "半島電視台英語頻道,半島電視台英語頻道 HD,半島電視台英語頻道 超清,半島電視台英語頻道 高清,半島電視台英語頻道(HD),半島電視台英語頻道-4K,半島電視台英語頻道-HD,半島電視台英語頻道-高清,半島電視台英語頻道HD,"
-    },
-    {
-      "epgid": "myTV SUPER直播足球4台",
-      "name": "myTV SUPER直播足球4台,myTV SUPER直播足球4台 HD,myTV SUPER直播足球4台 超清,myTV SUPER直播足球4台 高清,myTV SUPER直播足球4台(HD),myTV SUPER直播足球4台-4K,myTV SUPER直播足球4台-HD,myTV SUPER直播足球4台-高清,myTV SUPER直播足球4台HD,"
-    },
-    {
-      "epgid": "創世電視",
-      "name": "創世電視,創世電視 HD,創世電視 超清,創世電視 高清,創世電視(HD),創世電視-4K,創世電視-HD,創世電視-高清,創世電視HD,"
-    },
-    {
-      "epgid": "中國電影頻道",
-      "name": "中國電影頻道,中國電影頻道 HD,中國電影頻道 超清,中國電影頻道 高清,中國電影頻道(HD),中國電影頻道-4K,中國電影頻道-HD,中國電影頻道-高清,中國電影頻道HD,"
-    },
-    {
-      "epgid": "ROCK綜藝娛樂",
-      "name": "ROCK綜藝娛樂,ROCK綜藝娛樂 HD,ROCK綜藝娛樂 超清,ROCK綜藝娛樂 高清,ROCK綜藝娛樂(HD),ROCK綜藝娛樂-4K,ROCK綜藝娛樂-HD,ROCK綜藝娛樂-高清,ROCK綜藝娛樂HD,"
-    },
-    {
-      "epgid": "myTV SUPER 18台",
-      "name": "myTV SUPER 18台,myTV SUPER 18台 HD,myTV SUPER 18台 超清,myTV SUPER 18台 高清,myTV SUPER 18台(HD),myTV SUPER 18台-4K,myTV SUPER 18台-HD,myTV SUPER 18台-高清,myTV SUPER 18台HD,"
-    },
-    {
-      "epgid": "亞洲劇台",
-      "name": "亞洲劇台,亞洲劇台 HD,亞洲劇台 超清,亞洲劇台 高清,亞洲劇台(HD),亞洲劇台-4K,亞洲劇台-HD,亞洲劇台-高清,亞洲劇台HD,"
-    },
-    {
-      "epgid": "Nickelodeon",
-      "name": "Nickelodeon,Nickelodeon HD,Nickelodeon 超清,Nickelodeon 高清,Nickelodeon(HD),Nickelodeon-4K,Nickelodeon-HD,Nickelodeon-高清,NickelodeonHD,"
-    },
-    {
-      "epgid": "NHK World-Japan",
-      "name": "NHK World-Japan,NHK World-Japan HD,NHK World-Japan 超清,NHK World-Japan 高清,NHK World-Japan(HD),NHK World-Japan-4K,NHK World-Japan-HD,NHK World-Japan-高清,NHK World-JapanHD,"
-    },
-    {
-      "epgid": "Thrill",
-      "name": "Thrill,Thrill HD,Thrill 超清,Thrill 高清,Thrill(HD),Thrill-4K,Thrill-HD,Thrill-高清,ThrillHD,"
-    },
-    {
-      "epgid": "東方衛視國際頻道",
-      "name": "東方衛視國際頻道,東方衛視國際頻道 HD,東方衛視國際頻道 超清,東方衛視國際頻道 高清,東方衛視國際頻道(HD),東方衛視國際頻道-4K,東方衛視國際頻道-HD,東方衛視國際頻道-高清,東方衛視國際頻道HD,"
-    },
-    {
-      "epgid": "France 24",
-      "name": "France 24,France 24 HD,France 24 超清,France 24 高清,France 24(HD),France 24-4K,France 24-HD,France 24-高清,France 24HD,"
-    },
-    {
-      "epgid": "華語劇台",
-      "name": "華語劇台,華語劇台 HD,華語劇台 超清,華語劇台 高清,華語劇台(HD),華語劇台-4K,華語劇台-HD,華語劇台-高清,華語劇台HD,"
-    },
-    {
-      "epgid": "myTV SUPER直播足球3台",
-      "name": "myTV SUPER直播足球3台,myTV SUPER直播足球3台 HD,myTV SUPER直播足球3台 超清,myTV SUPER直播足球3台 高清,myTV SUPER直播足球3台(HD),myTV SUPER直播足球3台-4K,myTV SUPER直播足球3台-HD,myTV SUPER直播足球3台-高清,myTV SUPER直播足球3台HD,"
-    },
-    {
-      "epgid": "CGTN (中國環球電視網)英語頻道",
-      "name": "CGTN (中國環球電視網)英語頻道,CGTN (中國環球電視網)英語頻道 HD,CGTN (中國環球電視網)英語頻道 超清,CGTN (中國環球電視網)英語頻道 高清,CGTN (中國環球電視網)英語頻道(HD),CGTN (中國環球電視網)英語頻道-4K,CGTN (中國環球電視網)英語頻道-HD,CGTN (中國環球電視網)英語頻道-高清,CGTN (中國環球電視網)英語頻道HD,"
-    },
-    {
-      "epgid": "CGTN (中國環球電視網)記錄頻道",
-      "name": "CGTN (中國環球電視網)記錄頻道,CGTN (中國環球電視網)記錄頻道 HD,CGTN (中國環球電視網)記錄頻道 超清,CGTN (中國環球電視網)記錄頻道 高清,CGTN (中國環球電視網)記錄頻道(HD),CGTN (中國環球電視網)記錄頻道-4K,CGTN (中國環球電視網)記錄頻道-HD,CGTN (中國環球電視網)記錄頻道-高清,CGTN (中國環球電視網)記錄頻道HD,"
-    },
-    {
-      "epgid": "美亞電影台",
-      "name": "美亞電影台,美亞電影台 HD,美亞電影台 超清,美亞電影台 高清,美亞電影台(HD),美亞電影台-4K,美亞電影台-HD,美亞電影台-高清,美亞電影台HD,"
-    },
-    {
-      "epgid": "KIX",
-      "name": "KIX,KIX HD,KIX 超清,KIX 高清,KIX(HD),KIX-4K,KIX-HD,KIX-高清,KIXHD,"
-    },
-    {
-      "epgid": "黃金華劇台",
-      "name": "黃金華劇台,黃金華劇台 HD,黃金華劇台 超清,黃金華劇台 高清,黃金華劇台(HD),黃金華劇台-4K,黃金華劇台-HD,黃金華劇台-高清,黃金華劇台HD,"
-    },
-    {
-      "epgid": "戲曲台",
-      "name": "戲曲台,戲曲台 HD,戲曲台 超清,戲曲台 高清,戲曲台(HD),戲曲台-4K,戲曲台-HD,戲曲台-高清,戲曲台HD,"
-    },
-    {
-      "epgid": "Love Nature HD",
-      "name": "Love Nature HD,Love Nature HD HD,Love Nature HD 超清,Love Nature HD 高清,Love Nature HD(HD),Love Nature HD-4K,Love Nature HD-HD,Love Nature HD-高清,Love Nature HDHD,"
-    },
-    {
-      "epgid": "無線衛星亞洲台",
-      "name": "無線衛星亞洲台,無線衛星亞洲台 HD,無線衛星亞洲台 超清,無線衛星亞洲台 高清,無線衛星亞洲台(HD),無線衛星亞洲台-4K,無線衛星亞洲台-HD,無線衛星亞洲台-高清,無線衛星亞洲台HD,"
-    },
-    {
-      "epgid": "黃金翡翠台",
-      "name": "黃金翡翠台,黃金翡翠台 HD,黃金翡翠台 超清,黃金翡翠台 高清,黃金翡翠台(HD),黃金翡翠台-4K,黃金翡翠台-HD,黃金翡翠台-高清,黃金翡翠台HD,"
-    },
-    {
-      "epgid": "無綫新聞台",
-      "name": "無綫新聞台,無綫新聞台 HD,無綫新聞台 超清,無綫新聞台 高清,無綫新聞台(HD),無綫新聞台-4K,無綫新聞台-HD,無綫新聞台-高清,無綫新聞台HD,"
-    },
-    {
-      "epgid": "TVB Plus",
-      "name": "TVB Plus,TVB Plus HD,TVB Plus 超清,TVB Plus 高清,TVB Plus(HD),TVB Plus-4K,TVB Plus-HD,TVB Plus-高清,TVB PlusHD,"
-    },
-    {
-      "epgid": "無線衛星新聞台",
-      "name": "無線衛星新聞台,無線衛星新聞台 HD,無線衛星新聞台 超清,無線衛星新聞台 高清,無線衛星新聞台(HD),無線衛星新聞台-4K,無線衛星新聞台-HD,無線衛星新聞台-高清,無線衛星新聞台HD,"
-    },
-    {
-      "epgid": "Love Nature 4K",
-      "name": "Love Nature 4K,Love Nature 4K HD,Love Nature 4K 超清,Love Nature 4K 高清,Love Nature 4K(HD),Love Nature 4K-4K,Love Nature 4K-HD,Love Nature 4K-高清,Love Nature 4KHD,"
-    },
-    {
-      "epgid": "Nick Jr",
-      "name": "Nick Jr,Nick Jr HD,Nick Jr 超清,Nick Jr 高清,Nick Jr(HD),Nick Jr-4K,Nick Jr-HD,Nick Jr-高清,Nick JrHD,"
-    },
-    {
-      "epgid": "ZooMoo",
-      "name": "ZooMoo,ZooMoo HD,ZooMoo 超清,ZooMoo 高清,ZooMoo(HD),ZooMoo-4K,ZooMoo-HD,ZooMoo-高清,ZooMooHD,"
-    },
-    {
-      "epgid": "明珠台",
-      "name": "明珠台,明珠台 HD,明珠台 超清,明珠台 高清,明珠台(HD),明珠台-4K,明珠台-HD,明珠台-高清,明珠台HD,"
-    },
-    {
-      "epgid": "Arirang TV",
-      "name": "Arirang TV,Arirang TV HD,Arirang TV 超清,Arirang TV 高清,Arirang TV(HD),Arirang TV-4K,Arirang TV-HD,Arirang TV-高清,Arirang TVHD,"
-    },
-    {
-      "epgid": "天映經典頻道",
-      "name": "天映經典頻道,天映經典頻道 HD,天映經典頻道 超清,天映經典頻道 高清,天映經典頻道(HD),天映經典頻道-4K,天映經典頻道-HD,天映經典頻道-高清,天映經典頻道HD,"
-    },
-    {
-      "epgid": "DW",
-      "name": "DW,DW HD,DW 超清,DW 高清,DW(HD),DW-4K,DW-HD,DW-高清,DWHD,"
-    },
-    {
-      "epgid": "FashionBox",
-      "name": "FashionBox,FashionBox HD,FashionBox 超清,FashionBox 高清,FashionBox(HD),FashionBox-4K,FashionBox-HD,FashionBox-高清,FashionBoxHD,"
-    },
-    {
-      "epgid": "中央電視台綜合頻道 (港澳版)",
-      "name": "中央電視台綜合頻道 (港澳版),中央電視台綜合頻道 (港澳版) HD,中央電視台綜合頻道 (港澳版) 超清,中央電視台綜合頻道 (港澳版) 高清,中央電視台綜合頻道 (港澳版)(HD),中央電視台綜合頻道 (港澳版)-4K,中央電視台綜合頻道 (港澳版)-HD,中央電視台綜合頻道 (港澳版)-高清,中央電視台綜合頻道 (港澳版)HD,"
-    },
-    {
-      "epgid": "SUPER FREE",
-      "name": "SUPER FREE,SUPER FREE HD,SUPER FREE 超清,SUPER FREE 高清,SUPER FREE(HD),SUPER FREE-4K,SUPER FREE-HD,SUPER FREE-高清,SUPER FREEHD,"
-    },
-    {
-      "epgid": "亞洲新聞台",
-      "name": "亞洲新聞台,亞洲新聞台 HD,亞洲新聞台 超清,亞洲新聞台 高清,亞洲新聞台(HD),亞洲新聞台-4K,亞洲新聞台-HD,亞洲新聞台-高清,亞洲新聞台HD,"
-    },
-    {
-      "epgid": "測試頻道",
-      "name": "測試頻道,測試頻道 HD,測試頻道 超清,測試頻道 高清,測試頻道(HD),測試頻道-4K,測試頻道-HD,測試頻道-高清,測試頻道HD,"
-    },
-    {
-      "epgid": "myTV SUPER直播足球5台",
-      "name": "myTV SUPER直播足球5台,myTV SUPER直播足球5台 HD,myTV SUPER直播足球5台 超清,myTV SUPER直播足球5台 高清,myTV SUPER直播足球5台(HD),myTV SUPER直播足球5台-4K,myTV SUPER直播足球5台-HD,myTV SUPER直播足球5台-高清,myTV SUPER直播足球5台HD,"
-    },
-    {
-      "epgid": "SUPER Kids Channel",
-      "name": "SUPER Kids Channel,SUPER Kids Channel HD,SUPER Kids Channel 超清,SUPER Kids Channel 高清,SUPER Kids Channel(HD),SUPER Kids Channel-4K,SUPER Kids Channel-HD,SUPER Kids Channel-高清,SUPER Kids ChannelHD,"
-    },
-    {
-      "epgid": "粵語片台",
-      "name": "粵語片台,粵語片台 HD,粵語片台 超清,粵語片台 高清,粵語片台(HD),粵語片台-4K,粵語片台-HD,粵語片台-高清,粵語片台HD,"
     },
     {
       "epgid": "港台电视31",
@@ -4495,14 +3923,6 @@
     {
       "epgid": "港台电视35",
       "name": "港台电视35,港台电视35 HD,港台电视35 超清,港台电视35 高清,港台电视35(HD),港台电视35-4K,港台电视35-HD,港台电视35-高清,港台电视35HD,"
-    },
-    {
-      "epgid": "myTV SUPER直播足球2台",
-      "name": "myTV SUPER直播足球2台,myTV SUPER直播足球2台 HD,myTV SUPER直播足球2台 超清,myTV SUPER直播足球2台 高清,myTV SUPER直播足球2台(HD),myTV SUPER直播足球2台-4K,myTV SUPER直播足球2台-HD,myTV SUPER直播足球2台-高清,myTV SUPER直播足球2台HD,"
-    },
-    {
-      "epgid": "myTV SUPER直播足球6台",
-      "name": "myTV SUPER直播足球6台,myTV SUPER直播足球6台 HD,myTV SUPER直播足球6台 超清,myTV SUPER直播足球6台 高清,myTV SUPER直播足球6台(HD),myTV SUPER直播足球6台-4K,myTV SUPER直播足球6台-HD,myTV SUPER直播足球6台-高清,myTV SUPER直播足球6台HD,"
     },
     {
       "epgid": "Viu 頻道",
@@ -4557,6 +3977,10 @@
       "name": "Discovery 科學頻道,Discovery 科學頻道 HD,Discovery 科學頻道 超清,Discovery 科學頻道 高清,Discovery 科學頻道(HD),Discovery 科學頻道-4K,Discovery 科學頻道-HD,Discovery 科學頻道-高清,Discovery 科學頻道HD,"
     },
     {
+      "epgid": "Love Nature 4K",
+      "name": "Love Nature 4K,Love Nature 4K HD,Love Nature 4K 超清,Love Nature 4K 高清,Love Nature 4K(HD),Love Nature 4K-4K,Love Nature 4K-HD,Love Nature 4K-高清,Love Nature 4KHD,"
+    },
+    {
       "epgid": "戶外頻道",
       "name": "戶外頻道,戶外頻道 HD,戶外頻道 超清,戶外頻道 高清,戶外頻道(HD),戶外頻道-4K,戶外頻道-HD,戶外頻道-高清,戶外頻道HD,"
     },
@@ -4581,6 +4005,10 @@
       "name": "Bloomberg Television,Bloomberg Television HD,Bloomberg Television 超清,Bloomberg Television 高清,Bloomberg Television(HD),Bloomberg Television-4K,Bloomberg Television-HD,Bloomberg Television-高清,Bloomberg TelevisionHD,"
     },
     {
+      "epgid": "亞洲新聞台",
+      "name": "亞洲新聞台,亞洲新聞台 HD,亞洲新聞台 超清,亞洲新聞台 高清,亞洲新聞台(HD),亞洲新聞台-4K,亞洲新聞台-HD,亞洲新聞台-高清,亞洲新聞台HD,"
+    },
+    {
       "epgid": "Sky News",
       "name": "Sky News,Sky News HD,Sky News 超清,Sky News 高清,Sky News(HD),Sky News-4K,Sky News-HD,Sky News-高清,Sky NewsHD,"
     },
@@ -4589,12 +4017,32 @@
       "name": "DW (English),DW (English) HD,DW (English) 超清,DW (English) 高清,DW (English)(HD),DW (English)-4K,DW (English)-HD,DW (English)-高清,DW (English)HD,"
     },
     {
+      "epgid": "半島電視台英語頻道",
+      "name": "半島電視台英語頻道,半島電視台英語頻道 HD,半島電視台英語頻道 超清,半島電視台英語頻道 高清,半島電視台英語頻道(HD),半島電視台英語頻道-4K,半島電視台英語頻道-HD,半島電視台英語頻道-高清,半島電視台英語頻道HD,"
+    },
+    {
+      "epgid": "France 24",
+      "name": "France 24,France 24 HD,France 24 超清,France 24 高清,France 24(HD),France 24-4K,France 24-HD,France 24-高清,France 24HD,"
+    },
+    {
       "epgid": "RT",
       "name": "RT,RT HD,RT 超清,RT 高清,RT(HD),RT-4K,RT-HD,RT-高清,RTHD,"
     },
     {
       "epgid": "中國環球電視網",
       "name": "中國環球電視網,中國環球電視網 HD,中國環球電視網 超清,中國環球電視網 高清,中國環球電視網(HD),中國環球電視網-4K,中國環球電視網-HD,中國環球電視網-高清,中國環球電視網HD,"
+    },
+    {
+      "epgid": "Now直播台",
+      "name": "Now直播台,Now直播台 HD,Now直播台 超清,Now直播台 高清,Now直播台(HD),Now直播台-4K,Now直播台-HD,Now直播台-高清,Now直播台HD,"
+    },
+    {
+      "epgid": "Now新聞台",
+      "name": "Now新聞台,Now新聞台 HD,Now新聞台 超清,Now新聞台 高清,Now新聞台(HD),Now新聞台-4K,Now新聞台-HD,Now新聞台-高清,Now新聞台HD,"
+    },
+    {
+      "epgid": "Now財經台",
+      "name": "Now財經台,Now財經台 HD,Now財經台 超清,Now財經台 高清,Now財經台(HD),Now財經台-4K,Now財經台-HD,Now財經台-高清,Now財經台HD,"
     },
     {
       "epgid": "Now報價台",
@@ -4607,6 +4055,10 @@
     {
       "epgid": "Cartoon Network",
       "name": "Cartoon Network,Cartoon Network HD,Cartoon Network 超清,Cartoon Network 高清,Cartoon Network(HD),Cartoon Network-4K,Cartoon Network-HD,Cartoon Network-高清,Cartoon NetworkHD,"
+    },
+    {
+      "epgid": "Nickelodeon",
+      "name": "Nickelodeon,Nickelodeon HD,Nickelodeon 超清,Nickelodeon 高清,Nickelodeon(HD),Nickelodeon-4K,Nickelodeon-HD,Nickelodeon-高清,NickelodeonHD,"
     },
     {
       "epgid": "Moonbug",
@@ -4643,6 +4095,10 @@
     {
       "epgid": "鳳凰衛視中文台",
       "name": "鳳凰衛視中文台,鳳凰衛視中文台 HD,鳳凰衛視中文台 超清,鳳凰衛視中文台 高清,鳳凰衛視中文台(HD),鳳凰衛視中文台-4K,鳳凰衛視中文台-HD,鳳凰衛視中文台-高清,鳳凰衛視中文台HD,"
+    },
+    {
+      "epgid": "東方衛視國際頻道",
+      "name": "東方衛視國際頻道,東方衛視國際頻道 HD,東方衛視國際頻道 超清,東方衛視國際頻道 高清,東方衛視國際頻道(HD),東方衛視國際頻道-4K,東方衛視國際頻道-HD,東方衛視國際頻道-高清,東方衛視國際頻道HD,"
     },
     {
       "epgid": "三沙衛視",
@@ -4695,10 +4151,6 @@
     {
       "epgid": "Now Sports 1",
       "name": "Now Sports 1,Now Sports 1 HD,Now Sports 1 超清,Now Sports 1 高清,Now Sports 1(HD),Now Sports 1-4K,Now Sports 1-HD,Now Sports 1-高清,Now Sports 1HD,"
-    },
-    {
-      "epgid": "Now Sports 2",
-      "name": "Now Sports 2,Now Sports 2 HD,Now Sports 2 超清,Now Sports 2 高清,Now Sports 2(HD),Now Sports 2-4K,Now Sports 2-HD,Now Sports 2-高清,Now Sports 2HD,"
     },
     {
       "epgid": "Now Sports 3",
@@ -4801,6 +4253,218 @@
       "name": "France 24 (French),France 24 (French) HD,France 24 (French) 超清,France 24 (French) 高清,France 24 (French)(HD),France 24 (French)-4K,France 24 (French)-HD,France 24 (French)-高清,France 24 (French)HD,"
     },
     {
+      "epgid": "HITS MOVIES",
+      "name": "HITS MOVIES,HITS MOVIES HD,HITS MOVIES 超清,HITS MOVIES 高清,HITS MOVIES(HD),HITS MOVIES-4K,HITS MOVIES-HD,HITS MOVIES-高清,HITS MOVIESHD,"
+    },
+    {
+      "epgid": "Now Sports 英超6台",
+      "name": "Now Sports 英超6台,Now Sports 英超6台 HD,Now Sports 英超6台 超清,Now Sports 英超6台 高清,Now Sports 英超6台(HD),Now Sports 英超6台-4K,Now Sports 英超6台-HD,Now Sports 英超6台-高清,Now Sports 英超6台HD,"
+    },
+    {
+      "epgid": "Now Sports 英超7台",
+      "name": "Now Sports 英超7台,Now Sports 英超7台 HD,Now Sports 英超7台 超清,Now Sports 英超7台 高清,Now Sports 英超7台(HD),Now Sports 英超7台-4K,Now Sports 英超7台-HD,Now Sports 英超7台-高清,Now Sports 英超7台HD,"
+    },
+    {
+      "epgid": "TV5MONDE Style",
+      "name": "TV5MONDE Style,TV5MONDE Style HD,TV5MONDE Style 超清,TV5MONDE Style 高清,TV5MONDE Style(HD),TV5MONDE Style-4K,TV5MONDE Style-HD,TV5MONDE Style-高清,TV5MONDE StyleHD,"
+    },
+    {
+      "epgid": "Now Sports 647",
+      "name": "Now Sports 647,Now Sports 647 HD,Now Sports 647 超清,Now Sports 647 高清,Now Sports 647(HD),Now Sports 647-4K,Now Sports 647-HD,Now Sports 647-高清,Now Sports 647HD,"
+    },
+    {
+      "epgid": "euronews",
+      "name": "euronews,euronews HD,euronews 超清,euronews 高清,euronews(HD),euronews-4K,euronews-HD,euronews-高清,euronewsHD,"
+    },
+    {
+      "epgid": "Now Sports 618",
+      "name": "Now Sports 618,Now Sports 618 HD,Now Sports 618 超清,Now Sports 618 高清,Now Sports 618(HD),Now Sports 618-4K,Now Sports 618-HD,Now Sports 618-高清,Now Sports 618HD,"
+    },
+    {
+      "epgid": "深圳衛視",
+      "name": "深圳衛視,深圳衛視 HD,深圳衛視 超清,深圳衛視 高清,深圳衛視(HD),深圳衛視-4K,深圳衛視-HD,深圳衛視-高清,深圳衛視HD,"
+    },
+    {
+      "epgid": "Now Sports 4K 616",
+      "name": "Now Sports 4K 616,Now Sports 4K 616 HD,Now Sports 4K 616 超清,Now Sports 4K 616 高清,Now Sports 4K 616(HD),Now Sports 4K 616-4K,Now Sports 4K 616-HD,Now Sports 4K 616-高清,Now Sports 4K 616HD,"
+    },
+    {
+      "epgid": "Now Sports 4K 617",
+      "name": "Now Sports 4K 617,Now Sports 4K 617 HD,Now Sports 4K 617 超清,Now Sports 4K 617 高清,Now Sports 4K 617(HD),Now Sports 4K 617-4K,Now Sports 4K 617-HD,Now Sports 4K 617-高清,Now Sports 4K 617HD,"
+    },
+    {
+      "epgid": "Now Sports 619",
+      "name": "Now Sports 619,Now Sports 619 HD,Now Sports 619 超清,Now Sports 619 高清,Now Sports 619(HD),Now Sports 619-4K,Now Sports 619-HD,Now Sports 619-高清,Now Sports 619HD,"
+    },
+    {
+      "epgid": "Lucky 688",
+      "name": "Lucky 688,Lucky 688 HD,Lucky 688 超清,Lucky 688 高清,Lucky 688(HD),Lucky 688-4K,Lucky 688-HD,Lucky 688-高清,Lucky 688HD,"
+    },
+    {
+      "epgid": "PopC",
+      "name": "PopC,PopC HD,PopC 超清,PopC 高清,PopC(HD),PopC-4K,PopC-HD,PopC-高清,PopCHD,"
+    },
+    {
+      "epgid": "娛樂新聞台",
+      "name": "娛樂新聞台,娛樂新聞台 HD,娛樂新聞台 超清,娛樂新聞台 高清,娛樂新聞台(HD),娛樂新聞台-4K,娛樂新聞台-HD,娛樂新聞台-高清,娛樂新聞台HD,"
+    },
+    {
+      "epgid": "千禧經典台",
+      "name": "千禧經典台,千禧經典台 HD,千禧經典台 超清,千禧經典台 高清,千禧經典台(HD),千禧經典台-4K,千禧經典台-HD,千禧經典台-高清,千禧經典台HD,"
+    },
+    {
+      "epgid": "myTV SUPER直播足球4台",
+      "name": "myTV SUPER直播足球4台,myTV SUPER直播足球4台 HD,myTV SUPER直播足球4台 超清,myTV SUPER直播足球4台 高清,myTV SUPER直播足球4台(HD),myTV SUPER直播足球4台-4K,myTV SUPER直播足球4台-HD,myTV SUPER直播足球4台-高清,myTV SUPER直播足球4台HD,"
+    },
+    {
+      "epgid": "創世電視",
+      "name": "創世電視,創世電視 HD,創世電視 超清,創世電視 高清,創世電視(HD),創世電視-4K,創世電視-HD,創世電視-高清,創世電視HD,"
+    },
+    {
+      "epgid": "中國電影頻道",
+      "name": "中國電影頻道,中國電影頻道 HD,中國電影頻道 超清,中國電影頻道 高清,中國電影頻道(HD),中國電影頻道-4K,中國電影頻道-HD,中國電影頻道-高清,中國電影頻道HD,"
+    },
+    {
+      "epgid": "ROCK綜藝娛樂",
+      "name": "ROCK綜藝娛樂,ROCK綜藝娛樂 HD,ROCK綜藝娛樂 超清,ROCK綜藝娛樂 高清,ROCK綜藝娛樂(HD),ROCK綜藝娛樂-4K,ROCK綜藝娛樂-HD,ROCK綜藝娛樂-高清,ROCK綜藝娛樂HD,"
+    },
+    {
+      "epgid": "myTV SUPER 18台",
+      "name": "myTV SUPER 18台,myTV SUPER 18台 HD,myTV SUPER 18台 超清,myTV SUPER 18台 高清,myTV SUPER 18台(HD),myTV SUPER 18台-4K,myTV SUPER 18台-HD,myTV SUPER 18台-高清,myTV SUPER 18台HD,"
+    },
+    {
+      "epgid": "亞洲劇台",
+      "name": "亞洲劇台,亞洲劇台 HD,亞洲劇台 超清,亞洲劇台 高清,亞洲劇台(HD),亞洲劇台-4K,亞洲劇台-HD,亞洲劇台-高清,亞洲劇台HD,"
+    },
+    {
+      "epgid": "NHK World-Japan",
+      "name": "NHK World-Japan,NHK World-Japan HD,NHK World-Japan 超清,NHK World-Japan 高清,NHK World-Japan(HD),NHK World-Japan-4K,NHK World-Japan-HD,NHK World-Japan-高清,NHK World-JapanHD,"
+    },
+    {
+      "epgid": "Thrill",
+      "name": "Thrill,Thrill HD,Thrill 超清,Thrill 高清,Thrill(HD),Thrill-4K,Thrill-HD,Thrill-高清,ThrillHD,"
+    },
+    {
+      "epgid": "華語劇台",
+      "name": "華語劇台,華語劇台 HD,華語劇台 超清,華語劇台 高清,華語劇台(HD),華語劇台-4K,華語劇台-HD,華語劇台-高清,華語劇台HD,"
+    },
+    {
+      "epgid": "myTV SUPER直播足球3台",
+      "name": "myTV SUPER直播足球3台,myTV SUPER直播足球3台 HD,myTV SUPER直播足球3台 超清,myTV SUPER直播足球3台 高清,myTV SUPER直播足球3台(HD),myTV SUPER直播足球3台-4K,myTV SUPER直播足球3台-HD,myTV SUPER直播足球3台-高清,myTV SUPER直播足球3台HD,"
+    },
+    {
+      "epgid": "CGTN (中國環球電視網)英語頻道",
+      "name": "CGTN (中國環球電視網)英語頻道,CGTN (中國環球電視網)英語頻道 HD,CGTN (中國環球電視網)英語頻道 超清,CGTN (中國環球電視網)英語頻道 高清,CGTN (中國環球電視網)英語頻道(HD),CGTN (中國環球電視網)英語頻道-4K,CGTN (中國環球電視網)英語頻道-HD,CGTN (中國環球電視網)英語頻道-高清,CGTN (中國環球電視網)英語頻道HD,"
+    },
+    {
+      "epgid": "CGTN (中國環球電視網)記錄頻道",
+      "name": "CGTN (中國環球電視網)記錄頻道,CGTN (中國環球電視網)記錄頻道 HD,CGTN (中國環球電視網)記錄頻道 超清,CGTN (中國環球電視網)記錄頻道 高清,CGTN (中國環球電視網)記錄頻道(HD),CGTN (中國環球電視網)記錄頻道-4K,CGTN (中國環球電視網)記錄頻道-HD,CGTN (中國環球電視網)記錄頻道-高清,CGTN (中國環球電視網)記錄頻道HD,"
+    },
+    {
+      "epgid": "美亞電影台",
+      "name": "美亞電影台,美亞電影台 HD,美亞電影台 超清,美亞電影台 高清,美亞電影台(HD),美亞電影台-4K,美亞電影台-HD,美亞電影台-高清,美亞電影台HD,"
+    },
+    {
+      "epgid": "KIX",
+      "name": "KIX,KIX HD,KIX 超清,KIX 高清,KIX(HD),KIX-4K,KIX-HD,KIX-高清,KIXHD,"
+    },
+    {
+      "epgid": "黃金華劇台",
+      "name": "黃金華劇台,黃金華劇台 HD,黃金華劇台 超清,黃金華劇台 高清,黃金華劇台(HD),黃金華劇台-4K,黃金華劇台-HD,黃金華劇台-高清,黃金華劇台HD,"
+    },
+    {
+      "epgid": "戲曲台",
+      "name": "戲曲台,戲曲台 HD,戲曲台 超清,戲曲台 高清,戲曲台(HD),戲曲台-4K,戲曲台-HD,戲曲台-高清,戲曲台HD,"
+    },
+    {
+      "epgid": "Love Nature HD",
+      "name": "Love Nature HD,Love Nature HD HD,Love Nature HD 超清,Love Nature HD 高清,Love Nature HD(HD),Love Nature HD-4K,Love Nature HD-HD,Love Nature HD-高清,Love Nature HDHD,"
+    },
+    {
+      "epgid": "無線衛星亞洲台",
+      "name": "無線衛星亞洲台,無線衛星亞洲台 HD,無線衛星亞洲台 超清,無線衛星亞洲台 高清,無線衛星亞洲台(HD),無線衛星亞洲台-4K,無線衛星亞洲台-HD,無線衛星亞洲台-高清,無線衛星亞洲台HD,"
+    },
+    {
+      "epgid": "黃金翡翠台",
+      "name": "黃金翡翠台,黃金翡翠台 HD,黃金翡翠台 超清,黃金翡翠台 高清,黃金翡翠台(HD),黃金翡翠台-4K,黃金翡翠台-HD,黃金翡翠台-高清,黃金翡翠台HD,"
+    },
+    {
+      "epgid": "無綫新聞台",
+      "name": "無綫新聞台,無綫新聞台 HD,無綫新聞台 超清,無綫新聞台 高清,無綫新聞台(HD),無綫新聞台-4K,無綫新聞台-HD,無綫新聞台-高清,無綫新聞台HD,"
+    },
+    {
+      "epgid": "TVB Plus",
+      "name": "TVB Plus,TVB Plus HD,TVB Plus 超清,TVB Plus 高清,TVB Plus(HD),TVB Plus-4K,TVB Plus-HD,TVB Plus-高清,TVB PlusHD,"
+    },
+    {
+      "epgid": "無線衛星新聞台",
+      "name": "無線衛星新聞台,無線衛星新聞台 HD,無線衛星新聞台 超清,無線衛星新聞台 高清,無線衛星新聞台(HD),無線衛星新聞台-4K,無線衛星新聞台-HD,無線衛星新聞台-高清,無線衛星新聞台HD,"
+    },
+    {
+      "epgid": "Nick Jr",
+      "name": "Nick Jr,Nick Jr HD,Nick Jr 超清,Nick Jr 高清,Nick Jr(HD),Nick Jr-4K,Nick Jr-HD,Nick Jr-高清,Nick JrHD,"
+    },
+    {
+      "epgid": "ZooMoo",
+      "name": "ZooMoo,ZooMoo HD,ZooMoo 超清,ZooMoo 高清,ZooMoo(HD),ZooMoo-4K,ZooMoo-HD,ZooMoo-高清,ZooMooHD,"
+    },
+    {
+      "epgid": "明珠台",
+      "name": "明珠台,明珠台 HD,明珠台 超清,明珠台 高清,明珠台(HD),明珠台-4K,明珠台-HD,明珠台-高清,明珠台HD,"
+    },
+    {
+      "epgid": "Arirang TV",
+      "name": "Arirang TV,Arirang TV HD,Arirang TV 超清,Arirang TV 高清,Arirang TV(HD),Arirang TV-4K,Arirang TV-HD,Arirang TV-高清,Arirang TVHD,"
+    },
+    {
+      "epgid": "天映經典頻道",
+      "name": "天映經典頻道,天映經典頻道 HD,天映經典頻道 超清,天映經典頻道 高清,天映經典頻道(HD),天映經典頻道-4K,天映經典頻道-HD,天映經典頻道-高清,天映經典頻道HD,"
+    },
+    {
+      "epgid": "DW",
+      "name": "DW,DW HD,DW 超清,DW 高清,DW(HD),DW-4K,DW-HD,DW-高清,DWHD,"
+    },
+    {
+      "epgid": "FashionBox",
+      "name": "FashionBox,FashionBox HD,FashionBox 超清,FashionBox 高清,FashionBox(HD),FashionBox-4K,FashionBox-HD,FashionBox-高清,FashionBoxHD,"
+    },
+    {
+      "epgid": "中央電視台綜合頻道 (港澳版)",
+      "name": "中央電視台綜合頻道 (港澳版),中央電視台綜合頻道 (港澳版) HD,中央電視台綜合頻道 (港澳版) 超清,中央電視台綜合頻道 (港澳版) 高清,中央電視台綜合頻道 (港澳版)(HD),中央電視台綜合頻道 (港澳版)-4K,中央電視台綜合頻道 (港澳版)-HD,中央電視台綜合頻道 (港澳版)-高清,中央電視台綜合頻道 (港澳版)HD,"
+    },
+    {
+      "epgid": "SUPER FREE",
+      "name": "SUPER FREE,SUPER FREE HD,SUPER FREE 超清,SUPER FREE 高清,SUPER FREE(HD),SUPER FREE-4K,SUPER FREE-HD,SUPER FREE-高清,SUPER FREEHD,"
+    },
+    {
+      "epgid": "測試頻道",
+      "name": "測試頻道,測試頻道 HD,測試頻道 超清,測試頻道 高清,測試頻道(HD),測試頻道-4K,測試頻道-HD,測試頻道-高清,測試頻道HD,"
+    },
+    {
+      "epgid": "myTV SUPER直播足球5台",
+      "name": "myTV SUPER直播足球5台,myTV SUPER直播足球5台 HD,myTV SUPER直播足球5台 超清,myTV SUPER直播足球5台 高清,myTV SUPER直播足球5台(HD),myTV SUPER直播足球5台-4K,myTV SUPER直播足球5台-HD,myTV SUPER直播足球5台-高清,myTV SUPER直播足球5台HD,"
+    },
+    {
+      "epgid": "SUPER Kids Channel",
+      "name": "SUPER Kids Channel,SUPER Kids Channel HD,SUPER Kids Channel 超清,SUPER Kids Channel 高清,SUPER Kids Channel(HD),SUPER Kids Channel-4K,SUPER Kids Channel-HD,SUPER Kids Channel-高清,SUPER Kids ChannelHD,"
+    },
+    {
+      "epgid": "粵語片台",
+      "name": "粵語片台,粵語片台 HD,粵語片台 超清,粵語片台 高清,粵語片台(HD),粵語片台-4K,粵語片台-HD,粵語片台-高清,粵語片台HD,"
+    },
+    {
+      "epgid": "myTV SUPER直播足球2台",
+      "name": "myTV SUPER直播足球2台,myTV SUPER直播足球2台 HD,myTV SUPER直播足球2台 超清,myTV SUPER直播足球2台 高清,myTV SUPER直播足球2台(HD),myTV SUPER直播足球2台-4K,myTV SUPER直播足球2台-HD,myTV SUPER直播足球2台-高清,myTV SUPER直播足球2台HD,"
+    },
+    {
+      "epgid": "myTV SUPER直播足球6台",
+      "name": "myTV SUPER直播足球6台,myTV SUPER直播足球6台 HD,myTV SUPER直播足球6台 超清,myTV SUPER直播足球6台 高清,myTV SUPER直播足球6台(HD),myTV SUPER直播足球6台-4K,myTV SUPER直播足球6台-HD,myTV SUPER直播足球6台-高清,myTV SUPER直播足球6台HD,"
+    },
+    {
+      "epgid": "Now Sports 2",
+      "name": "Now Sports 2,Now Sports 2 HD,Now Sports 2 超清,Now Sports 2 高清,Now Sports 2(HD),Now Sports 2-4K,Now Sports 2-HD,Now Sports 2-高清,Now Sports 2HD,"
+    },
+    {
       "epgid": "GMA Pinoy TV",
       "name": "GMA Pinoy TV,GMA Pinoy TV HD,GMA Pinoy TV 超清,GMA Pinoy TV 高清,GMA Pinoy TV(HD),GMA Pinoy TV-4K,GMA Pinoy TV-HD,GMA Pinoy TV-高清,GMA Pinoy TVHD,"
     },
@@ -4841,32 +4505,28 @@
       "name": "Zee TV,Zee TV HD,Zee TV 超清,Zee TV 高清,Zee TV(HD),Zee TV-4K,Zee TV-HD,Zee TV-高清,Zee TVHD,"
     },
     {
-      "epgid": "HITS MOVIES",
-      "name": "HITS MOVIES,HITS MOVIES HD,HITS MOVIES 超清,HITS MOVIES 高清,HITS MOVIES(HD),HITS MOVIES-4K,HITS MOVIES-HD,HITS MOVIES-高清,HITS MOVIESHD,"
+      "epgid": "Zee News",
+      "name": "Zee News,Zee News HD,Zee News 超清,Zee News 高清,Zee News(HD),Zee News-4K,Zee News-HD,Zee News-高清,Zee NewsHD,"
     },
     {
-      "epgid": "Now Sports 英超6台",
-      "name": "Now Sports 英超6台,Now Sports 英超6台 HD,Now Sports 英超6台 超清,Now Sports 英超6台 高清,Now Sports 英超6台(HD),Now Sports 英超6台-4K,Now Sports 英超6台-HD,Now Sports 英超6台-高清,Now Sports 英超6台HD,"
+      "epgid": "Star Gold",
+      "name": "Star Gold,Star Gold HD,Star Gold 超清,Star Gold 高清,Star Gold(HD),Star Gold-4K,Star Gold-HD,Star Gold-高清,Star GoldHD,"
     },
     {
-      "epgid": "Now Sports 英超7台",
-      "name": "Now Sports 英超7台,Now Sports 英超7台 HD,Now Sports 英超7台 超清,Now Sports 英超7台 高清,Now Sports 英超7台(HD),Now Sports 英超7台-4K,Now Sports 英超7台-HD,Now Sports 英超7台-高清,Now Sports 英超7台HD,"
+      "epgid": "STAR PLUS",
+      "name": "STAR PLUS,STAR PLUS HD,STAR PLUS 超清,STAR PLUS 高清,STAR PLUS(HD),STAR PLUS-4K,STAR PLUS-HD,STAR PLUS-高清,STAR PLUSHD,"
+    },
+    {
+      "epgid": "Star Bharat",
+      "name": "Star Bharat,Star Bharat HD,Star Bharat 超清,Star Bharat 高清,Star Bharat(HD),Star Bharat-4K,Star Bharat-HD,Star Bharat-高清,Star BharatHD,"
     },
     {
       "epgid": "myTV SUPER直播足球7台",
       "name": "myTV SUPER直播足球7台,myTV SUPER直播足球7台 HD,myTV SUPER直播足球7台 超清,myTV SUPER直播足球7台 高清,myTV SUPER直播足球7台(HD),myTV SUPER直播足球7台-4K,myTV SUPER直播足球7台-HD,myTV SUPER直播足球7台-高清,myTV SUPER直播足球7台HD,"
     },
     {
-      "epgid": "TV5MONDE Style",
-      "name": "TV5MONDE Style,TV5MONDE Style HD,TV5MONDE Style 超清,TV5MONDE Style 高清,TV5MONDE Style(HD),TV5MONDE Style-4K,TV5MONDE Style-HD,TV5MONDE Style-高清,TV5MONDE StyleHD,"
-    },
-    {
       "epgid": "COLORS",
       "name": "COLORS,COLORS HD,COLORS 超清,COLORS 高清,COLORS(HD),COLORS-4K,COLORS-HD,COLORS-高清,COLORSHD,"
-    },
-    {
-      "epgid": "Now Sports 647",
-      "name": "Now Sports 647,Now Sports 647 HD,Now Sports 647 超清,Now Sports 647 高清,Now Sports 647(HD),Now Sports 647-4K,Now Sports 647-HD,Now Sports 647-高清,Now Sports 647HD,"
     },
     {
       "epgid": "福建海峽衛視國際頻道",
@@ -5001,30 +4661,6 @@
       "name": "SUPER話當年 (免費),SUPER話當年 (免費) HD,SUPER話當年 (免費) 超清,SUPER話當年 (免費) 高清,SUPER話當年 (免費)(HD),SUPER話當年 (免費)-4K,SUPER話當年 (免費)-HD,SUPER話當年 (免費)-高清,SUPER話當年 (免費)HD,"
     },
     {
-      "epgid": "euronews",
-      "name": "euronews,euronews HD,euronews 超清,euronews 高清,euronews(HD),euronews-4K,euronews-HD,euronews-高清,euronewsHD,"
-    },
-    {
-      "epgid": "Now Sports 618",
-      "name": "Now Sports 618,Now Sports 618 HD,Now Sports 618 超清,Now Sports 618 高清,Now Sports 618(HD),Now Sports 618-4K,Now Sports 618-HD,Now Sports 618-高清,Now Sports 618HD,"
-    },
-    {
-      "epgid": "深圳衛視",
-      "name": "深圳衛視,深圳衛視 HD,深圳衛視 超清,深圳衛視 高清,深圳衛視(HD),深圳衛視-4K,深圳衛視-HD,深圳衛視-高清,深圳衛視HD,"
-    },
-    {
-      "epgid": "Now Sports 4K 616",
-      "name": "Now Sports 4K 616,Now Sports 4K 616 HD,Now Sports 4K 616 超清,Now Sports 4K 616 高清,Now Sports 4K 616(HD),Now Sports 4K 616-4K,Now Sports 4K 616-HD,Now Sports 4K 616-高清,Now Sports 4K 616HD,"
-    },
-    {
-      "epgid": "Now Sports 4K 617",
-      "name": "Now Sports 4K 617,Now Sports 4K 617 HD,Now Sports 4K 617 超清,Now Sports 4K 617 高清,Now Sports 4K 617(HD),Now Sports 4K 617-4K,Now Sports 4K 617-HD,Now Sports 4K 617-高清,Now Sports 4K 617HD,"
-    },
-    {
-      "epgid": "Now Sports 619",
-      "name": "Now Sports 619,Now Sports 619 HD,Now Sports 619 超清,Now Sports 619 高清,Now Sports 619(HD),Now Sports 619-4K,Now Sports 619-HD,Now Sports 619-高清,Now Sports 619HD,"
-    },
-    {
       "epgid": "NewTV古裝劇場 (免費)",
       "name": "NewTV古裝劇場 (免費),NewTV古裝劇場 (免費) HD,NewTV古裝劇場 (免費) 超清,NewTV古裝劇場 (免費) 高清,NewTV古裝劇場 (免費)(HD),NewTV古裝劇場 (免費)-4K,NewTV古裝劇場 (免費)-HD,NewTV古裝劇場 (免費)-高清,NewTV古裝劇場 (免費)HD,"
     },
@@ -5045,40 +4681,8 @@
       "name": "The Indonesia Channel (免費),The Indonesia Channel (免費) HD,The Indonesia Channel (免費) 超清,The Indonesia Channel (免費) 高清,The Indonesia Channel (免費)(HD),The Indonesia Channel (免費)-4K,The Indonesia Channel (免費)-HD,The Indonesia Channel (免費)-高清,The Indonesia Channel (免費)HD,"
     },
     {
-      "epgid": "Lucky 688",
-      "name": "Lucky 688,Lucky 688 HD,Lucky 688 超清,Lucky 688 高清,Lucky 688(HD),Lucky 688-4K,Lucky 688-HD,Lucky 688-高清,Lucky 688HD,"
-    },
-    {
-      "epgid": "Zee News",
-      "name": "Zee News,Zee News HD,Zee News 超清,Zee News 高清,Zee News(HD),Zee News-4K,Zee News-HD,Zee News-高清,Zee NewsHD,"
-    },
-    {
-      "epgid": "Star Gold",
-      "name": "Star Gold,Star Gold HD,Star Gold 超清,Star Gold 高清,Star Gold(HD),Star Gold-4K,Star Gold-HD,Star Gold-高清,Star GoldHD,"
-    },
-    {
-      "epgid": "STAR PLUS",
-      "name": "STAR PLUS,STAR PLUS HD,STAR PLUS 超清,STAR PLUS 高清,STAR PLUS(HD),STAR PLUS-4K,STAR PLUS-HD,STAR PLUS-高清,STAR PLUSHD,"
-    },
-    {
-      "epgid": "Star Bharat",
-      "name": "Star Bharat,Star Bharat HD,Star Bharat 超清,Star Bharat 高清,Star Bharat(HD),Star Bharat-4K,Star Bharat-HD,Star Bharat-高清,Star BharatHD,"
-    },
-    {
       "epgid": "KBS World",
       "name": "KBS World,KBS World HD,KBS World 超清,KBS World 高清,KBS World(HD),KBS World-4K,KBS World-HD,KBS World-高清,KBS WorldHD,"
-    },
-    {
-      "epgid": "Now直播台",
-      "name": "Now直播台,Now直播台 HD,Now直播台 超清,Now直播台 高清,Now直播台(HD),Now直播台-4K,Now直播台-HD,Now直播台-高清,Now直播台HD,"
-    },
-    {
-      "epgid": "Now新聞台",
-      "name": "Now新聞台,Now新聞台 HD,Now新聞台 超清,Now新聞台 高清,Now新聞台(HD),Now新聞台-4K,Now新聞台-HD,Now新聞台-高清,Now新聞台HD,"
-    },
-    {
-      "epgid": "Now財經台",
-      "name": "Now財經台,Now財經台 HD,Now財經台 超清,Now財經台 高清,Now財經台(HD),Now財經台-4K,Now財經台-HD,Now財經台-高清,Now財經台HD,"
     }
   ]
 }
