@@ -759,6 +759,9 @@ public class FavoriteManager {
     }
 }
 FAVEOF
+
+# ==================== MainActivity.java（修正版：节目单高亮且中下框显示当前节目） ====================
+cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
 import android.app.ProgressDialog;
@@ -1032,7 +1035,7 @@ public class MainActivity extends AppCompatActivity {
                                 String id = entry.getValue();
                                 List<EPGParser.EpgProgram> list = allPrograms.get(id);
                                 if (list != null) {
-                                    // 按开始时间排序，确保查找当前节目正确
+                                    // 按开始时间排序，确保中下框查找当前节目正确
                                     Collections.sort(list, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
                                     epgCacheMap.put(name, list);
                                 }
@@ -1042,7 +1045,6 @@ public class MainActivity extends AppCompatActivity {
                             channelAdapter.notifyDataSetChanged();
                             scheduleChannelAdapter.notifyDataSetChanged();
                             if (currentChannel != null && epgCacheMap.containsKey(currentChannel.name)) {
-                                // 使用 EPGParser.getProgramsForChannel 获取旋转后的列表用于信息弹窗
                                 currentEpgList = EPGParser.getProgramsForChannel(currentChannel.name);
                             }
                         });
@@ -1882,7 +1884,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
-
+MAINEOF
 
 # ==================== SettingsActivity.java（已修复导入） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETEOF'
