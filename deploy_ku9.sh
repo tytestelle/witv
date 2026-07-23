@@ -2937,4 +2937,65 @@ sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
 sed -i '/implementation.*preference/d' "$APP_GRADLE"
-sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "
+sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
+echo "✅ 依赖已添加"
+
+sed -i '/android.permission.INTERNET/d' "$MANIFEST"
+sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
+echo "✅ 权限和 cleartext 已添加"
+
+# ========== 设置应用图标 ==========
+cat > /tmp/fix_manifest.py <<'PYEOF'
+import sys, xml.etree.ElementTree as ET
+from xml.dom import minidom
+ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
+manifest_file = "app/src/main/AndroidManifest.xml"
+pkg = "com.whyun.witv"
+try:
+    tree = ET.parse(manifest_file); root = tree.getroot()
+except Exception as e:
+    print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
+app = root.find('application')
+if app is None:
+    print("未找到 application", file=sys.stderr); sys.exit(1)
+icon_attr = '{http://schemas.android.com/apk/res/android}icon'
+app.set(icon_attr, '@drawable/ic_launcher')
+for act in app.findall('activity'): app.remove(act)
+main_act = ET.Element('activity')
+main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
+main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+intent_filter = ET.SubElement(main_act, 'intent-filter')
+action = ET.SubElement(intent_filter, 'action')
+action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
+cat = ET.SubElement(intent_filter, 'category')
+cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
+app.append(main_act)
+settings_act = ET.Element('activity')
+settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
+settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+app.append(settings_act)
+xml_str = ET.tostring(root, encoding='unicode')
+dom = minidom.parseString(xml_str)
+pretty = dom.toprettyxml(indent="    ")
+pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
+with open(manifest_file, 'w') as f: f.write(pretty)
+print("✅ AndroidManifest 已更新")
+PYEOF
+
+python3 /tmp/fix_manifest.py
+rm -f /tmp/fix_manifest.py
+
+# ========== 构建 ==========
+echo "🧹 清理并构建..."
+./gradlew clean
+./gradlew assembleDebug
+
+echo ""
+echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
+echo "📌 模板已生成到 ./config/ 目录"
+echo "📂 应用安装后会在外部存储 witv 目录下创建 logo 和 logo原始 文件夹"
+echo "🖼️ 台标逻辑：先检查 logo 目录，若无则从 logo原始 转换，若无则下载并处理"
+echo "🔁 断线重连默认开启（1秒），可在设置中关闭"
+echo "✅ 订阅选中后立即生效，无需重启应用"
+echo "📺 播放缓冲区已增大至 120s/180s，减少卡顿"
