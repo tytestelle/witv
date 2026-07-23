@@ -759,9 +759,6 @@ public class FavoriteManager {
     }
 }
 FAVEOF
-
-# ==================== MainActivity.java（包含节目单高亮） ====================
-cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
 import android.app.ProgressDialog;
@@ -1035,6 +1032,8 @@ public class MainActivity extends AppCompatActivity {
                                 String id = entry.getValue();
                                 List<EPGParser.EpgProgram> list = allPrograms.get(id);
                                 if (list != null) {
+                                    // 按开始时间排序，确保查找当前节目正确
+                                    Collections.sort(list, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
                                     epgCacheMap.put(name, list);
                                 }
                             }
@@ -1043,7 +1042,8 @@ public class MainActivity extends AppCompatActivity {
                             channelAdapter.notifyDataSetChanged();
                             scheduleChannelAdapter.notifyDataSetChanged();
                             if (currentChannel != null && epgCacheMap.containsKey(currentChannel.name)) {
-                                currentEpgList = epgCacheMap.get(currentChannel.name);
+                                // 使用 EPGParser.getProgramsForChannel 获取旋转后的列表用于信息弹窗
+                                currentEpgList = EPGParser.getProgramsForChannel(currentChannel.name);
                             }
                         });
                     }
@@ -1262,11 +1262,9 @@ public class MainActivity extends AppCompatActivity {
             player.setMediaItem(MediaItem.fromUri(channel.url));
             player.prepare();
             player.play();
-            if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
-                List<EPGParser.EpgProgram> list = epgCacheMap.get(channel.name);
-                if (list != null && !list.isEmpty()) {
-                    currentEpgList = list;
-                }
+            // 使用 EPGParser.getProgramsForChannel 获取旋转后的节目列表（当前节目在第一个）
+            if (epgLoaded) {
+                currentEpgList = EPGParser.getProgramsForChannel(channel.name);
             }
             LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
         } catch (Exception e) {
@@ -1437,7 +1435,7 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ========== 信息弹窗（修正括号错误） ==========
+    // ========== 信息弹窗 ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1764,6 +1762,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 holder.logo.setVisibility(View.GONE);
             }
+            // 显示当前播放的 EPG 节目（从排序后的列表中查找）
             if (epgCache != null && epgCache.containsKey(ch.name)) {
                 List<EPGParser.EpgProgram> epgList = epgCache.get(ch.name);
                 if (epgList != null && !epgList.isEmpty()) {
@@ -1776,6 +1775,7 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     if (currentProg == null && !epgList.isEmpty()) {
+                        // 没有当前播放的，显示下一个即将播出的
                         for (EPGParser.EpgProgram prog : epgList) {
                             if (prog.startTime > now) {
                                 currentProg = prog;
@@ -1882,7 +1882,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
-MAINEOF
+
 
 # ==================== SettingsActivity.java（已修复导入） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETEOF'
