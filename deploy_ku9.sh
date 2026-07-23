@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 完全基于 epg_data.json 宽泛匹配，与酷9一致）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 完全基于epg_data.json匹配，保留所有epgid）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,7 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（完全基于epg_data.json宽泛匹配） ====================
+# ==================== EPGParser.java（完全基于epg_data.json，保留所有epgid） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -483,7 +483,9 @@ public class EPGParser {
         }).start();
     }
 
+    // ========== 增强解析：完全基于epg_data.json，所有epgid保留，使用包含匹配 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
+        // 1. 提取 XML 中所有 channel 的变体
         Map<String, Set<String>> xmlIdToVariants = new HashMap<>();
         Map<String, List<EpgProgram>> xmlIdToPrograms = new HashMap<>();
         Set<String> allXmlIds = new HashSet<>();
@@ -598,16 +600,19 @@ public class EPGParser {
 
         LogUtils.writeLog("XML解析完成，总频道数: " + allXmlIds.size() + ", 有节目的频道数: " + xmlIdToPrograms.size());
 
+        // 2. 构建 epgid -> 别名集合（从 sAliasMap 反向构建）
         Map<String, Set<String>> epgidToAliases = new HashMap<>();
         for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
             String alias = entry.getKey();
             String epgid = entry.getValue();
             epgidToAliases.computeIfAbsent(epgid, k -> new HashSet<>()).add(alias);
         }
+        // 确保每个 epgid 自身也作为别名
         for (String epgid : epgidToAliases.keySet()) {
             epgidToAliases.get(epgid).add(epgid);
         }
 
+        // 3. 对每个 epgid，使用包含关系匹配 XML 频道
         Map<String, List<String>> epgidToXmlIds = new HashMap<>();
         for (String epgid : epgidToAliases.keySet()) {
             Set<String> aliases = epgidToAliases.get(epgid);
@@ -634,6 +639,7 @@ public class EPGParser {
 
         LogUtils.writeLog("匹配到XML频道的epgid数: " + epgidToXmlIds.size());
 
+        // 4. 合并节目：每个epgid的节目列表（可为空）
         Map<String, List<EpgProgram>> epgIdToPrograms = new HashMap<>();
         for (String epgid : epgidToAliases.keySet()) {
             List<String> xmlIds = epgidToXmlIds.getOrDefault(epgid, new ArrayList<>());
@@ -644,18 +650,21 @@ public class EPGParser {
                     combined.addAll(progs);
                 }
             }
+            // 保留空列表，确保所有 epgid 都存在
             epgIdToPrograms.put(epgid, combined);
         }
 
         LogUtils.writeLog("合并后epgid总数: " + epgIdToPrograms.size() +
                 ", 其中有节目的epgid数: " + epgIdToPrograms.values().stream().filter(list -> !list.isEmpty()).count());
 
+        // 5. 构建最终映射：所有别名 -> epgid（全部保留）
         Map<String, String> channelNameToId = new HashMap<>();
         for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
             String alias = entry.getKey();
             String epgid = entry.getValue();
             channelNameToId.put(alias, epgid);
         }
+        // 补充 epgid 自身（如果不在别名中）
         for (String epgid : epgIdToPrograms.keySet()) {
             if (!channelNameToId.containsKey(epgid)) {
                 channelNameToId.put(epgid, epgid);
@@ -2866,4 +2875,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
-echo "🔧 EPG解析完全基于 epg_data.json 宽泛匹配（包含关系），与酷9一致，您只需维护该文件即可。"
+echo "🔧 EPG解析完全基于 epg_data.json 映射，保留所有 epgid，匹配采用包含关系，与酷9一致。"
