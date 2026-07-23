@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单高亮版 - 基于稳定版本）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 增强EPG解析）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,8 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-
-# ==================== EPGParser.java（增强解析规则） ====================
+# ==================== EPGParser.java（增强解析：收集所有 programme 的 channel id） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -453,7 +452,11 @@ public class EPGParser {
                 parseAllData(is);
                 is.close();
                 sLoaded = true;
-                LogUtils.writeLog("EPG全量解析完成，共解析 " + (sAllPrograms != null ? sAllPrograms.size() : 0) + " 个频道");
+                int totalPrograms = 0;
+                for (List<EpgProgram> list : sAllPrograms.values()) {
+                    totalPrograms += list.size();
+                }
+                LogUtils.writeLog("EPG全量解析完成，共解析 " + (sAllPrograms != null ? sAllPrograms.size() : 0) + " 个频道，总节目数 " + totalPrograms);
                 for (OnAllEpgLoadedListener l : sPendingListeners) {
                     android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
                     mainHandler.post(() -> l.onLoaded(sAllPrograms, sChannelNameToId));
@@ -473,7 +476,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 增强解析（核心改动：强制所有channel id加入映射） ==========
+    // ========== 增强解析：收集所有 programme 的 channel id ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -496,7 +499,8 @@ public class EPGParser {
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
 
-        Set<String> allChannelIds = new HashSet<>();
+        Set<String> allChannelIds = new HashSet<>();         // 从 channel 标签收集
+        Set<String> allProgrammeChannelIds = new HashSet<>(); // 从 programme 收集
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
@@ -522,7 +526,10 @@ public class EPGParser {
                     } else if ("programme".equals(currentTag)) {
                         inProgramme = true;
                         progChannelId = parser.getAttributeValue(null, "channel");
-                        if (progChannelId != null) progChannelId = progChannelId.trim();
+                        if (progChannelId != null) {
+                            progChannelId = progChannelId.trim();
+                            allProgrammeChannelIds.add(progChannelId);
+                        }
                         progStart = parser.getAttributeValue(null, "start");
                         progStop = parser.getAttributeValue(null, "stop");
                         progTitle = null;
@@ -547,7 +554,6 @@ public class EPGParser {
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
                         if (currentChannelId != null && !currentChannelId.isEmpty()) {
-                            // 强制添加 id 本身和归一化 id
                             String normalizedId = normalizeChannelName(currentChannelId);
                             if (!normalizedId.isEmpty()) channelNameToId.put(normalizedId, currentChannelId);
                             channelNameToId.put(currentChannelId, currentChannelId);
@@ -560,7 +566,6 @@ public class EPGParser {
                                     channelNameToId.put(name, currentChannelId);
                                     String normName = normalizeChannelName(name);
                                     if (!normName.isEmpty()) channelNameToId.put(normName, currentChannelId);
-                                    // 简单去特殊字符
                                     String simple = name.replaceAll("[\\s\\-_]", "");
                                     if (!simple.equals(name) && !simple.isEmpty()) {
                                         channelNameToId.put(simple, currentChannelId);
@@ -594,8 +599,13 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 确保每个 id 都有映射
-        for (String id : allChannelIds) {
+        // 合并所有出现的 channel id
+        Set<String> allIds = new HashSet<>();
+        allIds.addAll(allChannelIds);
+        allIds.addAll(allProgrammeChannelIds);
+
+        // 为所有 id 建立映射
+        for (String id : allIds) {
             if (!channelNameToId.containsValue(id)) {
                 channelNameToId.put(id, id);
                 String normId = normalizeChannelName(id);
@@ -610,7 +620,7 @@ public class EPGParser {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
                 String epgid = entry.getValue();
-                if (!channelNameToId.containsKey(alias) && allChannelIds.contains(epgid)) {
+                if (!channelNameToId.containsKey(alias) && allIds.contains(epgid)) {
                     channelNameToId.put(alias, epgid);
                 }
             }
@@ -727,7 +737,6 @@ public class EPGParser {
     }
 }
 EPG
-
 # ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
@@ -1848,7 +1857,6 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 MAIN
-
 # ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
@@ -2692,7 +2700,6 @@ cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
         android:textColor="#AAAAAA" />
 </LinearLayout>
 EOF
-
 # ==================== 图标资源 ====================
 mkdir -p "$TEMPLATE_DIR/res/drawable"
 cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
@@ -2817,3 +2824,4 @@ echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
 echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
+
