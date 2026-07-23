@@ -473,7 +473,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 增强解析（核心改动：强制所有channel id加入映射） ==========
+    // ========== 增强解析（核心改动：强化频道名称到ID的映射） ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -557,15 +557,44 @@ public class EPGParser {
                                 for (String name : names) {
                                     name = name.trim();
                                     if (name.isEmpty()) continue;
+                                    // 1. 原始名称
                                     channelNameToId.put(name, currentChannelId);
+                                    // 2. 归一化（去除括号、清晰度、符号）
                                     String normName = normalizeChannelName(name);
                                     if (!normName.isEmpty()) channelNameToId.put(normName, currentChannelId);
-                                    // 简单去特殊字符
+                                    // 3. 简单去符号（保留原逻辑）
                                     String simple = name.replaceAll("[\\s\\-_]", "");
                                     if (!simple.equals(name) && !simple.isEmpty()) {
                                         channelNameToId.put(simple, currentChannelId);
                                         String normSimple = normalizeChannelName(simple);
                                         if (!normSimple.isEmpty()) channelNameToId.put(normSimple, currentChannelId);
+                                    }
+                                    // 4. 取第一个空格前的核心词（如 "CCTV-1 综合" → "CCTV-1"）
+                                    int spaceIdx = name.indexOf(' ');
+                                    if (spaceIdx > 0) {
+                                        String core = name.substring(0, spaceIdx).trim();
+                                        if (!core.isEmpty() && !core.equals(name)) {
+                                            channelNameToId.put(core, currentChannelId);
+                                            String normCore = normalizeChannelName(core);
+                                            if (!normCore.isEmpty()) channelNameToId.put(normCore, currentChannelId);
+                                        }
+                                    }
+                                    // 5. 去除括号内容后再取核心（如 "CCTV-4 (亚洲)" → "CCTV-4"）
+                                    String noBracket = name.replaceAll("\\(.*?\\)", "").replaceAll("（.*?）", "").trim();
+                                    if (!noBracket.isEmpty() && !noBracket.equals(name)) {
+                                        channelNameToId.put(noBracket, currentChannelId);
+                                        String normNoBracket = normalizeChannelName(noBracket);
+                                        if (!normNoBracket.isEmpty()) channelNameToId.put(normNoBracket, currentChannelId);
+                                        // 再取一次核心
+                                        int spIdx2 = noBracket.indexOf(' ');
+                                        if (spIdx2 > 0) {
+                                            String core2 = noBracket.substring(0, spIdx2).trim();
+                                            if (!core2.isEmpty() && !core2.equals(noBracket) && !core2.equals(core)) {
+                                                channelNameToId.put(core2, currentChannelId);
+                                                String normCore2 = normalizeChannelName(core2);
+                                                if (!normCore2.isEmpty()) channelNameToId.put(normCore2, currentChannelId);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -594,7 +623,7 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 确保每个 id 都有映射
+        // 确保每个 id 都有映射（已有，但保留）
         for (String id : allChannelIds) {
             if (!channelNameToId.containsValue(id)) {
                 channelNameToId.put(id, id);
@@ -605,7 +634,7 @@ public class EPGParser {
             }
         }
 
-        // 应用别名映射
+        // 应用别名映射（来自 epg_data.json）
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
@@ -699,15 +728,16 @@ public class EPGParser {
         }
     }
 
+    // ========== 增强的归一化方法 ==========
     private static String normalizeChannelName(String name) {
         if (name == null) return "";
-        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
-                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
-                .toLowerCase(Locale.getDefault());
-        if (normalized.length() < 2) {
-            return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
-        }
-        return normalized;
+        // 1. 去除括号内容（英文和中文括号）
+        name = name.replaceAll("\\(.*?\\)", "").replaceAll("（.*?）", "");
+        // 2. 去除常见清晰度标识（高清、HD、标清、SD、4K、8K、超清、FHD、UHD、数字+p）
+        name = name.replaceAll("(?i)\\s*(高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p)\\s*", "");
+        // 3. 去除空格、连字符、下划线、括号等符号（括号已被移除，但残留符号）
+        name = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
+        return name.toLowerCase(Locale.getDefault());
     }
 
     public static class EpgProgram {
@@ -726,7 +756,6 @@ public class EPGParser {
         }
     }
 }
-EPG
 
 # ==================== MainActivity.java ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
