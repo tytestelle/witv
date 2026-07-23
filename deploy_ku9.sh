@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终稳定版 - 台标+订阅即时加载+大缓冲）"
+echo "🔥 部署 witv 播放器（最终稳定版 - 台标URL解码+订阅即时加载+大缓冲）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -271,7 +271,8 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（完整修正） ====================
+
+# ==================== EPGParser.java（纯净解析 + 图标映射） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -308,7 +309,7 @@ import okhttp3.Response;
 
 public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
-    public interface OnAllEpgLoadedListener {
+    public interface OnAllEpgLoadedListener { 
         void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId, Map<String, String> channelNameToIcon);
         void onError(String error);
     }
@@ -330,7 +331,7 @@ public class EPGParser {
             is.read(buffer);
             is.close();
             String json = new String(buffer, "UTF-8");
-
+            
             JSONArray epgs = null;
             try {
                 epgs = new JSONArray(json);
@@ -498,7 +499,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 纯净解析 ==========
+    // ========== 纯净解析：只使用原始名称，同时记录图标 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -621,7 +622,7 @@ public class EPGParser {
             }
         }
 
-        // 应用别名映射
+        // ========== 应用别名映射 ==========
         if (sAliasMap != null) {
             int successCount = 0;
             int failCount = 0;
@@ -746,7 +747,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（完整修正） ====================
+# ==================== MainActivity.java（含URL解码） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -800,6 +801,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.URLDecoder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -1306,11 +1308,19 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ========== 台标下载（含URL解码） ==========
     private void downloadAndProcessLogo(SourceManager.Channel channel) {
         String logoUrl = channel.logoUrl;
         if (logoUrl == null || logoUrl.isEmpty()) {
             LogUtils.writeLog("频道 " + channel.name + " 无台标URL");
             return;
+        }
+        // 解码URL（解决 https%3A// 问题）
+        try {
+            logoUrl = URLDecoder.decode(logoUrl, "UTF-8");
+            LogUtils.writeLog("解码后台标URL: " + logoUrl);
+        } catch (Exception e) {
+            LogUtils.writeLog("台标URL解码失败: " + e.getMessage());
         }
         String fileName = channel.name.hashCode() + ".png";
         File logoFile = new File(logoDir, fileName);
@@ -1551,6 +1561,7 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
+    // ========== 信息弹窗 ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1633,6 +1644,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ========== 对话框方法 ==========
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -2971,7 +2983,7 @@ echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储 witv 目录下创建 logo 和 logo原始 文件夹"
-echo "🖼️ 台标逻辑：先检查 logo 目录，若无则从 logo原始 转换，若无则下载并处理"
+echo "🖼️ 台标逻辑：先检查 logo 目录，若无则从 logo原始 转换，若无则下载并解码 URL"
 echo "🔁 断线重连默认开启（1秒），可在设置中关闭"
 echo "✅ 订阅选中后立即生效，无需重启应用"
 echo "📺 播放缓冲区已增大至 120s/180s，减少卡顿"
