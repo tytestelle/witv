@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（加强EPG解析 + 节目单高亮）"
+echo "🔥 部署 witv 播放器（节目单高亮版 - 基于稳定版本）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -195,7 +195,7 @@ printf '%s\n' \
 '    public static void createAppDirectories(File baseDir) { if (baseDir == null) return; String[] subDirs = {"localData", "backup", "download", "videoFile", "configuration", "logo", "js", "py", "webviewJscode", "epgCache", "logs"}; for (String sub : subDirs) { File dir = new File(baseDir, sub); if (!dir.exists()) dir.mkdirs(); } writeLog("应用目录创建完成: " + baseDir.getAbsolutePath()); }' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
-# ==================== EPGParser.java（加强解析，不遗漏任何频道） ====================
+# ==================== EPGParser.java（稳定版本，保留原有解析逻辑） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPGFULL'
 package com.whyun.witv.epg;
 
@@ -416,9 +416,6 @@ public class EPGParser {
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
 
-        // 第一遍：收集所有频道（包括没有display-name的）
-        // 第二遍：收集所有节目
-        // 但为了效率，我们一次性解析，遇到channel就记录，遇到programme就归类
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
                 case XmlPullParser.START_TAG:
@@ -429,7 +426,7 @@ public class EPGParser {
                         currentDisplayName = null;
                         currentIconUrl = null;
                     } else if (inChannel && "display-name".equals(currentTag)) {
-                        // 读取文本
+                        currentDisplayName = parser.nextText().trim();
                     } else if (inChannel && "icon".equals(currentTag)) {
                         currentIconUrl = parser.getAttributeValue(null, "src");
                     } else if ("programme".equals(currentTag)) {
@@ -442,9 +439,6 @@ public class EPGParser {
                     }
                     break;
                 case XmlPullParser.TEXT:
-                    if (inChannel && "display-name".equals(currentTag) && parser.getText() != null) {
-                        currentDisplayName = parser.getText().trim();
-                    }
                     if (inProgramme && parser.getText() != null) {
                         String text = parser.getText().trim();
                         if ("title".equals(currentTag)) {
@@ -459,17 +453,14 @@ public class EPGParser {
                 case XmlPullParser.END_TAG:
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
-                        // 即使display-name为空，也使用channel id作为名称
-                        if (currentChannelId != null) {
-                            String display = (currentDisplayName != null && !currentDisplayName.isEmpty()) 
-                                    ? currentDisplayName : currentChannelId;
-                            // 将原始名称和标准化名称都加入映射
-                            channelNameToId.put(display, currentChannelId);
-                            channelNameToId.put(normalizeChannelName(display), currentChannelId);
-                            // 同时也加入channel id本身
-                            channelNameToId.put(currentChannelId, currentChannelId);
+                        if (currentChannelId != null && currentDisplayName != null && !currentDisplayName.isEmpty()) {
+                            String normName = normalizeChannelName(currentDisplayName);
+                            if (!normName.isEmpty()) {
+                                channelNameToId.put(normName, currentChannelId);
+                                channelNameToId.put(currentDisplayName, currentChannelId);
+                            }
+                            channelNameToId.put(currentDisplayName, currentChannelId);
                         }
-                        currentDisplayName = null;
                     } else if ("programme".equals(parser.getName())) {
                         inProgramme = false;
                         if (progChannelId != null && progTitle != null && !progTitle.isEmpty()) {
@@ -494,23 +485,19 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 结合别名映射补充
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
                 String epgid = entry.getValue();
                 if (allPrograms.containsKey(epgid)) {
                     channelNameToId.put(alias, epgid);
-                    channelNameToId.put(normalizeChannelName(alias), epgid);
                 }
             }
         }
 
-        // 统计
-        LogUtils.writeLog("解析完成：频道数=" + allPrograms.size() + ", 名称映射=" + channelNameToId.size());
-
         sAllPrograms = allPrograms;
         sChannelNameToId = channelNameToId;
+        LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
     }
 
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
@@ -518,16 +505,10 @@ public class EPGParser {
         String normalized = normalizeChannelName(channelName);
         String channelId = sChannelNameToId.get(normalized);
         if (channelId == null) {
-            // 尝试原始名称
-            channelId = sChannelNameToId.get(channelName);
-        }
-        if (channelId == null) {
-            // 包含匹配
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
-                if (key.contains(normalized) || normalized.contains(key) || key.contains(channelName) || channelName.contains(key)) {
+                if (key.contains(normalized) || normalized.contains(key)) {
                     channelId = entry.getValue();
-                    LogUtils.writeLog("包含匹配找到频道: " + key + " -> " + channelId);
                     break;
                 }
             }
@@ -535,8 +516,21 @@ public class EPGParser {
         if (channelId == null) return new ArrayList<>();
         List<EpgProgram> result = sAllPrograms.get(channelId);
         if (result == null) result = new ArrayList<>();
-        // 按开始时间排序
+        long currentTime = System.currentTimeMillis();
         Collections.sort(result, (o1, o2) -> Long.compare(o1.startTime, o2.startTime));
+        int currentIndex = 0;
+        for (int i = 0; i < result.size(); i++) {
+            if (result.get(i).endTime > currentTime) {
+                currentIndex = i;
+                break;
+            }
+        }
+        if (currentIndex > 0 && currentIndex < result.size()) {
+            List<EpgProgram> sortedList = new ArrayList<>();
+            for (int i = currentIndex; i < result.size(); i++) sortedList.add(result.get(i));
+            for (int i = 0; i < currentIndex; i++) sortedList.add(result.get(i));
+            result = sortedList;
+        }
         return result;
     }
 
@@ -612,78 +606,9 @@ public class EPGParser {
 }
 EPGFULL
 
-# ==================== PlayerConfigManager.java ====================
-printf '%s\n' \
-'package com.whyun.witv.player;' \
-'import android.content.Context;' \
-'import android.content.SharedPreferences;' \
-'import android.preference.PreferenceManager;' \
-'public class PlayerConfigManager {' \
-'    private static SharedPreferences prefs;' \
-'    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }' \
-'    public static String getAspectRatio() { return prefs.getString("aspect_ratio", "默认"); }' \
-'    public static void setAspectRatio(String ratio) { prefs.edit().putString("aspect_ratio", ratio).apply(); }' \
-'    public static int getDecoder() { return prefs.getInt("decoder", 7); }' \
-'    public static void setDecoder(int mode) { prefs.edit().putInt("decoder", mode).apply(); }' \
-'    public static boolean getShowTime() { return prefs.getBoolean("show_time", false); }' \
-'    public static void setShowTime(boolean val) { prefs.edit().putBoolean("show_time", val).apply(); }' \
-'    public static boolean getShowNetSpeed() { return prefs.getBoolean("show_net_speed", false); }' \
-'    public static void setShowNetSpeed(boolean val) { prefs.edit().putBoolean("show_net_speed", val).apply(); }' \
-'}' > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java"
-
-# ==================== FavoriteManager.java ====================
-printf '%s\n' \
-'package com.whyun.witv.favorite;' \
-'import android.content.Context;' \
-'import android.content.SharedPreferences;' \
-'import android.preference.PreferenceManager;' \
-'import java.util.HashSet;' \
-'import java.util.Set;' \
-'public class FavoriteManager {' \
-'    private static SharedPreferences prefs;' \
-'    public static void init(Context ctx) { prefs = PreferenceManager.getDefaultSharedPreferences(ctx); }' \
-'    public static boolean isFavorite(String channelId) { return prefs.getBoolean("fav_" + channelId, false); }' \
-'    public static void toggleFavorite(String channelId) {' \
-'        boolean cur = isFavorite(channelId);' \
-'        prefs.edit().putBoolean("fav_" + channelId, !cur).apply();' \
-'        Set<String> favSet = new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>()));' \
-'        if (!cur) favSet.add(channelId); else favSet.remove(channelId);' \
-'        prefs.edit().putStringSet("fav_list", favSet).apply();' \
-'    }' \
-'    public static Set<String> getAllFavorites() { return new HashSet<>(prefs.getStringSet("fav_list", new HashSet<>())); }' \
-'}' > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java"
-
-# ==================== ConfigurationManager.java ====================
-printf '%s\n' \
-'package com.whyun.witv;' \
-'import android.content.Context;' \
-'import android.content.SharedPreferences;' \
-'import android.preference.PreferenceManager;' \
-'import com.google.gson.Gson;' \
-'import com.google.gson.JsonObject;' \
-'import java.io.InputStream;' \
-'import java.io.InputStreamReader;' \
-'public class ConfigurationManager {' \
-'    private static ConfigurationManager instance;' \
-'    private JsonObject config;' \
-'    private SharedPreferences prefs;' \
-'    private ConfigurationManager(Context context) { prefs = PreferenceManager.getDefaultSharedPreferences(context); loadConfig(context); }' \
-'    public static synchronized ConfigurationManager getInstance(Context context) { if (instance == null) instance = new ConfigurationManager(context.getApplicationContext()); return instance; }' \
-'    private void loadConfig(Context context) { try { InputStream is = context.getAssets().open("configuration.json"); JsonObject root = new Gson().fromJson(new InputStreamReader(is), JsonObject.class); config = root.getAsJsonObject("Configuration"); is.close(); } catch (Exception e) { config = new JsonObject(); } }' \
-'    public String getString(String key, String def) { if (prefs.contains(key)) return prefs.getString(key, def); if (config.has(key)) return config.get(key).getAsString(); return def; }' \
-'    public int getInt(String key, int def) { if (prefs.contains(key)) return prefs.getInt(key, def); if (config.has(key)) return config.get(key).getAsInt(); return def; }' \
-'    public boolean getBoolean(String key, boolean def) { if (prefs.contains(key)) return prefs.getBoolean(key, def); if (config.has(key)) return config.get(key).getAsBoolean(); return def; }' \
-'    public void putInt(String key, int value) { prefs.edit().putInt(key, value).apply(); }' \
-'    public void putBoolean(String key, boolean value) { prefs.edit().putBoolean(key, value).apply(); }' \
-'    public void putString(String key, String value) { prefs.edit().putString(key, value).apply(); }' \
-'    public int getPlayType() { return getInt("PLAY_TYPE", 7); }' \
-'    public int getPlayScale() { return getInt("PLAY_SCALE", 3); }' \
-'    public String getLiveUrls() { return getString("LIVE_URLS", null); }' \
-'}' > "$TEMPLATE_DIR/src/ConfigurationManager.java"
-
 # ==================== 第一条消息结束 ====================
 # 请继续复制第二条消息
-# ==================== MainActivity.java ====================
+# ==================== MainActivity.java（修正 showInfoPopup 括号，添加节目单高亮） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAINEOF'
 package com.whyun.witv;
 import android.Manifest;
@@ -953,7 +878,6 @@ public class MainActivity extends AppCompatActivity {
                     public void onLoaded(Map<String, List<EPGParser.EpgProgram>> allPrograms, Map<String, String> channelNameToId) {
                         runOnUiThread(() -> {
                             epgCacheMap.clear();
-                            // 构建频道名到节目列表的映射
                             for (Map.Entry<String, String> entry : channelNameToId.entrySet()) {
                                 String name = entry.getKey();
                                 String id = entry.getValue();
@@ -964,10 +888,8 @@ public class MainActivity extends AppCompatActivity {
                             }
                             epgLoaded = true;
                             LogUtils.writeLog("全量EPG加载完成，缓存频道数: " + epgCacheMap.size());
-                            // 刷新界面
                             channelAdapter.notifyDataSetChanged();
                             scheduleChannelAdapter.notifyDataSetChanged();
-                            // 如果当前有正在播放的频道，更新其EPG列表
                             if (currentChannel != null && epgCacheMap.containsKey(currentChannel.name)) {
                                 currentEpgList = epgCacheMap.get(currentChannel.name);
                             }
@@ -1166,7 +1088,6 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             LogUtils.writeCrashLog(error);
                             Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
-                            // 重试：重新prepare并播放
                             if (player != null && currentChannel != null) {
                                 player.prepare();
                                 player.play();
@@ -1189,7 +1110,6 @@ public class MainActivity extends AppCompatActivity {
             player.setMediaItem(MediaItem.fromUri(channel.url));
             player.prepare();
             player.play();
-            // 从缓存获取EPG
             if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
                 List<EPGParser.EpgProgram> list = epgCacheMap.get(channel.name);
                 if (list != null && !list.isEmpty()) {
@@ -1277,7 +1197,7 @@ public class MainActivity extends AppCompatActivity {
         if (epgLoaded && epgCacheMap.containsKey(channel.name)) {
             currentScheduleEpg = epgCacheMap.get(channel.name);
             generateDayTabs(currentScheduleEpg);
-            selectedDayIndex = 0; // 默认今天
+            selectedDayIndex = 0;
             showDayPrograms(0);
             return;
         }
@@ -2183,7 +2103,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETEOF
 
-# ==================== 布局文件 ====================
+# ==================== 布局文件（保持不变） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2360,6 +2280,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'EOF'
 </FrameLayout>
 EOF
 
+# ==================== 其他布局文件（item_channel.xml, popup_info.xml 等） ====================
 cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2784,4 +2705,4 @@ echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 应用安装后会在外部存储或内部存储的 witv 目录下创建所需文件夹"
 echo "📋 日志文件位置会在应用启动时 Toast 显示"
-echo "💡 加强EPG解析：不遗漏任何频道，节目单高亮当前时间段节目。"
+echo "💡 节目单高亮：打开节目单默认显示今天，当前时间段节目高亮。"
