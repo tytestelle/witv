@@ -271,7 +271,7 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（增强解析规则 - 修正别名映射） ====================
+# ==================== EPGParser.java（纯净解析规则 - 仅使用 name 中的别名） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -326,21 +326,29 @@ public class EPGParser {
             is.read(buffer);
             is.close();
             String json = new String(buffer, "UTF-8");
-            JSONObject root = new JSONObject(json);
-            JSONArray epgs = root.getJSONArray("epgs");
+            JSONArray epgs = new JSONArray(json);
             for (int i = 0; i < epgs.length(); i++) {
                 JSONObject obj = epgs.getJSONObject(i);
                 String epgid = obj.getString("epgid");
                 String nameStr = obj.getString("name");
                 String[] names = nameStr.split(",");
                 for (String name : names) {
-                    String normalized = normalizeChannelName(name.trim());
-                    if (!normalized.isEmpty()) map.put(normalized, epgid);
+                    String trimmed = name.trim();
+                    if (trimmed.isEmpty()) continue;
+                    // 只保留原始别名和归一化别名，不生成额外变种
+                    map.put(trimmed, epgid);
+                    String normalized = normalizeChannelName(trimmed);
+                    if (!normalized.isEmpty()) {
+                        map.put(normalized, epgid);
+                    }
                 }
-                // 也把 epgid 本身及其归一化加入，以便直接匹配 display-name
-                String normalizedEpgid = normalizeChannelName(epgid);
-                if (!normalizedEpgid.isEmpty()) map.put(normalizedEpgid, epgid);
-                map.put(epgid, epgid);
+                // 也把 epgid 本身及其归一化加入，便于直接匹配 display-name
+                String epgidTrim = epgid.trim();
+                if (!epgidTrim.isEmpty()) {
+                    map.put(epgidTrim, epgid);
+                    String normEpgid = normalizeChannelName(epgidTrim);
+                    if (!normEpgid.isEmpty()) map.put(normEpgid, epgid);
+                }
             }
             LogUtils.writeLog("别名映射加载完成，条目数: " + map.size());
         } catch (Exception e) {
@@ -474,7 +482,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 增强解析（核心改动：智能别名映射） ==========
+    // ========== 纯净解析：只使用原始名称和归一化名称，不生成额外变种 ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -558,16 +566,10 @@ public class EPGParser {
                                 for (String name : names) {
                                     name = name.trim();
                                     if (name.isEmpty()) continue;
+                                    // 只保留原始名称和归一化名称，不生成额外变种
                                     channelNameToId.put(name, currentChannelId);
                                     String normName = normalizeChannelName(name);
                                     if (!normName.isEmpty()) channelNameToId.put(normName, currentChannelId);
-                                    // 简单去特殊字符
-                                    String simple = name.replaceAll("[\\s\\-_]", "");
-                                    if (!simple.equals(name) && !simple.isEmpty()) {
-                                        channelNameToId.put(simple, currentChannelId);
-                                        String normSimple = normalizeChannelName(simple);
-                                        if (!normSimple.isEmpty()) channelNameToId.put(normSimple, currentChannelId);
-                                    }
                                 }
                             }
                         }
@@ -606,10 +608,10 @@ public class EPGParser {
             }
         }
 
-        // ========== 智能应用别名映射（核心修正） ==========
+        // ========== 应用别名映射（仅使用 alias 与 channelNameToId 进行包含匹配） ==========
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();          // 归一化后的频道别名（如 "cctv1"）
+                String alias = entry.getKey();          // 归一化后的别名或原始别名
                 String epgid = entry.getValue();        // 自定义 epgid（如 "CCTV-1 高清"）
 
                 // 如果别名已经存在映射，跳过
@@ -621,20 +623,18 @@ public class EPGParser {
                 if (allChannelIds.contains(epgid)) {
                     realId = epgid;
                 } else {
-                    // 2. 尝试将 epgid 作为 display-name 查找其对应的真实 id
-                    //    先尝试原始 epgid，再尝试归一化后的 epgid
+                    // 2. 尝试将 epgid 作为 display-name 查找其对应的真实 id（原始或归一化）
                     String normalizedEpgid = normalizeChannelName(epgid);
                     if (channelNameToId.containsKey(epgid)) {
                         realId = channelNameToId.get(epgid);
                     } else if (channelNameToId.containsKey(normalizedEpgid)) {
                         realId = channelNameToId.get(normalizedEpgid);
                     } else {
-                        // 3. 遍历 channelNameToId 的所有 key，模糊匹配包含关系
+                        // 3. 用 alias（归一化后的别名）与 channelNameToId 的所有 key 进行包含匹配
                         for (Map.Entry<String, String> kv : channelNameToId.entrySet()) {
                             String key = kv.getKey();
-                            // 检查 epgid 或 normalizedEpgid 是否包含在 key 中，或 vice versa
-                            if (key.contains(epgid) || epgid.contains(key) ||
-                                key.contains(normalizedEpgid) || normalizedEpgid.contains(key)) {
+                            // 检查 alias 是否包含在 key 中，或 key 包含在 alias 中
+                            if (key.contains(alias) || alias.contains(key)) {
                                 realId = kv.getValue();
                                 break;
                             }
@@ -662,6 +662,7 @@ public class EPGParser {
         String channelId = sChannelNameToId.get(normalized);
         if (channelId == null) channelId = sChannelNameToId.get(channelName);
         if (channelId == null) {
+            // 模糊匹配兜底
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
                 if (key.contains(normalized) || normalized.contains(key)) {
@@ -734,14 +735,13 @@ public class EPGParser {
         }
     }
 
+    // ========== 纯净归一化：仅去除符号和空格，转为小写，不额外去除清晰度等 ==========
     private static String normalizeChannelName(String name) {
         if (name == null) return "";
-        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "")
-                .replaceAll("(?i)高清|HD|标清|SD|4K|8K|超清|FHD|UHD|\\d+p", "")
+        // 只去除常见符号、空格、连字符、下划线、括号等，转为小写
+        // 注意：不特意去除“高清”、“HD”等，因为这些已在 name 中由用户控制
+        String normalized = name.replaceAll("[\\s\\-_.()（）【】\\[\\]·:：,]", "")
                 .toLowerCase(Locale.getDefault());
-        if (normalized.length() < 2) {
-            return name.toLowerCase(Locale.getDefault()).replaceAll("[\\s\\-_.()（）【】\\[\\]·:：]", "");
-        }
         return normalized;
     }
 
