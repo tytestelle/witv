@@ -196,6 +196,11 @@ printf '%s\n' \
 '}' > "$TEMPLATE_DIR/src/utils/LogUtils.java"
 
 # ==================== EPGParser.java（完整稳定版） ====================
+# 备份原有文件（可选）
+cp app/src/main/java/com/whyun/witv/epg/EPGParser.java app/src/main/java/com/whyun/witv/epg/EPGParser.java.bak
+
+# 用以下内容覆盖 EPGParser.java
+cat > app/src/main/java/com/whyun/witv/epg/EPGParser.java <<'EOF'
 package com.whyun.witv.epg;
 
 import android.content.Context;
@@ -395,7 +400,7 @@ public class EPGParser {
         }).start();
     }
 
-    // ========== 增强的解析方法 ==========
+    // ========== 增强解析（核心改动） ==========
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
@@ -418,7 +423,6 @@ public class EPGParser {
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
 
-        // 存储所有解析到的 channel id，确保每个 id 都有映射
         Set<String> allChannelIds = new HashSet<>();
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
@@ -437,7 +441,6 @@ public class EPGParser {
                     } else if (inChannel && "display-name".equals(currentTag)) {
                         String text = parser.nextText().trim();
                         if (text != null && !text.isEmpty()) {
-                            // 如果 display-name 有多个，用逗号分隔，这里只取第一个，但我们可以保存所有
                             if (currentDisplayName == null) {
                                 currentDisplayName = text;
                             } else {
@@ -473,29 +476,25 @@ public class EPGParser {
                 case XmlPullParser.END_TAG:
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
-                        // 为这个 channel id 建立名称映射
                         if (currentChannelId != null && !currentChannelId.isEmpty()) {
-                            // 1. 添加 channel id 本身和其归一化版本
+                            // 强制添加 id 本身和归一化 id
                             String normalizedId = normalizeChannelName(currentChannelId);
                             if (!normalizedId.isEmpty()) {
                                 channelNameToId.put(normalizedId, currentChannelId);
                             }
                             channelNameToId.put(currentChannelId, currentChannelId);
 
-                            // 2. 如果有 display-name，添加 display-name 及其变体
                             if (currentDisplayName != null && !currentDisplayName.isEmpty()) {
                                 String[] names = currentDisplayName.split(",");
                                 for (String name : names) {
                                     name = name.trim();
                                     if (name.isEmpty()) continue;
-                                    // 原始名称
                                     channelNameToId.put(name, currentChannelId);
-                                    // 归一化名称
                                     String normName = normalizeChannelName(name);
                                     if (!normName.isEmpty()) {
                                         channelNameToId.put(normName, currentChannelId);
                                     }
-                                    // 额外变体：去除空格和特殊字符的简化版本
+                                    // 简单去特殊字符
                                     String simple = name.replaceAll("[\\s\\-_]", "");
                                     if (!simple.equals(name) && !simple.isEmpty()) {
                                         channelNameToId.put(simple, currentChannelId);
@@ -534,7 +533,7 @@ public class EPGParser {
             eventType = parser.next();
         }
 
-        // 确保所有 channel id 都有映射（防止某些 id 没有 display-name）
+        // 确保每个 id 都有映射
         for (String id : allChannelIds) {
             if (!channelNameToId.containsValue(id)) {
                 channelNameToId.put(id, id);
@@ -545,12 +544,11 @@ public class EPGParser {
             }
         }
 
-        // 应用别名映射（覆盖或补充）
+        // 应用别名映射
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
                 String epgid = entry.getValue();
-                // 如果别名不存在，则添加；如果已经存在，则保留（不覆盖，因为可能指向不同 id）
                 if (!channelNameToId.containsKey(alias) && allChannelIds.contains(epgid)) {
                     channelNameToId.put(alias, epgid);
                 }
@@ -562,7 +560,7 @@ public class EPGParser {
         LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size());
     }
 
-    // ========== 其余原有方法保持不变 ==========
+    // ========== 其他方法（保持不变） ==========
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
         if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
         String normalized = normalizeChannelName(channelName);
@@ -571,7 +569,6 @@ public class EPGParser {
             channelId = sChannelNameToId.get(channelName);
         }
         if (channelId == null) {
-            // 模糊匹配
             for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
                 String key = entry.getKey();
                 if (key.contains(normalized) || normalized.contains(key)) {
@@ -604,7 +601,6 @@ public class EPGParser {
     public static Map<String, List<EpgProgram>> getAllPrograms() {
         if (sAllPrograms == null || sChannelNameToId == null) return new HashMap<>();
         Map<String, List<EpgProgram>> nameMap = new HashMap<>();
-        // 遍历 channelNameToId，而不是直接遍历 sAllPrograms，保证所有 id 都被覆盖
         for (Map.Entry<String, String> entry : sChannelNameToId.entrySet()) {
             String channelName = entry.getKey();
             String channelId = entry.getValue();
@@ -672,7 +668,7 @@ public class EPGParser {
         }
     }
 }
-
+EOF
 # ==================== 新增：ConfigurationManager.java ====================
 mkdir -p "$TEMPLATE_DIR/src"
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'CONFIGEOF'
