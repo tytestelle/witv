@@ -271,7 +271,8 @@ public class FavoriteManager {
     public static boolean isFavorite(String channelName) { return getFavorites().contains(channelName); }
 }
 FAV
-# ==================== EPGParser.java（纯净解析规则 - 仅使用 name 中的别名） ====================
+
+# ==================== EPGParser.java（纯净解析 - 兼容两种JSON格式） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -326,7 +327,27 @@ public class EPGParser {
             is.read(buffer);
             is.close();
             String json = new String(buffer, "UTF-8");
-            JSONArray epgs = new JSONArray(json);
+            
+            // 兼容两种格式：直接数组或 {"epgs": [...]}
+            JSONArray epgs = null;
+            try {
+                epgs = new JSONArray(json);
+            } catch (Exception e1) {
+                try {
+                    JSONObject root = new JSONObject(json);
+                    epgs = root.getJSONArray("epgs");
+                } catch (Exception e2) {
+                    LogUtils.writeLog("加载别名映射失败: 无法解析 JSON 格式");
+                    sAliasMap = map;
+                    return map;
+                }
+            }
+            if (epgs == null) {
+                LogUtils.writeLog("加载别名映射失败: 未找到 epgs 数据");
+                sAliasMap = map;
+                return map;
+            }
+
             for (int i = 0; i < epgs.length(); i++) {
                 JSONObject obj = epgs.getJSONObject(i);
                 String epgid = obj.getString("epgid");
@@ -335,8 +356,9 @@ public class EPGParser {
                 for (String name : names) {
                     String trimmed = name.trim();
                     if (trimmed.isEmpty()) continue;
-                    // 只保留原始别名和归一化别名，不生成额外变种
+                    // 保留原始别名
                     map.put(trimmed, epgid);
+                    // 归一化别名（仅去符号和空格，转小写）
                     String normalized = normalizeChannelName(trimmed);
                     if (!normalized.isEmpty()) {
                         map.put(normalized, epgid);
@@ -608,11 +630,11 @@ public class EPGParser {
             }
         }
 
-        // ========== 应用别名映射（仅使用 alias 与 channelNameToId 进行包含匹配） ==========
+        // ========== 应用别名映射（仅使用用户提供的别名） ==========
         if (sAliasMap != null) {
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
-                String alias = entry.getKey();          // 归一化后的别名或原始别名
-                String epgid = entry.getValue();        // 自定义 epgid（如 "CCTV-1 高清"）
+                String alias = entry.getKey();          // 别名（可能是原始或归一化）
+                String epgid = entry.getValue();        // 自定义 epgid
 
                 // 如果别名已经存在映射，跳过
                 if (channelNameToId.containsKey(alias)) continue;
@@ -630,11 +652,12 @@ public class EPGParser {
                     } else if (channelNameToId.containsKey(normalizedEpgid)) {
                         realId = channelNameToId.get(normalizedEpgid);
                     } else {
-                        // 3. 用 alias（归一化后的别名）与 channelNameToId 的所有 key 进行包含匹配
+                        // 3. 用归一化后的别名与 channelNameToId 的所有 key 进行包含匹配（兜底）
+                        //    注意：这里使用 alias（可能已经是归一化的），但为了更准确，我们用 normalizedAlias
+                        String normalizedAlias = normalizeChannelName(alias);
                         for (Map.Entry<String, String> kv : channelNameToId.entrySet()) {
                             String key = kv.getKey();
-                            // 检查 alias 是否包含在 key 中，或 key 包含在 alias 中
-                            if (key.contains(alias) || alias.contains(key)) {
+                            if (key.contains(normalizedAlias) || normalizedAlias.contains(key)) {
                                 realId = kv.getValue();
                                 break;
                             }
@@ -735,7 +758,7 @@ public class EPGParser {
         }
     }
 
-    // ========== 纯净归一化：仅去除符号和空格，转为小写，不额外去除清晰度等 ==========
+    // ========== 纯净归一化：仅去除符号和空格，转为小写 ==========
     private static String normalizeChannelName(String name) {
         if (name == null) return "";
         // 只去除常见符号、空格、连字符、下划线、括号等，转为小写
