@@ -35,7 +35,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":30,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== 生成所有 Java 源文件（除 MainActivity 外，其他与之前相同） ====================
+# ==================== 生成所有 Java 源文件 ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'SRCMGR'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -733,547 +733,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== 布局文件（除 popup_info.xml 外，其他不变） ====================
-mkdir -p "$TEMPLATE_DIR/res/layout"
-cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
-<?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#000000">
-    <androidx.media3.ui.PlayerView
-        android:id="@+id/player_container"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-    <View
-        android:id="@+id/left_click_area"
-        android:layout_width="40dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:background="#00000000"
-        android:clickable="true"
-        android:focusable="true" />
-    <LinearLayout
-        android:id="@+id/overlay_container"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="horizontal"
-        android:background="#00000000"
-        android:visibility="gone">
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.5">
-            <LinearLayout
-                android:id="@+id/overlay_layout"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="horizontal"
-                android:background="#CC000000"
-                android:visibility="visible">
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.2"
-                    android:orientation="vertical"
-                    android:background="#33000000"
-                    android:padding="2dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="订阅源"
-                        android:textColor="#FFFFFF"
-                        android:textSize="11sp"
-                        android:paddingBottom="2dp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/sub_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.2"
-                    android:orientation="vertical"
-                    android:background="#44000000"
-                    android:padding="2dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="分组"
-                        android:textColor="#FFFFFF"
-                        android:textSize="11sp"
-                        android:paddingBottom="2dp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/group_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.6"
-                    android:orientation="vertical"
-                    android:background="#55000000"
-                    android:padding="2dp">
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="频道列表"
-                            android:textColor="#FFFFFF"
-                            android:textSize="11sp" />
-                        <Button
-                            android:id="@+id/btn_epg_schedule"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="节目单"
-                            android:textColor="#FFD700"
-                            android:background="@null"
-                            android:textSize="11sp" />
-                    </LinearLayout>
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/channel_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-            </LinearLayout>
-            <LinearLayout
-                android:id="@+id/schedule_layout"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="horizontal"
-                android:background="#CC000000"
-                android:visibility="gone">
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.4"
-                    android:orientation="vertical"
-                    android:background="#55000000"
-                    android:padding="2dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="频道列表"
-                        android:textColor="#FFFFFF"
-                        android:textSize="11sp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/schedule_channel_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.6"
-                    android:orientation="vertical"
-                    android:background="#66000000"
-                    android:padding="2dp">
-                    <LinearLayout
-                        android:id="@+id/day_tabs"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center"
-                        android:padding="4dp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/schedule_epg_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <View
-                    android:id="@+id/schedule_close_area"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0"
-                    android:background="#00000000"
-                    android:clickable="true" />
-            </LinearLayout>
-        </FrameLayout>
-        <View
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.5" />
-    </LinearLayout>
-</FrameLayout>
-LAYOUT1
-
-cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="2dp"
-    android:background="?attr/selectableItemBackground">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <FrameLayout
-            android:layout_width="24dp"
-            android:layout_height="24dp">
-            <ImageView
-                android:id="@+id/channel_logo"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scaleType="fitCenter"
-                android:visibility="gone" />
-            <TextView
-                android:id="@+id/text_logo"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:textSize="14sp"
-                android:textColor="#FFFFFF"
-                android:background="#333333"
-                android:visibility="gone" />
-        </FrameLayout>
-        <TextView
-            android:id="@+id/channel_name"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="13sp"
-            android:textColor="#FFFFFF"
-            android:paddingStart="4dp" />
-        <TextView
-            android:id="@+id/channel_fav"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="★"
-            android:textSize="14sp"
-            android:textColor="#FFD700"
-            android:visibility="gone" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/channel_epg_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="10sp"
-        android:textColor="#AAAAAA"
-        android:paddingStart="28dp"
-        android:visibility="gone" />
-</LinearLayout>
-LAYOUT2
-
-# ---------- 酷9完美风格 popup_info.xml（居中、左右边距、左上角台标、右下角网速） ----------
-cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="#CC000000"
-    android:paddingLeft="14dp"
-    android:paddingRight="14dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp"
-    android:layout_marginLeft="20dp"
-    android:layout_marginRight="20dp">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="4dp">
-        <ImageView
-            android:id="@+id/popup_logo"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:scaleType="fitCenter"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/popup_channel_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:text="频道名"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="2dp">
-        <TextView
-            android:id="@+id/popup_resolution"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="FHD"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_fps"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="29FPS"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_audio"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="立体声"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_ip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="IPV4"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_line"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="线路1/1"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-    </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="2dp">
-        <ProgressBar
-            android:id="@+id/popup_progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="0dp"
-            android:layout_height="6dp"
-            android:layout_weight="1"
-            android:progressTint="#FFD700"
-            android:progressBackgroundTint="#444444"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/popup_duration"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="距结束：56分钟"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/popup_current_epg"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="正在播放：22:32-23:34职场健康课"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:layout_marginBottom="2dp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/popup_current_desc"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="的负担"
-        android:textColor="#CCCCCC"
-        android:textSize="12sp"
-        android:layout_marginBottom="6dp"
-        android:maxLines="4"
-        android:ellipsize="end" />
-    <TextView
-        android:id="@+id/popup_next_epg"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="下一节目：23:34-23:59经济半小时"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/popup_extra"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#888888"
-        android:textSize="11sp"
-        android:layout_marginTop="4dp" />
-    <TextView
-        android:id="@+id/popup_speed"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="0.55MB/S"
-        android:textColor="#AAAAAA"
-        android:textSize="11sp"
-        android:gravity="end" />
-</LinearLayout>
-LAYOUT3
-
-# 其他布局（item_sub, item_group, item_epg, activity_settings, item_menu, item_content）
-cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/sub_name"
-    android:layout_width="match_parent"
-    android:layout_height="40dp"
-    android:gravity="center_vertical"
-    android:paddingLeft="6dp"
-    android:textSize="12sp"
-    android:textColor="#FFFFFF"
-    android:background="?attr/selectableItemBackground" />
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/group_name"
-    android:layout_width="match_parent"
-    android:layout_height="40dp"
-    android:gravity="center_vertical"
-    android:paddingLeft="6dp"
-    android:textSize="12sp"
-    android:textColor="#FFFFFF"
-    android:background="?attr/selectableItemBackground" />
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:padding="2dp"
-    android:background="?attr/selectableItemBackground">
-    <TextView
-        android:id="@+id/epg_time"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textSize="11sp"
-        android:textColor="#AAAAAA"
-        android:minWidth="70dp" />
-    <TextView
-        android:id="@+id/epg_title"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:textSize="12sp"
-        android:textColor="#FFFFFF"
-        android:paddingStart="6dp" />
-</LinearLayout>
-EOF
-cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="horizontal" android:background="#DD000000">
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/menu_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#33000000" android:padding="4dp" />
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/content_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2" android:background="#44000000" android:padding="4dp" />
-</LinearLayout>
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/menu_text"
-    android:layout_width="match_parent"
-    android:layout_height="36dp"
-    android:gravity="center_vertical"
-    android:paddingLeft="8dp"
-    android:textSize="13sp"
-    android:textColor="#FFFFFF"
-    android:background="#33000000" />
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="6dp"
-    android:background="#22000000">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-        <TextView
-            android:id="@+id/content_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="13sp"
-            android:textColor="#FFFFFF" />
-        <TextView
-            android:id="@+id/content_check"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="√"
-            android:textSize="14sp"
-            android:textColor="#4CAF50"
-            android:visibility="gone" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/content_subtitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="10sp"
-        android:textColor="#AAAAAA" />
-</LinearLayout>
-EOF
-
-# ==================== 图标资源 ====================
-mkdir -p "$TEMPLATE_DIR/res/drawable"
-cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="48dp" android:height="48dp" android:viewportWidth="24" android:viewportHeight="24">
-  <path android:fillColor="#FF5722" android:pathData="M8,5v14l11,-7z"/>
-</vector>
-EOF
-cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
-</vector>
-EOF
-cat > "$TEMPLATE_DIR/res/drawable/ic_epg.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
-</vector>
-EOF
-cat > "$TEMPLATE_DIR/res/drawable/ic_announce.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-</vector>
-EOF
-
-echo "✅ 模板生成完毕（Part 1）"
-# ==================== MainActivity.java（修改：酷9弹窗样式 + 无限重连 + 实时网速） ====================
+# ==================== MainActivity.java（修正网速获取方式） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -1320,6 +780,7 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import androidx.media3.ui.PlayerView;
 import com.whyun.witv.source.SourceManager;
 import com.whyun.witv.epg.EPGParser;
@@ -1353,6 +814,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_PERMISSIONS = 100;
     private PlayerView playerView;
     private ExoPlayer player;
+    private DefaultBandwidthMeter bandwidthMeter;
     private SourceManager.Channel currentChannel;
     private List<SourceManager.Channel> currentChannelList = new ArrayList<>();
     private Map<String, List<SourceManager.Channel>> groupMap = new HashMap<>();
@@ -1411,9 +873,6 @@ public class MainActivity extends AppCompatActivity {
     private PopupWindow infoPopup = null;
     private Handler speedUpdateHandler = new Handler();
     private Runnable speedUpdateRunnable;
-    private long lastBytes = 0;
-    private long lastTime = 0;
-
     static class SubEntry { String name; String url; }
 
     @Override
@@ -1937,6 +1396,8 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
         try {
             if (player == null) {
+                // 初始化 BandwidthMeter
+                bandwidthMeter = new DefaultBandwidthMeter.Builder(this).build();
                 DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
                 androidx.media3.exoplayer.DefaultLoadControl loadControl = new androidx.media3.exoplayer.DefaultLoadControl.Builder()
                         .setBufferDurationsMs(120000, 180000, 5000, 10000)
@@ -1944,6 +1405,7 @@ public class MainActivity extends AppCompatActivity {
                 player = new ExoPlayer.Builder(this)
                         .setTrackSelector(trackSelector)
                         .setLoadControl(loadControl)
+                        .setBandwidthMeter(bandwidthMeter)
                         .build();
                 playerView.setPlayer(player);
                 player.addListener(new Player.Listener() {
@@ -2155,10 +1617,9 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ==================== 酷9风格信息弹窗（完美匹配图片） ====================
+    // ==================== 酷9风格信息弹窗（完美匹配，实时网速） ====================
     private void showInfoPopup() {
         if (currentChannel == null) return;
-        // 如果已存在，先关闭
         if (infoPopup != null && infoPopup.isShowing()) {
             infoPopup.dismiss();
             speedUpdateHandler.removeCallbacks(speedUpdateRunnable);
@@ -2242,35 +1703,24 @@ public class MainActivity extends AppCompatActivity {
             }
 
             boolean showSpeed = prefs.getBoolean(KEY_SHOW_SPEED, true);
-            if (showSpeed) {
+            if (showSpeed && bandwidthMeter != null) {
                 tvSpeed.setVisibility(View.VISIBLE);
                 // 启动实时更新网速
-                lastBytes = 0;
-                lastTime = System.currentTimeMillis();
                 speedUpdateRunnable = new Runnable() {
                     @Override
                     public void run() {
-                        if (player != null && infoPopup != null && infoPopup.isShowing()) {
-                            long currentBytes = player.getTotalBytesTransferred();
-                            long currentTime = System.currentTimeMillis();
-                            if (lastBytes > 0 && currentTime > lastTime) {
-                                long bytes = currentBytes - lastBytes;
-                                long timeDiff = currentTime - lastTime; // ms
-                                if (timeDiff > 0) {
-                                    double speed = (bytes * 1000.0) / timeDiff; // bytes per second
-                                    String speedText;
-                                    if (speed >= 1024 * 1024) {
-                                        speedText = String.format(Locale.US, "%.2fMB/S", speed / (1024 * 1024));
-                                    } else if (speed >= 1024) {
-                                        speedText = String.format(Locale.US, "%.0fKB/S", speed / 1024);
-                                    } else {
-                                        speedText = String.format(Locale.US, "%.0fB/S", speed);
-                                    }
-                                    tvSpeed.setText(speedText);
-                                }
+                        if (bandwidthMeter != null && infoPopup != null && infoPopup.isShowing()) {
+                            long bitrate = bandwidthMeter.getBitrateEstimate();
+                            double speed = bitrate / 8.0; // 转换为字节/秒
+                            String speedText;
+                            if (speed >= 1024 * 1024) {
+                                speedText = String.format(Locale.US, "%.2fMB/S", speed / (1024 * 1024));
+                            } else if (speed >= 1024) {
+                                speedText = String.format(Locale.US, "%.0fKB/S", speed / 1024);
+                            } else {
+                                speedText = String.format(Locale.US, "%.0fB/S", speed);
                             }
-                            lastBytes = currentBytes;
-                            lastTime = currentTime;
+                            tvSpeed.setText(speedText);
                             speedUpdateHandler.postDelayed(this, 1000);
                         }
                     }
@@ -2282,14 +1732,12 @@ public class MainActivity extends AppCompatActivity {
 
             tvExtra.setText("");
 
-            // 创建 PopupWindow，宽度为 wrap_content，左右自动留边距
             infoPopup = new PopupWindow(popupView,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     true);
             infoPopup.setBackgroundDrawable(null);
             infoPopup.setOutsideTouchable(true);
-            // 显示在底部居中，稍微上移
             infoPopup.showAtLocation(findViewById(android.R.id.content), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, -50);
             popupView.setOnClickListener(v -> {
                 if (infoPopup != null && infoPopup.isShowing()) {
@@ -2297,7 +1745,6 @@ public class MainActivity extends AppCompatActivity {
                     speedUpdateHandler.removeCallbacks(speedUpdateRunnable);
                 }
             });
-            // 当 PopupWindow 消失时停止更新
             infoPopup.setOnDismissListener(() -> speedUpdateHandler.removeCallbacks(speedUpdateRunnable));
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
@@ -2305,7 +1752,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 其他辅助方法（showLoadingDialog等省略，与之前相同）
+    // 其他辅助方法（showLoadingDialog等）
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -2664,7 +2111,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java（与之前相同，但包含网速开关） ====================
+# ==================== SettingsActivity.java（完整） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -3021,6 +2468,546 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETTINGS
 
+# ==================== 布局文件 ====================
+mkdir -p "$TEMPLATE_DIR/res/layout"
+cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+    <View
+        android:id="@+id/left_click_area"
+        android:layout_width="40dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="#00000000"
+        android:clickable="true"
+        android:focusable="true" />
+    <LinearLayout
+        android:id="@+id/overlay_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:background="#00000000"
+        android:visibility="gone">
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5">
+            <LinearLayout
+                android:id="@+id/overlay_layout"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:background="#CC000000"
+                android:visibility="visible">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#33000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="订阅源"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/sub_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#44000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="分组"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/group_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="频道列表"
+                            android:textColor="#FFFFFF"
+                            android:textSize="11sp" />
+                        <Button
+                            android:id="@+id/btn_epg_schedule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="节目单"
+                            android:textColor="#FFD700"
+                            android:background="@null"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/schedule_layout"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:background="#CC000000"
+                android:visibility="gone">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.4"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="频道列表"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#66000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:id="@+id/day_tabs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:padding="4dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_epg_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <View
+                    android:id="@+id/schedule_close_area"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0"
+                    android:background="#00000000"
+                    android:clickable="true" />
+            </LinearLayout>
+        </FrameLayout>
+        <View
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5" />
+    </LinearLayout>
+</FrameLayout>
+LAYOUT1
+
+cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="2dp"
+    android:background="?attr/selectableItemBackground">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <FrameLayout
+            android:layout_width="24dp"
+            android:layout_height="24dp">
+            <ImageView
+                android:id="@+id/channel_logo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter"
+                android:visibility="gone" />
+            <TextView
+                android:id="@+id/text_logo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:background="#333333"
+                android:visibility="gone" />
+        </FrameLayout>
+        <TextView
+            android:id="@+id/channel_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:paddingStart="4dp" />
+        <TextView
+            android:id="@+id/channel_fav"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="★"
+            android:textSize="14sp"
+            android:textColor="#FFD700"
+            android:visibility="gone" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/channel_epg_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="10sp"
+        android:textColor="#AAAAAA"
+        android:paddingStart="28dp"
+        android:visibility="gone" />
+</LinearLayout>
+LAYOUT2
+
+# ---------- 酷9完美风格 popup_info.xml（居中、左右边距、台标左、网速右下） ----------
+cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#CC000000"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
+    android:layout_marginLeft="20dp"
+    android:layout_marginRight="20dp">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <ImageView
+            android:id="@+id/popup_logo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/popup_channel_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="频道名"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="2dp">
+        <TextView
+            android:id="@+id/popup_resolution"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FHD"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_fps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="29FPS"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_audio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="立体声"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_ip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="IPV4"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_line"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="线路1/1"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="2dp">
+        <ProgressBar
+            android:id="@+id/popup_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="0dp"
+            android:layout_height="6dp"
+            android:layout_weight="1"
+            android:progressTint="#FFD700"
+            android:progressBackgroundTint="#444444"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/popup_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="距结束：56分钟"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/popup_current_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="正在播放：22:32-23:34职场健康课"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:layout_marginBottom="2dp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/popup_current_desc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="的负担"
+        android:textColor="#CCCCCC"
+        android:textSize="12sp"
+        android:layout_marginBottom="6dp"
+        android:maxLines="4"
+        android:ellipsize="end" />
+    <TextView
+        android:id="@+id/popup_next_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="下一节目：23:34-23:59经济半小时"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/popup_extra"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp" />
+    <TextView
+        android:id="@+id/popup_speed"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="0.55MB/S"
+        android:textColor="#AAAAAA"
+        android:textSize="11sp"
+        android:gravity="end" />
+</LinearLayout>
+LAYOUT3
+
+cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/sub_name"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="6dp"
+    android:textSize="12sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/group_name"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="6dp"
+    android:textSize="12sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="2dp"
+    android:background="?attr/selectableItemBackground">
+    <TextView
+        android:id="@+id/epg_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#AAAAAA"
+        android:minWidth="70dp" />
+    <TextView
+        android:id="@+id/epg_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="12sp"
+        android:textColor="#FFFFFF"
+        android:paddingStart="6dp" />
+</LinearLayout>
+EOF
+cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:background="#DD000000">
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/menu_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="#33000000" android:padding="4dp" />
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/content_recycler" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2" android:background="#44000000" android:padding="4dp" />
+</LinearLayout>
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menu_text"
+    android:layout_width="match_parent"
+    android:layout_height="36dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="8dp"
+    android:textSize="13sp"
+    android:textColor="#FFFFFF"
+    android:background="#33000000" />
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="6dp"
+    android:background="#22000000">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/content_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF" />
+        <TextView
+            android:id="@+id/content_check"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="√"
+            android:textSize="14sp"
+            android:textColor="#4CAF50"
+            android:visibility="gone" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/content_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="10sp"
+        android:textColor="#AAAAAA" />
+</LinearLayout>
+EOF
+
+# ==================== 图标资源 ====================
+mkdir -p "$TEMPLATE_DIR/res/drawable"
+cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="24" android:viewportHeight="24">
+  <path android:fillColor="#FF5722" android:pathData="M8,5v14l11,-7z"/>
+</vector>
+EOF
+cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
+</vector>
+EOF
+cat > "$TEMPLATE_DIR/res/drawable/ic_epg.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
+</vector>
+EOF
+cat > "$TEMPLATE_DIR/res/drawable/ic_announce.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+</vector>
+EOF
+
+echo "✅ 模板生成完毕"
+
 # ==================== 复制模板到项目、修改 gradle、AndroidManifest、构建安装 ====================
 echo "📂 复制模板文件到项目..."
 rm -rf app/src/main/java/com/whyun/witv/ui
@@ -3133,4 +3120,4 @@ echo "🎉 部署完成！"
 echo "📌 固定签名: $KEYSTORE_FILE"
 echo "📱 应用已强制横屏，弹窗为酷9完美风格（居中、左右边距、台标左、网速右下）"
 echo "🔁 断线重连已修复（无限重连）"
-echo "📶 网速实时显示"
+echo "📶 网速实时显示（使用 DefaultBandwidthMeter）"
