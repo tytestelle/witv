@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（节目单台标修正版）"
+echo "🔥 部署 witv 播放器（最终完整版 - 台标/节目单/EPG映射全部修正）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -296,7 +296,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java ====================
+# ==================== EPGParser.java（强制覆盖别名） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -661,7 +661,7 @@ public class EPGParser {
             }
         }
 
-        // 应用别名映射：强制覆盖
+        // ========== 应用别名映射：强制覆盖（不跳过已有映射） ==========
         if (sAliasMap != null) {
             int successCount = 0;
             int failCount = 0;
@@ -676,6 +676,7 @@ public class EPGParser {
                     continue;
                 }
 
+                // 强制覆盖（无论 alias 是否已有映射）
                 channelNameToId.put(alias, realId);
                 channelNameToEpgid.put(alias, epgid);
                 successCount++;
@@ -761,7 +762,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（修正 ScheduleChannelAdapter 台标显示） ====================
+# ==================== MainActivity.java（完整修正版） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -1314,7 +1315,6 @@ public class MainActivity extends AppCompatActivity {
         }, 30000);
     }
 
-    // 处理单个频道台标：有URL则下载，无URL则不生成文件（适配器会显示文字）
     public void processChannelLogo(SourceManager.Channel channel) {
         if (channel == null) return;
         String epgid = epgIdMap.get(channel.name);
@@ -1326,9 +1326,8 @@ public class MainActivity extends AppCompatActivity {
         }
         final File logoFile = new File(logoDir, fileName);
         if (logoFile.exists()) {
-            return; // 已有文件，不再处理
+            return;
         }
-        // 尝试获取图标URL
         String logoUrl = null;
         if (epgIconMap.containsKey(channel.name)) {
             logoUrl = epgIconMap.get(channel.name);
@@ -1339,7 +1338,7 @@ public class MainActivity extends AppCompatActivity {
         if (logoUrl != null && !logoUrl.isEmpty()) {
             downloadAndProcessLogo(channel, logoUrl, logoFile);
         }
-        // 如果没有URL，不生成任何文件，界面会显示首字母
+        // 无URL则不生成文件
     }
 
     private void downloadAndProcessLogo(SourceManager.Channel channel, String logoUrl, File logoFile) {
@@ -2013,7 +2012,7 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
-            // 台标处理
+            // 台标
             String epgid = activity.epgIdMap.get(ch.name);
             String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
             File logoFile = new File(logoDir, fileName);
@@ -2032,7 +2031,6 @@ public class MainActivity extends AppCompatActivity {
                 holder.logo.setVisibility(View.GONE);
                 holder.textLogo.setVisibility(View.VISIBLE);
                 holder.textLogo.setText(ch.name.substring(0, 1));
-                // 触发下载（如果还没开始）
                 if (ch.logoUrl != null && !ch.logoUrl.isEmpty() || activity.epgIconMap.containsKey(ch.name)) {
                     activity.processChannelLogo(ch);
                 }
@@ -2079,13 +2077,13 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-    // ========== ScheduleChannelAdapter 修正：增加 activity 引用并显示图片/文字 ==========
+    // ========== ScheduleChannelAdapter（与ChannelAdapter完全一致） ==========
     static class ScheduleChannelAdapter extends RecyclerView.Adapter<ScheduleChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
         private Set<String> favoriteSet;
         private File logoDir;
         private OnChannelClickListener listener;
-        private MainActivity activity; // 新增
+        private MainActivity activity;
 
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         ScheduleChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir, MainActivity activity, OnChannelClickListener listener) {
@@ -2105,7 +2103,7 @@ public class MainActivity extends AppCompatActivity {
             holder.name.setText(ch.name);
             boolean isFav = favoriteSet.contains(ch.name);
             holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
-            // 台标处理：与 ChannelAdapter 一致
+            // 台标 - 与ChannelAdapter完全相同
             if (activity != null) {
                 String epgid = activity.epgIdMap.get(ch.name);
                 String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
@@ -2125,7 +2123,6 @@ public class MainActivity extends AppCompatActivity {
                     holder.logo.setVisibility(View.GONE);
                     holder.textLogo.setVisibility(View.VISIBLE);
                     holder.textLogo.setText(ch.name.substring(0, 1));
-                    // 触发下载（如果有图标URL）
                     if (ch.logoUrl != null && !ch.logoUrl.isEmpty() || activity.epgIconMap.containsKey(ch.name)) {
                         activity.processChannelLogo(ch);
                     }
@@ -3170,8 +3167,11 @@ echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
 echo "📂 所有数据存放在外部存储 /witv/ 下"
-echo "✅ 修正："
-echo "  1) 无图标时不生成文字文件，界面显示首字母"
-echo "  2) 节目单中频道列表的台标与主列表一致（优先图片，无图显示文字）"
-echo "  3) 频道列表显示当前节目预告"
-echo "  4) 节目单保留一周EPG，左侧频道带台标"
+echo "✅ 修正汇总："
+echo "  1) EPG别名映射强制覆盖（不跳过已有映射）"
+echo "  2) 台标：有图则下载处理（缩放+透明化），无图不生成文件，界面显示首字母"
+echo "  3) 节目单中的频道列表与主列表使用完全一致的台标逻辑（图片优先，无图文字）"
+echo "  4) 频道列表显示当前节目预告"
+echo "  5) 节目单保留一周EPG，左侧频道带台标"
+echo "  6) 无订阅对话框在添加订阅后自动关闭"
+echo "  7) 配置文件复制到外部存储，支持本地修改"
