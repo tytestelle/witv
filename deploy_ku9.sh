@@ -1320,7 +1320,7 @@ public class MainActivity extends AppCompatActivity {
     class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private List<MenuItem> items;
         private OnMenuItemClickListener listener;
-        interface OnMenuItemClickListener { void onClick(MenuItem item); }
+                interface OnMenuItemClickListener { void onClick(MenuItem item); }
         MenuAdapter(List<MenuItem> items, OnMenuItemClickListener listener) {
             this.items = items; this.listener = listener;
         }
@@ -1348,7 +1348,7 @@ public class MainActivity extends AppCompatActivity {
     class SubMenuAdapter extends RecyclerView.Adapter<SubMenuAdapter.ViewHolder> {
         private List<MenuItem> items;
         private OnSubMenuItemClickListener listener;
-        interface OnSubMenuItemClickListener { void onClick(MenuItem item); }
+                interface OnMenuItemClickListener { void onClick(MenuItem item); }
         SubMenuAdapter(List<MenuItem> items, OnSubMenuItemClickListener listener) {
             this.items = items; this.listener = listener;
         }
