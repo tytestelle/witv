@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "🔥 部署 witv 播放器（完整版 - 侧边菜单 + 二维码 + EPG边距）"
+echo "🔥 部署 witv 播放器（完整版 - 侧边菜单 + 二维码 + EPG边距 - 最终修正）"
 
 PROJECT_DIR="$(pwd)"
 TEMPLATE_DIR="./config"
@@ -201,7 +201,7 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 }
 EOF
 
-# ==================== 辅助类：SourceManager.java（完整） ====================
+# ==================== 辅助类：SourceManager.java ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'SRCMGR'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -327,7 +327,7 @@ public class SourceManager {
 }
 SRCMGR
 
-# ==================== 辅助类：LogUtils.java（完整） ====================
+# ==================== 辅助类：LogUtils.java ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'LOGUTIL'
 package com.whyun.witv.utils;
 import android.content.Context;
@@ -379,7 +379,7 @@ public class LogUtils {
 }
 LOGUTIL
 
-# ==================== 辅助类：ConfigurationManager.java（完整） ====================
+# ==================== 辅助类：ConfigurationManager.java ====================
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'CONFIG'
 package com.whyun.witv;
 import android.content.Context;
@@ -435,7 +435,7 @@ public class ConfigurationManager {
 }
 CONFIG
 
-# ==================== 辅助类：PlayerConfigManager.java（完整） ====================
+# ==================== 辅助类：PlayerConfigManager.java ====================
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'PLAYER'
 package com.whyun.witv.player;
 import android.content.Context;
@@ -453,7 +453,7 @@ public class PlayerConfigManager {
 }
 PLAYER
 
-# ==================== 辅助类：FavoriteManager.java（完整） ====================
+# ==================== 辅助类：FavoriteManager.java ====================
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'FAV'
 package com.whyun.witv.favorite;
 import android.content.Context;
@@ -473,7 +473,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== 辅助类：EPGParser.java（完整） ====================
+# ==================== EPGParser.java（修正：使用 FileInputStream） ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 import android.content.Context;
@@ -626,8 +626,15 @@ public class EPGParser {
                 File cacheFile = null;
                 boolean needDownload = true;
                 if (useHash && remoteHash != null && hashFileObj.exists()) {
-                    String localHash = new String(java.nio.file.Files.readAllBytes(hashFileObj.toPath())).trim();
-                    if (localHash.equals(remoteHash)) {
+                    String localHash = null;
+                    try {
+                        FileInputStream fis = new FileInputStream(hashFileObj);
+                        byte[] buffer = new byte[(int) hashFileObj.length()];
+                        fis.read(buffer);
+                        fis.close();
+                        localHash = new String(buffer, "UTF-8").trim();
+                    } catch (Exception e) {}
+                    if (localHash != null && localHash.equals(remoteHash)) {
                         for (File f : cacheDirFile.listFiles()) {
                             if (f.getName().endsWith(".xml")) {
                                 cacheFile = f;
@@ -1555,7 +1562,6 @@ public class MainActivity extends AppCompatActivity {
                 if (targetHeight > 80) targetHeight = 80;
                 Bitmap scaled = Bitmap.createScaledBitmap(src, targetWidth, targetHeight, true);
                 src.recycle();
-                // 简单的白色背景透明
                 Bitmap processed = Bitmap.createBitmap(scaled.getWidth(), scaled.getHeight(), Bitmap.Config.ARGB_8888);
                 for (int x = 0; x < scaled.getWidth(); x++) {
                     for (int y = 0; y < scaled.getHeight(); y++) {
@@ -2158,7 +2164,6 @@ public class MainActivity extends AppCompatActivity {
             // 显示侧边菜单
             if (isMenuVisible) {
                 if (menuLevel == 2) {
-                    // 二级退回一级
                     menuLevel2.setVisibility(View.GONE);
                     menuLevel = 1;
                     return true;
@@ -2300,9 +2305,211 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 其他适配器（SubAdapter, GroupAdapter, ChannelAdapter, ScheduleChannelAdapter, ScheduleEpgAdapter）
-    // 这些与原脚本相同，但为了完整性，再次列出（因篇幅，此处用简单实现）
-    // 实际脚本中已包含完整代码，由于长度限制，在此省略，但最终脚本会完整。
-    // 注意：以上适配器在脚本中已存在，此处仅示意。
+    static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
+        private List<SubEntry> data; private Set<String> selectedSubs; private OnSubClickListener listener;
+        interface OnSubClickListener { void onClick(SubEntry entry); }
+        SubAdapter(List<SubEntry> data, Set<String> selectedSubs, OnSubClickListener listener) {
+            this.data=data; this.selectedSubs=selectedSubs; this.listener=listener;
+        }
+        void updateData(List<SubEntry> newData) { this.data = newData; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_sub, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            SubEntry entry = data.get(position);
+            String key = entry.name + "||" + entry.url;
+            boolean isSelected = selectedSubs.contains(key);
+            holder.name.setText(entry.name);
+            if ("我的收藏".equals(entry.name)) holder.name.setTextColor(0xFFFFD700);
+            else holder.name.setTextColor(isSelected ? 0xFF4CAF50 : 0xFFFFFFFF);
+            holder.itemView.setOnClickListener(v -> listener.onClick(entry));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder { TextView name; ViewHolder(View v) { super(v); name = v.findViewById(R.id.sub_name); } }
+    }
+
+    static class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
+        private List<String> data; private String selectedGroup; private OnGroupClickListener listener;
+        interface OnGroupClickListener { void onClick(String group); }
+        GroupAdapter(List<String> data, OnGroupClickListener listener) { this.data=data; this.listener=listener; }
+        void updateData(List<String> newData) { this.data = newData; notifyDataSetChanged(); }
+        void setSelectedGroup(String group) { this.selectedGroup = group; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_group, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            String group = data.get(position);
+            holder.name.setText(group);
+            holder.itemView.setBackgroundColor(group.equals(selectedGroup) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(group));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder { TextView name; ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); } }
+    }
+
+    static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
+        private List<SourceManager.Channel> data; private SourceManager.Channel selectedChannel;
+        private OnChannelClickListener listener; private OnFavoriteClickListener favListener;
+        private Set<String> favoriteSet; private File logoDir; private MainActivity activity;
+        private Map<String, List<EPGParser.EpgProgram>> epgCache;
+        interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
+        interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
+        ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir,
+                       OnChannelClickListener listener, OnFavoriteClickListener favListener,
+                       MainActivity activity, Map<String, List<EPGParser.EpgProgram>> epgCache) {
+            this.data=data; this.favoriteSet=favorites; this.logoDir=logoDir;
+            this.listener=listener; this.favListener=favListener; this.activity=activity; this.epgCache=epgCache;
+        }
+        void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
+        void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
+        void setSelectedChannel(SourceManager.Channel ch) { this.selectedChannel = ch; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            SourceManager.Channel ch = data.get(position);
+            holder.name.setText(ch.name);
+            boolean isFav = favoriteSet.contains(ch.name);
+            holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
+            holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
+            holder.itemView.setOnClickListener(v -> listener.onClick(ch));
+            holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
+            String epgid = activity.epgIdMap.get(ch.name);
+            String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
+            File logoFile = new File(logoDir, fileName);
+            if (logoFile.exists()) {
+                Bitmap bmp = BitmapFactory.decodeFile(logoFile.getAbsolutePath());
+                if (bmp != null) { holder.logo.setImageBitmap(bmp); holder.logo.setVisibility(View.VISIBLE); holder.textLogo.setVisibility(View.GONE); }
+                else { holder.logo.setVisibility(View.GONE); holder.textLogo.setVisibility(View.VISIBLE); holder.textLogo.setText(ch.name.substring(0,1)); }
+            } else {
+                holder.logo.setVisibility(View.GONE);
+                holder.textLogo.setVisibility(View.VISIBLE);
+                holder.textLogo.setText(ch.name.substring(0,1));
+                if (ch.logoUrl != null && !ch.logoUrl.isEmpty() || activity.epgIconMap.containsKey(ch.name)) {
+                    activity.processChannelLogo(ch);
+                }
+            }
+            String currentTitle = null;
+            if (epgCache != null && epgCache.containsKey(ch.name)) {
+                List<EPGParser.EpgProgram> epgList = epgCache.get(ch.name);
+                if (epgList != null && !epgList.isEmpty()) {
+                    long now = System.currentTimeMillis();
+                    for (EPGParser.EpgProgram prog : epgList) {
+                        if (prog.startTime <= now && prog.endTime > now) { currentTitle = prog.title; break; }
+                    }
+                    if (currentTitle == null && !epgList.isEmpty()) {
+                        for (EPGParser.EpgProgram prog : epgList) {
+                            if (prog.startTime > now) { currentTitle = "即将播出：" + prog.title; break; }
+                        }
+                    }
+                }
+            }
+            if (currentTitle != null && !currentTitle.isEmpty()) {
+                holder.epgTitle.setText(currentTitle);
+                holder.epgTitle.setVisibility(View.VISIBLE);
+            } else {
+                holder.epgTitle.setVisibility(View.GONE);
+            }
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name, favIcon, epgTitle, textLogo; ImageView logo;
+            ViewHolder(View v) { super(v);
+                name = v.findViewById(R.id.channel_name);
+                favIcon = v.findViewById(R.id.channel_fav);
+                logo = v.findViewById(R.id.channel_logo);
+                textLogo = v.findViewById(R.id.text_logo);
+                epgTitle = v.findViewById(R.id.channel_epg_title);
+            }
+        }
+    }
+
+    static class ScheduleChannelAdapter extends RecyclerView.Adapter<ScheduleChannelAdapter.ViewHolder> {
+        private List<SourceManager.Channel> data; private Set<String> favoriteSet; private File logoDir;
+        private OnChannelClickListener listener; private MainActivity activity;
+        interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
+        ScheduleChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir, MainActivity activity, OnChannelClickListener listener) {
+            this.data=data; this.favoriteSet=favorites; this.logoDir=logoDir; this.activity=activity; this.listener=listener;
+        }
+        void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
+        void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            SourceManager.Channel ch = data.get(position);
+            holder.name.setText(ch.name);
+            boolean isFav = favoriteSet.contains(ch.name);
+            holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
+            if (activity != null) {
+                String epgid = activity.epgIdMap.get(ch.name);
+                String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
+                File logoFile = new File(logoDir, fileName);
+                if (logoFile.exists()) {
+                    Bitmap bmp = BitmapFactory.decodeFile(logoFile.getAbsolutePath());
+                    if (bmp != null) { holder.logo.setImageBitmap(bmp); holder.logo.setVisibility(View.VISIBLE); holder.textLogo.setVisibility(View.GONE); }
+                    else { holder.logo.setVisibility(View.GONE); holder.textLogo.setVisibility(View.VISIBLE); holder.textLogo.setText(ch.name.substring(0,1)); }
+                } else {
+                    holder.logo.setVisibility(View.GONE);
+                    holder.textLogo.setVisibility(View.VISIBLE);
+                    holder.textLogo.setText(ch.name.substring(0,1));
+                    if (ch.logoUrl != null && !ch.logoUrl.isEmpty() || activity.epgIconMap.containsKey(ch.name)) {
+                        activity.processChannelLogo(ch);
+                    }
+                }
+            } else {
+                holder.logo.setVisibility(View.GONE);
+                holder.textLogo.setVisibility(View.VISIBLE);
+                holder.textLogo.setText(ch.name.substring(0,1));
+            }
+            holder.itemView.setOnClickListener(v -> listener.onClick(ch));
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView name, favIcon, textLogo; ImageView logo;
+            ViewHolder(View v) { super(v);
+                name = v.findViewById(R.id.channel_name);
+                favIcon = v.findViewById(R.id.channel_fav);
+                logo = v.findViewById(R.id.channel_logo);
+                textLogo = v.findViewById(R.id.text_logo);
+            }
+        }
+    }
+
+    static class ScheduleEpgAdapter extends RecyclerView.Adapter<ScheduleEpgAdapter.ViewHolder> {
+        private List<EPGParser.EpgProgram> data = new ArrayList<>();
+        private long currentTime;
+        ScheduleEpgAdapter(List<EPGParser.EpgProgram> data) { this.data = data; }
+        void setItems(List<EPGParser.EpgProgram> newData, long currentTime) {
+            this.data = newData;
+            this.currentTime = currentTime;
+            notifyDataSetChanged();
+        }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_epg, parent, false));
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            EPGParser.EpgProgram prog = data.get(position);
+            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            String time = timeFormat.format(new Date(prog.startTime)) + "-" + timeFormat.format(new Date(prog.endTime));
+            holder.time.setText(time);
+            holder.title.setText(prog.title);
+            if (prog.startTime <= currentTime && prog.endTime > currentTime) {
+                holder.itemView.setBackgroundColor(0x3300A0FF);
+                holder.title.setTextColor(0xFFFFD700);
+                holder.time.setTextColor(0xFFFFD700);
+            } else {
+                holder.itemView.setBackgroundColor(0x00000000);
+                holder.title.setTextColor(0xFFFFFFFF);
+                holder.time.setTextColor(0xAAAAAA);
+            }
+        }
+        @Override public int getItemCount() { return data.size(); }
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView time, title;
+            ViewHolder(View v) { super(v); time = v.findViewById(R.id.epg_time); title = v.findViewById(R.id.epg_title); }
+        }
+    }
 }
 MAIN
 
@@ -2584,7 +2791,6 @@ public class SettingsActivity extends AppCompatActivity {
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> dialog.dismiss());
     }
 
-    // 其他设置对话框（简单）
     private void showLineSelection() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("线路选择").setItems(new String[]{"源1","源2","源3"}, (d,w) -> Toast.makeText(this, "选择线路"+(w+1), Toast.LENGTH_SHORT).show());
@@ -2664,7 +2870,6 @@ public class SettingsActivity extends AppCompatActivity {
         dialog.show();
     }
 
-    // 内部类
     static class ContentItem {
         String title, subtitle; boolean isSelected; View.OnClickListener listener;
         ContentItem(String t, String s, View.OnClickListener l) { title=t; subtitle=s; isSelected=false; listener=l; }
@@ -2718,7 +2923,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETTINGS
 
-# ==================== 布局文件（activity_main.xml） ====================
+# ==================== 布局文件 ====================
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2839,7 +3044,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- EPG 窗口（左右边距由代码动态设置） -->
             <LinearLayout
                 android:id="@+id/schedule_layout"
                 android:layout_width="match_parent"
@@ -2907,7 +3111,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
             android:layout_weight="0.5" />
     </LinearLayout>
 
-    <!-- 右侧菜单（一级+二级） -->
+    <!-- 右侧菜单 -->
     <LinearLayout
         android:id="@+id/menu_container"
         android:layout_width="wrap_content"
@@ -2965,7 +3169,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
 </FrameLayout>
 LAYOUT1
 
-# ==================== 其他布局文件（item_channel, popup_info, item_sub, item_group, item_epg, activity_settings, item_menu, item_content） ====================
 cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -3206,7 +3409,7 @@ cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# ==================== 图标资源（占位） ====================
+# ==================== 图标资源 ====================
 mkdir -p "$TEMPLATE_DIR/res/drawable"
 cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
