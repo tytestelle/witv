@@ -899,7 +899,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（修改：侧滑菜单 + EPG边距 + 返回键菜单） ====================
+# ==================== MainActivity.java（修正：动态设置EPG边距 + 侧滑菜单） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -927,6 +927,7 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -1047,7 +1048,7 @@ public class MainActivity extends AppCompatActivity {
     private RecyclerView menuLevel1Recycler, menuLevel2Recycler, menuLevel3Recycler;
     private LinearLayout menuContainer;
     private String[] menuTitles = {"线路选择", "频道搜索", "播放设置", "列表订阅", "EPG订阅", "分类管理", "订阅管理", "显示设置", "偏好设置", "列表设置", "其他设置", "推送频道", "更多管理"};
-    private int currentMenuLevel = 0; // 0=一级,1=二级,2=三级
+    private int currentMenuLevel = 0;
     private List<String> currentLevelItems = new ArrayList<>();
     private List<String> currentLevelSubItems = new ArrayList<>();
     private String selectedMenuTitle = "";
@@ -1274,6 +1275,24 @@ public class MainActivity extends AppCompatActivity {
                 if (isOverlayVisible) hideOverlay();
             };
             LogUtils.writeLog("应用启动成功");
+
+            // ========== 动态设置 EPG 窗口左右边距（屏幕宽度 1/10） ==========
+            scheduleLayout.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+                @Override
+                public void onGlobalLayout() {
+                    scheduleLayout.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    int screenWidth = getResources().getDisplayMetrics().widthPixels;
+                    int margin = screenWidth / 10;
+                    ViewGroup.LayoutParams params = scheduleLayout.getLayoutParams();
+                    if (params instanceof LinearLayout.LayoutParams) {
+                        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) params;
+                        lp.leftMargin = margin;
+                        lp.rightMargin = margin;
+                        scheduleLayout.setLayoutParams(lp);
+                    }
+                }
+            });
+
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
             showFatalErrorDialog("初始化失败: " + e.getMessage());
@@ -1286,16 +1305,13 @@ public class MainActivity extends AppCompatActivity {
             dismissRightMenu();
             return;
         }
-        // 获取屏幕宽度
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        int menuWidth = screenWidth / 10;  // 1/10 宽度
-        // 创建菜单视图
+        int menuWidth = screenWidth / 10;
         View menuView = LayoutInflater.from(this).inflate(R.layout.right_menu_layout, null);
         menuContainer = menuView.findViewById(R.id.menu_container);
         menuLevel1Recycler = menuView.findViewById(R.id.menu_level1);
         menuLevel2Recycler = menuView.findViewById(R.id.menu_level2);
         menuLevel3Recycler = menuView.findViewById(R.id.menu_level3);
-        // 默认显示一级菜单
         currentMenuLevel = 0;
         currentLevelItems.clear();
         Collections.addAll(currentLevelItems, menuTitles);
@@ -1327,30 +1343,22 @@ public class MainActivity extends AppCompatActivity {
         recycler.setLayoutManager(lm);
         MenuAdapter adapter = new MenuAdapter(items, item -> {
             if (level == 1) {
-                // 一级菜单点击 -> 显示二级菜单
                 selectedMenuTitle = item;
                 currentLevelSubItems.clear();
-                // 这里根据一级菜单项生成二级菜单内容（模拟内容）
                 for (int i = 0; i < 5; i++) {
                     currentLevelSubItems.add(item + " - 子项" + (i+1));
                 }
-                // 显示二级菜单（在左侧）
                 showSubMenu(2);
             } else if (level == 2) {
-                // 二级菜单点击 -> 显示三级菜单（如果有）
-                // 简单演示，生成三级
                 List<String> thirdItems = new ArrayList<>();
                 for (int i = 0; i < 3; i++) {
                     thirdItems.add(item + " - 详情" + (i+1));
                 }
                 currentLevelItems = thirdItems;
-                // 显示三级菜单
                 showSubMenu(3);
             } else if (level == 3) {
-                // 三级菜单点击执行操作
                 Toast.makeText(MainActivity.this, "选择了: " + item, Toast.LENGTH_SHORT).show();
                 dismissRightMenu();
-                // 根据选择执行对应操作（如打开设置）
                 if (item.contains("列表订阅")) {
                     Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
                     intent.putExtra("open_tab", 3);
@@ -1369,12 +1377,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showSubMenu(int level) {
-        // 显示二级或三级菜单，放在当前菜单左侧
         if (level == 2) {
             menuLevel2Recycler.setVisibility(View.VISIBLE);
             menuLevel2Recycler.setLayoutManager(new LinearLayoutManager(this));
             MenuAdapter adapter = new MenuAdapter(currentLevelSubItems, item -> {
-                // 点击二级菜单 -> 显示三级
                 List<String> third = new ArrayList<>();
                 for (int i = 0; i < 3; i++) {
                     third.add(item + " - 详情" + (i+1));
@@ -1383,13 +1389,11 @@ public class MainActivity extends AppCompatActivity {
                 showSubMenu(3);
             });
             menuLevel2Recycler.setAdapter(adapter);
-            // 调整宽度，使二级菜单紧贴一级左侧
             int screenWidth = getResources().getDisplayMetrics().widthPixels;
             int menuWidth = screenWidth / 10;
             ViewGroup.LayoutParams params = menuLevel2Recycler.getLayoutParams();
             params.width = menuWidth;
             menuLevel2Recycler.setLayoutParams(params);
-            // 如果三级可见则隐藏
             menuLevel3Recycler.setVisibility(View.GONE);
         } else if (level == 3) {
             menuLevel3Recycler.setVisibility(View.VISIBLE);
@@ -1397,7 +1401,6 @@ public class MainActivity extends AppCompatActivity {
             MenuAdapter adapter = new MenuAdapter(currentLevelItems, item -> {
                 Toast.makeText(MainActivity.this, "执行: " + item, Toast.LENGTH_SHORT).show();
                 dismissRightMenu();
-                // 执行对应操作
                 Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
                 startActivity(intent);
             });
@@ -1410,7 +1413,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== 菜单适配器 ====================
     class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
         private List<String> items;
         private OnMenuItemClickListener listener;
@@ -1435,7 +1437,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 删除旧图标等原有方法保持不变
+    // 原有方法（删除旧图标、复制配置、加载源、播放等）保持不变
     private void deleteOldLogos() {
         if (logoDir == null || !logoDir.exists()) return;
         File[] files = logoDir.listFiles();
@@ -2235,7 +2237,6 @@ public class MainActivity extends AppCompatActivity {
                 hideOverlay();
                 return true;
             }
-            // 显示右侧菜单（一级菜单）
             showRightMenu();
             return true;
         }
@@ -2496,11 +2497,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import com.whyun.witv.player.PlayerConfigManager;
-// 引入二维码生成库（使用简单的Matrix生成，不依赖第三方）
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 public class SettingsActivity extends AppCompatActivity {
     private RecyclerView menuRecycler, contentRecycler;
     private MenuAdapter menuAdapter;
@@ -2589,7 +2585,6 @@ public class SettingsActivity extends AppCompatActivity {
         showContent(2);
     }
     private void buildSubscriptionList(List<ContentItem> items) {
-        // 扫码输入 -> 显示二维码
         items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> showQRCodeDialog()));
         items.add(new ContentItem("列表订阅", "http://" + localIp + ":9978/", v -> {}));
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
@@ -2611,7 +2606,6 @@ public class SettingsActivity extends AppCompatActivity {
                     prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
                     Toast.makeText(this, currentSelected.contains(entry) ? "已选中" : "已取消选中", Toast.LENGTH_SHORT).show();
                     showContent(3);
-                    // 自动刷新并播放
                     reloadAndPlay();
                 }));
             }
@@ -2619,9 +2613,7 @@ public class SettingsActivity extends AppCompatActivity {
         items.add(new ContentItem("+ 添加订阅", "", v -> showAddSubscriptionDialog()));
     }
     private void reloadAndPlay() {
-        // 通知MainActivity重新加载
         prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
-        // 直接启动MainActivity并关闭当前
         finish();
         startActivity(new Intent(this, MainActivity.class));
     }
@@ -2648,14 +2640,12 @@ public class SettingsActivity extends AppCompatActivity {
         items.add(new ContentItem("隐藏频道图标", "关闭", v -> Toast.makeText(this, "功能待完善", Toast.LENGTH_SHORT).show()));
         items.add(new ContentItem("隐藏底部图标", "关闭", v -> Toast.makeText(this, "功能待完善", Toast.LENGTH_SHORT).show()));
     }
-    // ========== 二维码对话框 ==========
     private void showQRCodeDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("扫描二维码添加配置");
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(30,20,30,20);
-        // 生成二维码图片（酷9样式，显示IP和端口）
         String qrContent = "http://" + localIp + ":9978/subscribe";
         Bitmap qrBitmap = generateQRCode(qrContent, 300, 300);
         ImageView imageView = new ImageView(this);
@@ -2667,7 +2657,6 @@ public class SettingsActivity extends AppCompatActivity {
         hint.setTextColor(Color.WHITE);
         hint.setPadding(0, 10, 0, 0);
         layout.addView(hint);
-        // 添加配置按钮
         Button addBtn = new Button(this);
         addBtn.setText("手动添加配置");
         addBtn.setBackgroundColor(Color.TRANSPARENT);
@@ -2684,10 +2673,7 @@ public class SettingsActivity extends AppCompatActivity {
         dialog.show();
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.WHITE);
     }
-    // 简单二维码生成（仅演示，实际可使用ZXing库，这里使用Matrix绘制）
     private Bitmap generateQRCode(String content, int width, int height) {
-        // 这里简单生成一个带文字的二维码样式图片，实际应使用QRCode库
-        // 为了演示，我们生成一个带"QR"文字的图片
         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
         canvas.drawColor(Color.BLACK);
@@ -2696,7 +2682,6 @@ public class SettingsActivity extends AppCompatActivity {
         paint.setTextSize(100);
         paint.setTextAlign(Paint.Align.CENTER);
         canvas.drawText("QR", width/2, height/2, paint);
-        // 添加小字显示IP
         paint.setTextSize(30);
         canvas.drawText("IP: "+localIp, width/2, height/2+80, paint);
         return bitmap;
@@ -2737,7 +2722,6 @@ public class SettingsActivity extends AppCompatActivity {
             prefs.edit().putStringSet(KEY_SELECTED_SUBS, selectedSet).apply();
             prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
             Toast.makeText(this, "订阅已添加并选中", Toast.LENGTH_SHORT).show();
-            // 刷新并加载
             reloadAndPlay();
             dialog.dismiss();
         });
@@ -2894,7 +2878,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETTINGS
 
-# ==================== 布局文件（修改EPG边距 + 新增侧滑菜单布局） ====================
+# ==================== 布局文件（修正：去掉百分比边距，新增侧滑菜单布局） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
 <?xml version="1.0" encoding="utf-8"?>
@@ -3013,9 +2997,7 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:background="#CC000000"
-                android:visibility="gone"
-                android:layout_marginLeft="10%"
-                android:layout_marginRight="10%">  <!-- EPG窗口左右各1/10边距 -->
+                android:visibility="gone">
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
@@ -3072,7 +3054,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
 </FrameLayout>
 LAYOUT1
 
-# 新增侧滑菜单布局 (right_menu_layout.xml)
 cat > "$TEMPLATE_DIR/res/layout/right_menu_layout.xml" <<'RIGHTMENU'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -3104,7 +3085,6 @@ cat > "$TEMPLATE_DIR/res/layout/right_menu_layout.xml" <<'RIGHTMENU'
 </LinearLayout>
 RIGHTMENU
 
-# 右侧菜单项布局
 cat > "$TEMPLATE_DIR/res/layout/item_menu_right.xml" <<'RIGHTITEM'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -3178,7 +3158,6 @@ cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
 </LinearLayout>
 LAYOUT2
 
-# popup_info.xml 保持原样（酷9完美风格）
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -3193,7 +3172,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
     android:layout_marginLeft="48dp"
     android:layout_marginRight="48dp"
     android:maxWidth="800dp">
-    <!-- 第一行：台标 + 频道名 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -3216,7 +3194,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
             android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
-    <!-- 第二行：分辨率/FPS/音频/IP/线路 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -3282,7 +3259,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
     </LinearLayout>
-    <!-- 第三行：进度条 + 距结束时间 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -3307,7 +3283,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
     </LinearLayout>
-    <!-- 第四行：正在播放 -->
     <TextView
         android:id="@+id/popup_current_epg"
         android:layout_width="match_parent"
@@ -3317,7 +3292,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
         android:textSize="14sp"
         android:layout_marginBottom="2dp"
         android:textStyle="bold" />
-    <!-- 第五行：描述 -->
     <TextView
         android:id="@+id/popup_current_desc"
         android:layout_width="match_parent"
@@ -3328,7 +3302,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
         android:layout_marginBottom="6dp"
         android:maxLines="4"
         android:ellipsize="end" />
-    <!-- 第六行：下一节目 -->
     <TextView
         android:id="@+id/popup_next_epg"
         android:layout_width="match_parent"
@@ -3337,7 +3310,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
         android:textColor="#FFFFFF"
         android:textSize="13sp"
         android:textStyle="bold" />
-    <!-- 第七行：额外信息 -->
     <TextView
         android:id="@+id/popup_extra"
         android:layout_width="match_parent"
@@ -3346,7 +3318,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
         android:textColor="#888888"
         android:textSize="11sp"
         android:layout_marginTop="4dp" />
-    <!-- 第八行：网速（右对齐） -->
     <TextView
         android:id="@+id/popup_speed"
         android:layout_width="match_parent"
@@ -3525,7 +3496,7 @@ fi
 sed -i '/buildTypes {/a \        debug {\n            signingConfig signingConfigs.release\n        }\n        release {\n            signingConfig signingConfigs.release\n        }' "$APP_GRADLE"
 echo "✅ 签名配置已添加"
 
-# 添加依赖（包含二维码生成库）
+# 添加依赖
 sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
@@ -3602,7 +3573,7 @@ fi
 echo ""
 echo "🎉 部署完成！"
 echo "📌 固定签名: $KEYSTORE_FILE"
-echo "📱 应用已强制横屏，菜单侧滑（宽度1/10），EPG窗口左右边距1/10"
+echo "📱 应用已强制横屏，菜单侧滑（宽度1/10），EPG窗口左右边距1/10（动态设置）"
 echo "🔁 断线重连已修复（无限重连）"
 echo "📶 网速实时显示（3秒刷新）"
 echo "⏱️ 弹窗5秒自动消失"
