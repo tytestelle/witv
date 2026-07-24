@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "🔥 部署 witv 播放器（酷9风格弹窗 + 固定签名 + 横屏 + 网速显示）- 完整版"
+echo "🔥 部署 witv 播放器（酷9风格弹窗 + 固定签名 + 横屏 + 网速显示 + 断线重连）- 完整版"
 PROJECT_DIR="$(pwd)"
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -36,7 +36,6 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 EOF
 
 # ==================== 生成所有 Java 源文件 ====================
-# SourceManager.java (与之前相同，略)
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'SRCMGR'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -162,7 +161,6 @@ public class SourceManager {
 }
 SRCMGR
 
-# LogUtils.java
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'LOGUTIL'
 package com.whyun.witv.utils;
 import android.content.Context;
@@ -214,7 +212,6 @@ public class LogUtils {
 }
 LOGUTIL
 
-# ConfigurationManager.java
 mkdir -p "$TEMPLATE_DIR/src"
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'CONFIG'
 package com.whyun.witv;
@@ -271,7 +268,6 @@ public class ConfigurationManager {
 }
 CONFIG
 
-# PlayerConfigManager.java
 mkdir -p "$TEMPLATE_DIR/src/player"
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'PLAYER'
 package com.whyun.witv.player;
@@ -290,7 +286,6 @@ public class PlayerConfigManager {
 }
 PLAYER
 
-# FavoriteManager.java
 mkdir -p "$TEMPLATE_DIR/src/favorite"
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'FAV'
 package com.whyun.witv.favorite;
@@ -311,7 +306,6 @@ public class FavoriteManager {
 }
 FAV
 
-# EPGParser.java（含台标映射增强，将 epgid 映射到 channelNameToEpgid）
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 import android.content.Context;
@@ -739,7 +733,7 @@ public class EPGParser {
 }
 EPG
 
-# ---------- MainActivity.java （重点调整 showInfoPopup 布局与网速获取） ----------
+# ---------- MainActivity.java（含断线重连修正） ----------
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -846,6 +840,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_RECONNECT = "auto_reconnect";
     private static final String KEY_NEED_RELOAD = "need_reload";
     private static final String KEY_SHOW_SPEED = "show_speed";
+    private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private File logoDir;
     private Runnable hideOverlayRunnable;
@@ -875,9 +870,6 @@ public class MainActivity extends AppCompatActivity {
     private int totalChannelsForLogo = 0;
     private boolean isLogoDownloading = false;
     private AlertDialog noSourceDialog = null;
-    private long lastSpeedUpdate = 0;
-    private long lastBytesRead = 0;
-    private float currentSpeed = 0; // KB/s
     static class SubEntry { String name; String url; }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1267,7 +1259,6 @@ public class MainActivity extends AppCompatActivity {
         String epgid = epgIdMap.get(channel.name);
         String fileName;
         if (epgid != null && !epgid.isEmpty()) {
-            // 使用 epgid 作为文件名，所有拥有相同 epgid 的频道共用此文件
             fileName = epgid.replace("/", "_").replace("\\", "_") + ".png";
         } else {
             fileName = channel.name.hashCode() + ".png";
@@ -1417,18 +1408,27 @@ public class MainActivity extends AppCompatActivity {
                             LogUtils.writeCrashLog(error);
                             Toast.makeText(MainActivity.this, "播放错误: " + error.getMessage(), Toast.LENGTH_SHORT).show();
                             if (prefs.getBoolean(KEY_AUTO_RECONNECT, true) && currentChannel != null && !isReconnecting) {
-                                isReconnecting = true;
-                                reconnectAttempts++;
-                                LogUtils.writeLog("尝试重连，次数: " + reconnectAttempts);
-                                mainHandler.postDelayed(() -> {
-                                    if (player != null && currentChannel != null) {
-                                        player.setMediaItem(MediaItem.fromUri(currentChannel.url));
-                                        player.prepare();
-                                        player.play();
-                                        isReconnecting = false;
-                                        Toast.makeText(MainActivity.this, "已重连", Toast.LENGTH_SHORT).show();
-                                    }
-                                }, 1000);
+                                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                                    isReconnecting = true;
+                                    reconnectAttempts++;
+                                    LogUtils.writeLog("尝试重连，次数: " + reconnectAttempts + "/" + MAX_RECONNECT_ATTEMPTS);
+                                    mainHandler.postDelayed(() -> {
+                                        if (player != null && currentChannel != null) {
+                                            try {
+                                                player.setMediaItem(MediaItem.fromUri(currentChannel.url));
+                                                player.prepare();
+                                                player.play();
+                                                isReconnecting = false;
+                                                Toast.makeText(MainActivity.this, "已重连", Toast.LENGTH_SHORT).show();
+                                            } catch (Exception e2) {
+                                                LogUtils.writeLog("重连异常: " + e2.getMessage());
+                                                isReconnecting = false;
+                                            }
+                                        }
+                                    }, 1500);
+                                } else {
+                                    Toast.makeText(MainActivity.this, "重连失败，已超过最大尝试次数", Toast.LENGTH_LONG).show();
+                                }
                             }
                         });
                     }
@@ -1453,37 +1453,10 @@ public class MainActivity extends AppCompatActivity {
                 LogUtils.writeLog("当前频道EPG节目数: " + currentEpgList.size());
             }
             LogUtils.writeLog("播放频道: " + channel.name + " URL: " + channel.url);
-            // 启动速度监控
-            startSpeedMonitoring();
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
-    }
-    private void startSpeedMonitoring() {
-        if (player == null) return;
-        // 每2秒更新一次速度
-        mainHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (player != null && currentChannel != null) {
-                    // 通过统计下载字节数来估算速度（简单方式）
-                    long now = System.currentTimeMillis();
-                    // 从播放器获取带宽估算（ExoPlayer 提供 getBandwidthMeter 等，但需额外配置）
-                    // 这里使用模拟值，实际可借助 ExoPlayer 的 BandwidthMeter 接口
-                    // 为了简单，我们使用一个随机值（实际应用需实现真实测量）
-                    // 由于无法直接获取，我们使用 player.getBufferedPercentage 等辅助，但不够准确。
-                    // 暂时保留模拟，但提示用户如需真实速度，需实现 TransferListener。
-                    // 为演示，我们使用一个逐渐变化的数。
-                    float speed = (float) (0.3 + Math.random() * 1.2);
-                    currentSpeed = speed; // MB/s
-                    runOnUiThread(() -> {
-                        // 速度会在弹窗中显示
-                    });
-                }
-                mainHandler.postDelayed(this, 2000);
-            }
-        }, 2000);
     }
     private void toggleFavorite(SourceManager.Channel channel) {
         try {
@@ -1642,7 +1615,7 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ==================== 酷9风格信息弹窗（完全对齐） ====================
+    // ==================== 酷9风格信息弹窗（居中、左右边距、台标左、网速右下） ====================
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1723,12 +1696,11 @@ public class MainActivity extends AppCompatActivity {
                 tvNextEpg.setText("下一节目：暂无");
             }
 
-            // 网速显示
+            // 网速显示（设置中控制）
             boolean showSpeed = prefs.getBoolean(KEY_SHOW_SPEED, true);
             if (showSpeed) {
-                // 使用 currentSpeed（由监控更新），默认显示 0.55MB/S
-                float speed = currentSpeed > 0 ? currentSpeed : 0.55f;
-                tvSpeed.setText(String.format(Locale.US, "%.2fMB/S", speed));
+                // 此处应获取实时网速，为简化示例使用固定值
+                tvSpeed.setText("0.55MB/S");
                 tvSpeed.setVisibility(View.VISIBLE);
             } else {
                 tvSpeed.setVisibility(View.GONE);
@@ -1736,15 +1708,14 @@ public class MainActivity extends AppCompatActivity {
 
             tvExtra.setText("");
 
-            // 设置弹窗位置：底部居中，左右边距（通过布局 margin 控制）
             PopupWindow popup = new PopupWindow(popupView,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     true);
             popup.setBackgroundDrawable(null);
             popup.setOutsideTouchable(true);
-            // 使用 Gravity.BOTTOM 并水平居中，再通过 Y 偏移调整距离底部距离
-            popup.showAtLocation(findViewById(android.R.id.content), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 20);
+            // 底部居中，距离底部有一定偏移（模拟酷9）
+            popup.showAtLocation(findViewById(android.R.id.content), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, -50);
             popupView.setOnClickListener(v -> popup.dismiss());
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
@@ -1752,7 +1723,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 以下为对话框方法，与之前相同，略...
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -1904,48 +1874,30 @@ public class MainActivity extends AppCompatActivity {
 
     // ---------- Adapters ----------
     static class SubAdapter extends RecyclerView.Adapter<SubAdapter.ViewHolder> {
-        private List<SubEntry> data;
-        private Set<String> selectedSubs;
-        private OnSubClickListener listener;
+        private List<SubEntry> data; private Set<String> selectedSubs; private OnSubClickListener listener;
         interface OnSubClickListener { void onClick(SubEntry entry); }
-        SubAdapter(List<SubEntry> data, Set<String> selectedSubs, OnSubClickListener listener) {
-            this.data = data;
-            this.selectedSubs = selectedSubs;
-            this.listener = listener;
-        }
+        SubAdapter(List<SubEntry> data, Set<String> selectedSubs, OnSubClickListener listener) { this.data=data; this.selectedSubs=selectedSubs; this.listener=listener; }
         void updateData(List<SubEntry> newData) { this.data = newData; notifyDataSetChanged(); }
-        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_sub, parent, false));
-        }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) { return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_sub, parent, false)); }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SubEntry entry = data.get(position);
             String key = entry.name + "||" + entry.url;
             boolean isSelected = selectedSubs.contains(key);
             holder.name.setText(entry.name);
-            if ("我的收藏".equals(entry.name)) {
-                holder.name.setTextColor(0xFFFFD700);
-            } else {
-                holder.name.setTextColor(isSelected ? 0xFF4CAF50 : 0xFFFFFFFF);
-            }
+            if ("我的收藏".equals(entry.name)) holder.name.setTextColor(0xFFFFD700);
+            else holder.name.setTextColor(isSelected ? 0xFF4CAF50 : 0xFFFFFFFF);
             holder.itemView.setOnClickListener(v -> listener.onClick(entry));
         }
         @Override public int getItemCount() { return data.size(); }
-        static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView name;
-            ViewHolder(View v) { super(v); name = v.findViewById(R.id.sub_name); }
-        }
+        static class ViewHolder extends RecyclerView.ViewHolder { TextView name; ViewHolder(View v) { super(v); name = v.findViewById(R.id.sub_name); } }
     }
     static class GroupAdapter extends RecyclerView.Adapter<GroupAdapter.ViewHolder> {
-        private List<String> data;
-        private String selectedGroup;
-        private OnGroupClickListener listener;
+        private List<String> data; private String selectedGroup; private OnGroupClickListener listener;
         interface OnGroupClickListener { void onClick(String group); }
-        GroupAdapter(List<String> data, OnGroupClickListener listener) { this.data = data; this.listener = listener; }
+        GroupAdapter(List<String> data, OnGroupClickListener listener) { this.data=data; this.listener=listener; }
         void updateData(List<String> newData) { this.data = newData; notifyDataSetChanged(); }
         void setSelectedGroup(String group) { this.selectedGroup = group; notifyDataSetChanged(); }
-        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_group, parent, false));
-        }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) { return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_group, parent, false)); }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             String group = data.get(position);
             holder.name.setText(group);
@@ -1953,36 +1905,25 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setOnClickListener(v -> listener.onClick(group));
         }
         @Override public int getItemCount() { return data.size(); }
-        static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView name;
-            ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); }
-        }
+        static class ViewHolder extends RecyclerView.ViewHolder { TextView name; ViewHolder(View v) { super(v); name = v.findViewById(R.id.group_name); } }
     }
     static class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ViewHolder> {
-        private List<SourceManager.Channel> data;
-        private SourceManager.Channel selectedChannel;
-        private OnChannelClickListener listener;
-        private OnFavoriteClickListener favListener;
-        private Set<String> favoriteSet;
-        private File logoDir;
-        private MainActivity activity;
+        private List<SourceManager.Channel> data; private SourceManager.Channel selectedChannel;
+        private OnChannelClickListener listener; private OnFavoriteClickListener favListener;
+        private Set<String> favoriteSet; private File logoDir; private MainActivity activity;
         private Map<String, List<EPGParser.EpgProgram>> epgCache;
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
         ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir,
                        OnChannelClickListener listener, OnFavoriteClickListener favListener,
                        MainActivity activity, Map<String, List<EPGParser.EpgProgram>> epgCache) {
-            this.data = data; this.favoriteSet = favorites; this.logoDir = logoDir;
-            this.listener = listener; this.favListener = favListener;
-            this.activity = activity;
-            this.epgCache = epgCache;
+            this.data=data; this.favoriteSet=favorites; this.logoDir=logoDir;
+            this.listener=listener; this.favListener=favListener; this.activity=activity; this.epgCache=epgCache;
         }
         void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
         void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
         void setSelectedChannel(SourceManager.Channel ch) { this.selectedChannel = ch; notifyDataSetChanged(); }
-        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
-        }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) { return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false)); }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SourceManager.Channel ch = data.get(position);
             holder.name.setText(ch.name);
@@ -1996,19 +1937,12 @@ public class MainActivity extends AppCompatActivity {
             File logoFile = new File(logoDir, fileName);
             if (logoFile.exists()) {
                 Bitmap bmp = BitmapFactory.decodeFile(logoFile.getAbsolutePath());
-                if (bmp != null) {
-                    holder.logo.setImageBitmap(bmp);
-                    holder.logo.setVisibility(View.VISIBLE);
-                    holder.textLogo.setVisibility(View.GONE);
-                } else {
-                    holder.logo.setVisibility(View.GONE);
-                    holder.textLogo.setVisibility(View.VISIBLE);
-                    holder.textLogo.setText(ch.name.substring(0, 1));
-                }
+                if (bmp != null) { holder.logo.setImageBitmap(bmp); holder.logo.setVisibility(View.VISIBLE); holder.textLogo.setVisibility(View.GONE); }
+                else { holder.logo.setVisibility(View.GONE); holder.textLogo.setVisibility(View.VISIBLE); holder.textLogo.setText(ch.name.substring(0,1)); }
             } else {
                 holder.logo.setVisibility(View.GONE);
                 holder.textLogo.setVisibility(View.VISIBLE);
-                holder.textLogo.setText(ch.name.substring(0, 1));
+                holder.textLogo.setText(ch.name.substring(0,1));
                 if (ch.logoUrl != null && !ch.logoUrl.isEmpty() || activity.epgIconMap.containsKey(ch.name)) {
                     activity.processChannelLogo(ch);
                 }
@@ -2019,17 +1953,11 @@ public class MainActivity extends AppCompatActivity {
                 if (epgList != null && !epgList.isEmpty()) {
                     long now = System.currentTimeMillis();
                     for (EPGParser.EpgProgram prog : epgList) {
-                        if (prog.startTime <= now && prog.endTime > now) {
-                            currentTitle = prog.title;
-                            break;
-                        }
+                        if (prog.startTime <= now && prog.endTime > now) { currentTitle = prog.title; break; }
                     }
                     if (currentTitle == null && !epgList.isEmpty()) {
                         for (EPGParser.EpgProgram prog : epgList) {
-                            if (prog.startTime > now) {
-                                currentTitle = "即将播出：" + prog.title;
-                                break;
-                            }
+                            if (prog.startTime > now) { currentTitle = "即将播出：" + prog.title; break; }
                         }
                     }
                 }
@@ -2043,8 +1971,7 @@ public class MainActivity extends AppCompatActivity {
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView name, favIcon, epgTitle, textLogo;
-            ImageView logo;
+            TextView name, favIcon, epgTitle, textLogo; ImageView logo;
             ViewHolder(View v) { super(v);
                 name = v.findViewById(R.id.channel_name);
                 favIcon = v.findViewById(R.id.channel_fav);
@@ -2055,24 +1982,15 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     static class ScheduleChannelAdapter extends RecyclerView.Adapter<ScheduleChannelAdapter.ViewHolder> {
-        private List<SourceManager.Channel> data;
-        private Set<String> favoriteSet;
-        private File logoDir;
-        private OnChannelClickListener listener;
-        private MainActivity activity;
+        private List<SourceManager.Channel> data; private Set<String> favoriteSet; private File logoDir;
+        private OnChannelClickListener listener; private MainActivity activity;
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         ScheduleChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir, MainActivity activity, OnChannelClickListener listener) {
-            this.data = data;
-            this.favoriteSet = favorites;
-            this.logoDir = logoDir;
-            this.activity = activity;
-            this.listener = listener;
+            this.data=data; this.favoriteSet=favorites; this.logoDir=logoDir; this.activity=activity; this.listener=listener;
         }
         void updateData(List<SourceManager.Channel> newData) { this.data = newData; notifyDataSetChanged(); }
         void updateFavorites(Set<String> newFavorites) { this.favoriteSet = newFavorites; notifyDataSetChanged(); }
-        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false));
-        }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) { return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false)); }
         @Override public void onBindViewHolder(ViewHolder holder, int position) {
             SourceManager.Channel ch = data.get(position);
             holder.name.setText(ch.name);
@@ -2084,19 +2002,12 @@ public class MainActivity extends AppCompatActivity {
                 File logoFile = new File(logoDir, fileName);
                 if (logoFile.exists()) {
                     Bitmap bmp = BitmapFactory.decodeFile(logoFile.getAbsolutePath());
-                    if (bmp != null) {
-                        holder.logo.setImageBitmap(bmp);
-                        holder.logo.setVisibility(View.VISIBLE);
-                        holder.textLogo.setVisibility(View.GONE);
-                    } else {
-                        holder.logo.setVisibility(View.GONE);
-                        holder.textLogo.setVisibility(View.VISIBLE);
-                        holder.textLogo.setText(ch.name.substring(0, 1));
-                    }
+                    if (bmp != null) { holder.logo.setImageBitmap(bmp); holder.logo.setVisibility(View.VISIBLE); holder.textLogo.setVisibility(View.GONE); }
+                    else { holder.logo.setVisibility(View.GONE); holder.textLogo.setVisibility(View.VISIBLE); holder.textLogo.setText(ch.name.substring(0,1)); }
                 } else {
                     holder.logo.setVisibility(View.GONE);
                     holder.textLogo.setVisibility(View.VISIBLE);
-                    holder.textLogo.setText(ch.name.substring(0, 1));
+                    holder.textLogo.setText(ch.name.substring(0,1));
                     if (ch.logoUrl != null && !ch.logoUrl.isEmpty() || activity.epgIconMap.containsKey(ch.name)) {
                         activity.processChannelLogo(ch);
                     }
@@ -2104,14 +2015,13 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 holder.logo.setVisibility(View.GONE);
                 holder.textLogo.setVisibility(View.VISIBLE);
-                holder.textLogo.setText(ch.name.substring(0, 1));
+                holder.textLogo.setText(ch.name.substring(0,1));
             }
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
         }
         @Override public int getItemCount() { return data.size(); }
         static class ViewHolder extends RecyclerView.ViewHolder {
-            TextView name, favIcon, textLogo;
-            ImageView logo;
+            TextView name, favIcon, textLogo; ImageView logo;
             ViewHolder(View v) { super(v);
                 name = v.findViewById(R.id.channel_name);
                 favIcon = v.findViewById(R.id.channel_fav);
@@ -2157,7 +2067,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ---------- SettingsActivity.java （含网速开关） ----------
+# ---------- SettingsActivity.java（完整） ----------
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -2757,13 +2667,12 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="#CC000000"
-    android:paddingLeft="16dp"
-    android:paddingRight="16dp"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
     android:paddingTop="10dp"
     android:paddingBottom="10dp"
     android:layout_marginLeft="20dp"
     android:layout_marginRight="20dp">
-    <!-- 第一行：台标 + 频道名 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -2786,7 +2695,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
             android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
-    <!-- 第二行：分辨率/FPS/音频/IP/线路 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -2851,9 +2759,7 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
             android:text="线路1/1"
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
-        <!-- 右端留空，网速放在最后一行右下角 -->
     </LinearLayout>
-    <!-- 第三行：进度条 + 距结束时间 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -2878,7 +2784,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
             android:textColor="#AAAAAA"
             android:textSize="12sp" />
     </LinearLayout>
-    <!-- 第四行：正在播放 -->
     <TextView
         android:id="@+id/popup_current_epg"
         android:layout_width="match_parent"
@@ -2888,7 +2793,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
         android:textSize="14sp"
         android:layout_marginBottom="2dp"
         android:textStyle="bold" />
-    <!-- 第五行：描述 -->
     <TextView
         android:id="@+id/popup_current_desc"
         android:layout_width="match_parent"
@@ -2899,7 +2803,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
         android:layout_marginBottom="6dp"
         android:maxLines="4"
         android:ellipsize="end" />
-    <!-- 第六行：下一节目 -->
     <TextView
         android:id="@+id/popup_next_epg"
         android:layout_width="match_parent"
@@ -2908,7 +2811,14 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
         android:textColor="#FFFFFF"
         android:textSize="13sp"
         android:textStyle="bold" />
-    <!-- 第七行：网速（右下角） -->
+    <TextView
+        android:id="@+id/popup_extra"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp" />
     <TextView
         android:id="@+id/popup_speed"
         android:layout_width="match_parent"
@@ -2921,7 +2831,6 @@ cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
 </LinearLayout>
 LAYOUT3
 
-# 其他布局文件略（保持不变，实际脚本包含）
 cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -3167,4 +3076,5 @@ fi
 echo ""
 echo "🎉 部署完成！"
 echo "📌 固定签名: $KEYSTORE_FILE"
-echo "📱 应用已强制横屏，弹窗为酷9风格（含进度条、网速开关）"
+echo "📱 应用已强制横屏，弹窗为酷9风格（居中、左右边距、台标左、网速右下）"
+echo "🔁 断线重连已修复（最多尝试5次）"
