@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
-
-echo "🔥 部署 witv 播放器（固定签名 + 横屏 + 覆盖安装完整版）"
-
+echo "🔥 部署 witv 播放器（酷9风格弹窗 + 固定签名 + 横屏）"
 PROJECT_DIR="$(pwd)"
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -14,7 +12,6 @@ KEYSTORE_FILE="$PROJECT_DIR/keystore.jks"
 KEYSTORE_PASS="witv123"
 KEY_ALIAS="witv"
 KEY_PASS="witv123"
-
 if [ ! -f "$KEYSTORE_FILE" ]; then
     echo "🔑 生成 keystore（用于固定签名）..."
     keytool -genkey -v -keystore "$KEYSTORE_FILE" -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
@@ -38,7 +35,8 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":30,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
 EOF
 
-# ==================== SourceManager.java ====================
+# ==================== 生成所有源文件（不变部分从之前脚本复制） ====================
+# SourceManager.java
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'SRCMGR'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -164,7 +162,7 @@ public class SourceManager {
 }
 SRCMGR
 
-# ==================== LogUtils.java ====================
+# LogUtils.java
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'LOGUTIL'
 package com.whyun.witv.utils;
 import android.content.Context;
@@ -216,7 +214,7 @@ public class LogUtils {
 }
 LOGUTIL
 
-# ==================== ConfigurationManager.java ====================
+# ConfigurationManager.java
 mkdir -p "$TEMPLATE_DIR/src"
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'CONFIG'
 package com.whyun.witv;
@@ -273,7 +271,7 @@ public class ConfigurationManager {
 }
 CONFIG
 
-# ==================== PlayerConfigManager.java ====================
+# PlayerConfigManager.java
 mkdir -p "$TEMPLATE_DIR/src/player"
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'PLAYER'
 package com.whyun.witv.player;
@@ -292,7 +290,7 @@ public class PlayerConfigManager {
 }
 PLAYER
 
-# ==================== FavoriteManager.java ====================
+# FavoriteManager.java
 mkdir -p "$TEMPLATE_DIR/src/favorite"
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'FAV'
 package com.whyun.witv.favorite;
@@ -313,10 +311,9 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java ====================
+# EPGParser.java（与之前相同）
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
-
 import android.content.Context;
 import android.util.Xml;
 import org.xmlpull.v1.XmlPullParser;
@@ -324,7 +321,6 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import com.whyun.witv.utils.LogUtils;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -343,18 +339,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-
 public class EPGParser {
     public interface OnEpgLoadListener { void onLoaded(List<EpgProgram> programs); void onError(String error); }
     public interface OnAllEpgLoadedListener { 
         void onLoaded(Map<String, List<EpgProgram>> allPrograms, Map<String, String> channelNameToId, Map<String, String> channelNameToIcon);
         void onError(String error);
     }
-
     private static Map<String, String> sAliasMap = null;
     private static Map<String, List<EpgProgram>> sAllPrograms = null;
     private static Map<String, String> sChannelNameToId = null;
@@ -363,7 +356,6 @@ public class EPGParser {
     private static AtomicBoolean sLoading = new AtomicBoolean(false);
     private static boolean sLoaded = false;
     private static List<OnAllEpgLoadedListener> sPendingListeners = new ArrayList<>();
-
     private static synchronized Map<String, String> loadAliasMap(Context context) {
         if (sAliasMap != null) return sAliasMap;
         Map<String, String> map = new HashMap<>();
@@ -389,7 +381,6 @@ public class EPGParser {
                 json = new String(buffer, "UTF-8");
                 LogUtils.writeLog("从 assets 加载别名映射");
             }
-            
             JSONArray epgs = null;
             try {
                 epgs = new JSONArray(json);
@@ -408,7 +399,6 @@ public class EPGParser {
                 sAliasMap = map;
                 return map;
             }
-
             for (int i = 0; i < epgs.length(); i++) {
                 JSONObject obj = epgs.getJSONObject(i);
                 String epgid = obj.getString("epgid");
@@ -431,7 +421,6 @@ public class EPGParser {
         sAliasMap = map;
         return sAliasMap;
     }
-
     public static void loadAllEpg(Context context, String url, OnAllEpgLoadedListener listener) {
         loadAliasMap(context);
         if (sLoaded && sAllPrograms != null && sChannelNameToIcon != null) {
@@ -442,17 +431,14 @@ public class EPGParser {
         if (!sLoading.compareAndSet(false, true)) {
             return;
         }
-
         LogUtils.writeLog("开始全量加载并解析EPG...");
         new Thread(() -> {
             try {
                 String cacheDir = LogUtils.getEpgCacheDir();
                 File cacheDirFile = new File(cacheDir);
                 if (!cacheDirFile.exists()) cacheDirFile.mkdirs();
-
                 String hashFile = LogUtils.getEpgHashFile();
                 File hashFileObj = new File(hashFile);
-
                 String remoteHash = null;
                 boolean useHash = true;
                 try {
@@ -475,7 +461,6 @@ public class EPGParser {
                     useHash = false;
                     LogUtils.writeLog("获取远程哈希失败，将直接下载EPG: " + e.getMessage());
                 }
-
                 File cacheFile = null;
                 boolean needDownload = true;
                 if (useHash && remoteHash != null && hashFileObj.exists()) {
@@ -493,7 +478,6 @@ public class EPGParser {
                         }
                     }
                 }
-
                 if (needDownload) {
                     OkHttpClient client = new OkHttpClient.Builder()
                             .connectTimeout(30, TimeUnit.SECONDS)
@@ -503,11 +487,9 @@ public class EPGParser {
                     LogUtils.writeLog("下载EPG: " + url);
                     Response response = client.newCall(request).execute();
                     if (!response.isSuccessful()) throw new Exception("HTTP " + response.code());
-
                     for (File f : cacheDirFile.listFiles()) {
                         if (f.getName().endsWith(".xml")) f.delete();
                     }
-
                     String fileName = "epg_" + System.currentTimeMillis() + ".xml";
                     cacheFile = new File(cacheDirFile, fileName);
                     InputStream responseStream = response.body().byteStream();
@@ -518,7 +500,6 @@ public class EPGParser {
                     fos.close();
                     responseStream.close();
                     LogUtils.writeLog("EPG下载完成: " + cacheFile.getAbsolutePath());
-
                     if (useHash && remoteHash != null) {
                         FileOutputStream hfos = new FileOutputStream(hashFileObj);
                         hfos.write(remoteHash.getBytes());
@@ -526,11 +507,9 @@ public class EPGParser {
                         LogUtils.writeLog("更新本地哈希: " + remoteHash);
                     }
                 }
-
                 if (cacheFile == null || !cacheFile.exists()) {
                     throw new Exception("无法获取EPG缓存文件");
                 }
-
                 LogUtils.writeLog("开始解析EPG: " + cacheFile.getAbsolutePath());
                 InputStream is = new FileInputStream(cacheFile);
                 parseAllData(is);
@@ -556,13 +535,11 @@ public class EPGParser {
             }
         }).start();
     }
-
     private static void parseAllData(InputStream is) throws XmlPullParserException, IOException, ParseException {
         Map<String, List<EpgProgram>> allPrograms = new HashMap<>();
         Map<String, String> channelNameToId = new HashMap<>();
         Map<String, String> channelNameToIcon = new HashMap<>();
         Map<String, String> channelNameToEpgid = new HashMap<>();
-
         XmlPullParser parser = Xml.newPullParser();
         parser.setInput(is, "UTF-8");
         int eventType = parser.getEventType();
@@ -577,12 +554,9 @@ public class EPGParser {
         String progStop = null;
         String progTitle = null;
         String progDesc = null;
-
         SimpleDateFormat sdfWithZone = new SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US);
         SimpleDateFormat sdfNoZone = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-
         Set<String> allChannelIds = new HashSet<>();
-
         while (eventType != XmlPullParser.END_DOCUMENT) {
             switch (eventType) {
                 case XmlPullParser.START_TAG:
@@ -614,7 +588,6 @@ public class EPGParser {
                         progDesc = null;
                     }
                     break;
-
                 case XmlPullParser.TEXT:
                     if (inProgramme && parser.getText() != null) {
                         String text = parser.getText().trim();
@@ -627,7 +600,6 @@ public class EPGParser {
                         }
                     }
                     break;
-
                 case XmlPullParser.END_TAG:
                     if ("channel".equals(parser.getName())) {
                         inChannel = false;
@@ -671,42 +643,35 @@ public class EPGParser {
             }
             eventType = parser.next();
         }
-
         for (String id : allChannelIds) {
             if (!channelNameToId.containsValue(id)) {
                 channelNameToId.put(id, id);
             }
         }
-
-        // 应用别名映射：强制覆盖
         if (sAliasMap != null) {
             int successCount = 0;
             int failCount = 0;
             for (Map.Entry<String, String> entry : sAliasMap.entrySet()) {
                 String alias = entry.getKey();
                 String epgid = entry.getValue();
-
                 String realId = channelNameToId.get(epgid);
                 if (realId == null) {
                     LogUtils.writeLog("别名映射失败: " + alias + " (epgid: " + epgid + " 未找到对应的 display-name)");
                     failCount++;
                     continue;
                 }
-
                 channelNameToId.put(alias, realId);
                 channelNameToEpgid.put(alias, epgid);
                 successCount++;
             }
             LogUtils.writeLog("别名映射统计: 成功 " + successCount + " 个，失败 " + failCount + " 个");
         }
-
         sAllPrograms = allPrograms;
         sChannelNameToId = channelNameToId;
         sChannelNameToIcon = channelNameToIcon;
         sChannelNameToEpgid = channelNameToEpgid;
         LogUtils.writeLog("缓存构建完成：频道数=" + sAllPrograms.size() + ", 名称映射=" + sChannelNameToId.size() + ", 图标映射=" + sChannelNameToIcon.size() + ", epgid映射=" + sChannelNameToEpgid.size());
     }
-
     public static List<EpgProgram> getProgramsForChannel(String channelName) {
         if (sAllPrograms == null || sChannelNameToId == null) return new ArrayList<>();
         String channelId = sChannelNameToId.get(channelName);
@@ -737,7 +702,6 @@ public class EPGParser {
         LogUtils.writeLog("getProgramsForChannel: " + channelName + " 返回 " + result.size() + " 个节目");
         return result;
     }
-
     public static Map<String, List<EpgProgram>> getAllPrograms() {
         if (sAllPrograms == null || sChannelNameToId == null) return new HashMap<>();
         Map<String, List<EpgProgram>> nameMap = new HashMap<>();
@@ -751,15 +715,12 @@ public class EPGParser {
         }
         return nameMap;
     }
-
     public static Map<String, String> getChannelNameToIcon() {
         return sChannelNameToIcon != null ? sChannelNameToIcon : new HashMap<>();
     }
-
     public static Map<String, String> getChannelNameToEpgid() {
         return sChannelNameToEpgid != null ? sChannelNameToEpgid : new HashMap<>();
     }
-
     public static class EpgProgram {
         public long startTime;
         public long endTime;
@@ -778,7 +739,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（完整） ====================
+# ==================== MainActivity.java（修改 showInfoPopup 为酷9风格） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -810,6 +771,7 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -912,9 +874,7 @@ public class MainActivity extends AppCompatActivity {
     private int totalChannelsForLogo = 0;
     private boolean isLogoDownloading = false;
     private AlertDialog noSourceDialog = null;
-
     static class SubEntry { String name; String url; }
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
@@ -924,19 +884,15 @@ public class MainActivity extends AppCompatActivity {
         });
         try { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO); } catch (Exception e) {}
         super.onCreate(savedInstanceState);
-
         LogUtils.init(this);
         LogUtils.writeLog("=== 应用启动 ===");
-
         copyConfigFiles();
-
         String logDir = LogUtils.getLogDir();
         if (!logDir.isEmpty()) {
             Toast.makeText(this, "日志目录: " + logDir, Toast.LENGTH_LONG).show();
         } else {
             Toast.makeText(this, "日志目录创建失败", Toast.LENGTH_LONG).show();
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -946,12 +902,10 @@ public class MainActivity extends AppCompatActivity {
                         REQUEST_PERMISSIONS);
             }
         }
-
         try {
             setContentView(R.layout.activity_main);
             Toast.makeText(this, "界面加载完成", Toast.LENGTH_SHORT).show();
             LogUtils.writeLog("界面加载完成");
-
             config = ConfigurationManager.getInstance(this);
             PlayerConfigManager.init(this);
             FavoriteManager.init(this);
@@ -960,7 +914,6 @@ public class MainActivity extends AppCompatActivity {
                 prefs.edit().putBoolean(KEY_AUTO_RECONNECT, true).apply();
             }
             favoriteSet = new HashSet<>(prefs.getStringSet(KEY_FAVORITES, new HashSet<>()));
-            
             String root = LogUtils.getAppRootDir();
             if (!root.isEmpty()) {
                 logoDir = new File(root, "logo");
@@ -972,16 +925,13 @@ public class MainActivity extends AppCompatActivity {
                 if (!logoDir.exists()) logoDir.mkdirs();
             }
             deleteOldLogos();
-
             selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
-
             if (selectedSubs.isEmpty()) {
                 LogUtils.writeLog("无订阅源，跳转到设置界面");
                 Intent intent = new Intent(this, SettingsActivity.class);
                 intent.putExtra("open_tab", 3);
                 startActivity(intent);
             }
-
             String epgUrlPref = prefs.getString("epg_url", null);
             if (epgUrlPref == null || epgUrlPref.isEmpty()) {
                 String configEpg = config.getString("EPG_URLS", null);
@@ -991,7 +941,6 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, "EPG地址已自动配置", Toast.LENGTH_SHORT).show();
                 }
             }
-
             playerView = findViewById(R.id.player_container);
             overlayContainer = findViewById(R.id.overlay_container);
             overlayLayout = findViewById(R.id.overlay_layout);
@@ -1004,14 +953,12 @@ public class MainActivity extends AppCompatActivity {
             btnEpgSchedule = findViewById(R.id.btn_epg_schedule);
             dayTabs = findViewById(R.id.day_tabs);
             leftClickArea = findViewById(R.id.left_click_area);
-
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
             channelRecycler.setLayoutManager(new LinearLayoutManager(this));
             scheduleChannelRecycler.setLayoutManager(new LinearLayoutManager(this));
             scheduleEpgLayoutManager = new LinearLayoutManager(this);
             scheduleEpgRecycler.setLayoutManager(scheduleEpgLayoutManager);
-
             loadSubscriptions();
             subAdapter = new SubAdapter(subEntryList, selectedSubs, entry -> {
                 String key = entry.name + "||" + entry.url;
@@ -1025,14 +972,12 @@ public class MainActivity extends AppCompatActivity {
                 loadSelectedSources();
             });
             subRecycler.setAdapter(subAdapter);
-
             groupAdapter = new GroupAdapter(new ArrayList<>(), group -> {
                 currentGroup = group;
                 showChannelsForGroup(group);
                 groupAdapter.setSelectedGroup(group);
             });
             groupRecycler.setAdapter(groupAdapter);
-
             channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir,
                 channel -> {
                     playChannel(channel);
@@ -1046,15 +991,12 @@ public class MainActivity extends AppCompatActivity {
                 epgCacheMap
             );
             channelRecycler.setAdapter(channelAdapter);
-
             scheduleChannelAdapter = new ScheduleChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, this, channel -> {
                 showScheduleForChannel(channel);
             });
             scheduleChannelRecycler.setAdapter(scheduleChannelAdapter);
-
             scheduleEpgAdapter = new ScheduleEpgAdapter(new ArrayList<>());
             scheduleEpgRecycler.setAdapter(scheduleEpgAdapter);
-
             playerView.setOnTouchListener((v, event) -> {
                 if (event.getAction() == MotionEvent.ACTION_UP) {
                     float y = event.getY();
@@ -1066,11 +1008,8 @@ public class MainActivity extends AppCompatActivity {
                 }
                 return false;
             });
-
             btnEpgSchedule.setOnClickListener(v -> toggleScheduleMode());
-
             findViewById(R.id.schedule_close_area).setOnClickListener(v -> toggleScheduleMode());
-
             leftClickArea.setOnClickListener(v -> {
                 if (isScheduleMode) {
                     toggleScheduleMode();
@@ -1079,7 +1018,6 @@ public class MainActivity extends AppCompatActivity {
                     showOverlay();
                 }
             });
-
             String epgUrl = prefs.getString("epg_url", null);
             if (epgUrl == null || epgUrl.isEmpty()) {
                 epgUrl = config.getString("EPG_URLS", null);
@@ -1125,12 +1063,10 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             }
-
             if (prefs.getBoolean(KEY_NEED_RELOAD, false)) {
                 prefs.edit().remove(KEY_NEED_RELOAD).apply();
                 loadSelectedSources();
             }
-
             mainHandler.postDelayed(() -> {
                 if (selectedSubs.isEmpty()) {
                     for (SubEntry se : subEntryList) {
@@ -1151,18 +1087,15 @@ public class MainActivity extends AppCompatActivity {
                     showNoSourceDialog();
                 }
             }, 500);
-
             hideOverlayRunnable = () -> {
                 if (isOverlayVisible) hideOverlay();
             };
-
             LogUtils.writeLog("应用启动成功");
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
             showFatalErrorDialog("初始化失败: " + e.getMessage());
         }
     }
-
     private void deleteOldLogos() {
         if (logoDir == null || !logoDir.exists()) return;
         File[] files = logoDir.listFiles();
@@ -1175,7 +1108,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
     private void copyConfigFiles() {
         try {
             String configDir = LogUtils.getConfigDir();
@@ -1198,14 +1130,12 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeLog("复制配置文件失败: " + e.getMessage());
         }
     }
-
     private void dismissNoSourceDialog() {
         if (noSourceDialog != null && noSourceDialog.isShowing()) {
             noSourceDialog.dismiss();
             noSourceDialog = null;
         }
     }
-
     private void loadSelectedSources() {
         if (selectedSubs.isEmpty()) {
             showNoSourceDialog();
@@ -1227,7 +1157,6 @@ public class MainActivity extends AppCompatActivity {
             showNoSourceDialog();
         }
     }
-
     private void loadSourceForUrl(String url) {
         if (isLoading || url == null || url.isEmpty()) {
             if (url == null || url.isEmpty()) {
@@ -1241,7 +1170,6 @@ public class MainActivity extends AppCompatActivity {
         final String finalUrl = url;
         LogUtils.writeLog("开始加载源: " + finalUrl);
         Toast.makeText(this, "正在加载: " + finalUrl, Toast.LENGTH_SHORT).show();
-
         mainHandler.postDelayed(() -> {
             if (!loadFinished) {
                 isLoading = false;
@@ -1250,7 +1178,6 @@ public class MainActivity extends AppCompatActivity {
                 showLoadErrorDialog("加载超时，请检查网络或源地址是否有效。");
             }
         }, 30000);
-
         new SourceManager(this).loadFromUrl(finalUrl, new SourceManager.OnSourceLoadListener() {
             @Override
             public void onLoaded(Map<String, List<SourceManager.Channel>> map, List<String> names) {
@@ -1296,8 +1223,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-
-    // ==================== 台标处理 ====================
     private void downloadAllLogos() {
         if (isLogoDownloading) return;
         if (groupMap == null || groupMap.isEmpty()) {
@@ -1330,7 +1255,6 @@ public class MainActivity extends AppCompatActivity {
             });
         }, 30000);
     }
-
     public void processChannelLogo(SourceManager.Channel channel) {
         if (channel == null) return;
         String epgid = epgIdMap.get(channel.name);
@@ -1355,7 +1279,6 @@ public class MainActivity extends AppCompatActivity {
             downloadAndProcessLogo(channel, logoUrl, logoFile);
         }
     }
-
     private void downloadAndProcessLogo(SourceManager.Channel channel, String logoUrl, File logoFile) {
         try {
             String decodedUrl = URLDecoder.decode(logoUrl, "UTF-8");
@@ -1397,7 +1320,6 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeLog("台标下载异常: " + e.getMessage());
         }
     }
-
     private Bitmap makeTransparent(Bitmap src) {
         int width = src.getWidth();
         int height = src.getHeight();
@@ -1417,7 +1339,6 @@ public class MainActivity extends AppCompatActivity {
         }
         return result;
     }
-
     private void showChannelsForGroup(String group) {
         try {
             List<SourceManager.Channel> list;
@@ -1463,7 +1384,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "显示分组异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
-
     private void playChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentChannel = channel;
@@ -1530,7 +1450,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
-
     private void toggleFavorite(SourceManager.Channel channel) {
         try {
             if (favoriteSet.contains(channel.name)) {
@@ -1548,7 +1467,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "收藏操作异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
-
     private void showOverlay() {
         if (isScheduleMode) {
             scheduleLayout.setVisibility(View.GONE);
@@ -1560,7 +1478,6 @@ public class MainActivity extends AppCompatActivity {
         scheduleLayout.setVisibility(View.GONE);
         resetAutoHideTimer();
     }
-
     private void hideOverlay() {
         isOverlayVisible = false;
         overlayContainer.setVisibility(View.GONE);
@@ -1568,14 +1485,12 @@ public class MainActivity extends AppCompatActivity {
         scheduleLayout.setVisibility(View.GONE);
         mainHandler.removeCallbacks(hideOverlayRunnable);
     }
-
     private void resetAutoHideTimer() {
         mainHandler.removeCallbacks(hideOverlayRunnable);
         if (isOverlayVisible) {
             mainHandler.postDelayed(hideOverlayRunnable, 5000);
         }
     }
-
     private void toggleScheduleMode() {
         if (isScheduleMode) {
             scheduleLayout.setVisibility(View.GONE);
@@ -1598,7 +1513,6 @@ public class MainActivity extends AppCompatActivity {
             showScheduleForChannel(currentChannel);
         }
     }
-
     private void showScheduleForChannel(SourceManager.Channel channel) {
         if (channel == null) return;
         currentScheduleChannelName = channel.name;
@@ -1611,7 +1525,6 @@ public class MainActivity extends AppCompatActivity {
         }
         Toast.makeText(this, "EPG数据未加载", Toast.LENGTH_SHORT).show();
     }
-
     private void generateDayTabs(List<EPGParser.EpgProgram> programs) {
         if (programs == null || programs.isEmpty()) {
             dayLabels.clear();
@@ -1678,7 +1591,6 @@ public class MainActivity extends AppCompatActivity {
             dayTabs.addView(tv);
         }
     }
-
     private void showDayPrograms(int dayIndex) {
         if (dayIndex < 0 || dayIndex >= dayLabels.size()) return;
         String targetDate = dayLabels.get(dayIndex);
@@ -1695,6 +1607,7 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
+    // ==================== 酷9风格信息弹窗 ====================
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1706,14 +1619,17 @@ public class MainActivity extends AppCompatActivity {
             TextView tvAudio = popupView.findViewById(R.id.popup_audio);
             TextView tvIp = popupView.findViewById(R.id.popup_ip);
             TextView tvLine = popupView.findViewById(R.id.popup_line);
+            ProgressBar progressBar = popupView.findViewById(R.id.popup_progress);
             TextView tvDuration = popupView.findViewById(R.id.popup_duration);
             TextView tvCurrentEpg = popupView.findViewById(R.id.popup_current_epg);
             TextView tvCurrentDesc = popupView.findViewById(R.id.popup_current_desc);
             TextView tvNextEpg = popupView.findViewById(R.id.popup_next_epg);
             TextView tvExtra = popupView.findViewById(R.id.popup_extra);
+            TextView tvSpeed = popupView.findViewById(R.id.popup_speed);
 
+            // 设置频道名
             tvName.setText(currentChannel.name);
-
+            // 台标
             String epgid = epgIdMap.get(currentChannel.name);
             String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : currentChannel.name.hashCode() + ".png";
             File logoFile = new File(logoDir, fileName);
@@ -1729,6 +1645,7 @@ public class MainActivity extends AppCompatActivity {
                 ivLogo.setVisibility(View.GONE);
             }
 
+            // 信息行
             tvResolution.setText("FHD");
             tvFps.setText("29FPS");
             tvAudio.setText("立体声");
@@ -1738,16 +1655,25 @@ public class MainActivity extends AppCompatActivity {
             long now = System.currentTimeMillis();
             if (!currentEpgList.isEmpty()) {
                 EPGParser.EpgProgram currentProg = currentEpgList.get(0);
-                long endTime = currentProg.endTime;
-                long duration = endTime - now;
-                if (duration < 0) duration = 0;
-                long minutes = duration / 60000;
+                long start = currentProg.startTime;
+                long end = currentProg.endTime;
+                long total = end - start;
+                long elapsed = now - start;
+                if (elapsed < 0) elapsed = 0;
+                if (elapsed > total) elapsed = total;
+                int progress = (int) ((elapsed * 100) / total);
+                progressBar.setProgress(progress);
+                progressBar.setVisibility(View.VISIBLE);
+
+                long remaining = end - now;
+                if (remaining < 0) remaining = 0;
+                long minutes = remaining / 60000;
                 tvDuration.setText("距结束：" + minutes + "分钟");
 
                 SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
-                String currentTime = sdf.format(new Date(currentProg.startTime)) + "-" + sdf.format(new Date(currentProg.endTime));
+                String timeStr = sdf.format(new Date(start)) + "-" + sdf.format(new Date(end));
                 String desc = (currentProg.desc != null && !currentProg.desc.isEmpty()) ? currentProg.desc : "暂无描述信息";
-                tvCurrentEpg.setText("正在播放：" + currentTime + " " + currentProg.title);
+                tvCurrentEpg.setText("正在播放：" + timeStr + " " + currentProg.title);
                 tvCurrentDesc.setText(desc);
 
                 if (currentEpgList.size() > 1) {
@@ -1758,12 +1684,18 @@ public class MainActivity extends AppCompatActivity {
                     tvNextEpg.setText("下一节目：暂无");
                 }
             } else {
+                progressBar.setVisibility(View.GONE);
                 tvDuration.setText("距结束：--");
                 tvCurrentEpg.setText("正在播放：暂无EPG");
                 tvCurrentDesc.setText("暂无描述信息");
                 tvNextEpg.setText("下一节目：暂无");
             }
+
+            // 网速（模拟）
+            tvSpeed.setText("0.55MB/S");
+
             tvExtra.setText("");
+
             PopupWindow popup = new PopupWindow(popupView,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1778,7 +1710,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 对话框方法
+    // 对话框方法（与之前相同，省略以节省长度）
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -1787,13 +1719,11 @@ public class MainActivity extends AppCompatActivity {
         progressDialog.setMessage(message);
         progressDialog.show();
     }
-
     private void dismissLoadingDialog() {
         if (progressDialog != null && progressDialog.isShowing()) {
             progressDialog.dismiss();
         }
     }
-
     private void showNoSourceDialog() {
         dismissLoadingDialog();
         if (noSourceDialog != null && noSourceDialog.isShowing()) return;
@@ -1812,7 +1742,6 @@ public class MainActivity extends AppCompatActivity {
         noSourceDialog = builder.create();
         noSourceDialog.show();
     }
-
     private void showLoadErrorDialog(String errorMsg) {
         dismissLoadingDialog();
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -1835,7 +1764,6 @@ public class MainActivity extends AppCompatActivity {
         AlertDialog dialog = builder.create();
         dialog.show();
     }
-
     private void showFatalErrorDialog(String errorMsg) {
         dismissLoadingDialog();
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -1848,7 +1776,6 @@ public class MainActivity extends AppCompatActivity {
         AlertDialog dialog = builder.create();
         dialog.show();
     }
-
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -1863,7 +1790,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
     @Override
     protected void onResume() {
         super.onResume();
@@ -1886,7 +1812,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
     private void loadSubscriptions() {
         subEntryList.clear();
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
@@ -1906,7 +1831,6 @@ public class MainActivity extends AppCompatActivity {
         fav.url = null;
         subEntryList.add(0, fav);
     }
-
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -1923,7 +1847,6 @@ public class MainActivity extends AppCompatActivity {
         }
         return super.onKeyDown(keyCode, event);
     }
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -2002,7 +1925,6 @@ public class MainActivity extends AppCompatActivity {
         private File logoDir;
         private MainActivity activity;
         private Map<String, List<EPGParser.EpgProgram>> epgCache;
-
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         interface OnFavoriteClickListener { void onFavorite(SourceManager.Channel channel); }
         ChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir,
@@ -2027,7 +1949,6 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
-            // 台标
             String epgid = activity.epgIdMap.get(ch.name);
             String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
             File logoFile = new File(logoDir, fileName);
@@ -2050,7 +1971,6 @@ public class MainActivity extends AppCompatActivity {
                     activity.processChannelLogo(ch);
                 }
             }
-            // 当前节目预告
             String currentTitle = null;
             if (epgCache != null && epgCache.containsKey(ch.name)) {
                 List<EPGParser.EpgProgram> epgList = epgCache.get(ch.name);
@@ -2098,7 +2018,6 @@ public class MainActivity extends AppCompatActivity {
         private File logoDir;
         private OnChannelClickListener listener;
         private MainActivity activity;
-
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         ScheduleChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir, MainActivity activity, OnChannelClickListener listener) {
             this.data = data;
@@ -2117,7 +2036,6 @@ public class MainActivity extends AppCompatActivity {
             holder.name.setText(ch.name);
             boolean isFav = favoriteSet.contains(ch.name);
             holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
-            // 台标与主列表一致
             if (activity != null) {
                 String epgid = activity.epgIdMap.get(ch.name);
                 String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
@@ -2197,7 +2115,10 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java（完整） ====================
+# ==================== SettingsActivity.java（与之前相同，此处省略，实际脚本需包含） ====================
+# 由于 SettingsActivity 未变，我在此处保留，但为了节省空间，我将其内容放在一个较小的 heredoc 中（从之前脚本复制）。
+
+# 为了完整，我重新加入 SettingsActivity
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -2573,6 +2494,179 @@ SETTINGS
 
 # ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
+# activity_main.xml（与之前相同，省略以节省长度，实际脚本应包含）
+
+# 以下是修改后的 popup_info.xml（酷9风格）
+cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#CC000000"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <ImageView
+            android:id="@+id/popup_logo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/popup_channel_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="频道名"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="2dp">
+        <TextView
+            android:id="@+id/popup_resolution"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FHD"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_fps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="29FPS"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_audio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="立体声"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_ip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="IPV4"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_line"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="线路1/1"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="2dp">
+        <ProgressBar
+            android:id="@+id/popup_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="0dp"
+            android:layout_height="6dp"
+            android:layout_weight="1"
+            android:progressTint="#FFD700"
+            android:progressBackgroundTint="#444444"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/popup_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="距结束：56分钟"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/popup_current_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="正在播放：22:32-23:34职场健康课"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:layout_marginBottom="2dp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/popup_current_desc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="的负担"
+        android:textColor="#CCCCCC"
+        android:textSize="12sp"
+        android:layout_marginBottom="6dp"
+        android:maxLines="4"
+        android:ellipsize="end" />
+    <TextView
+        android:id="@+id/popup_next_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="下一节目：23:34-23:59经济半小时"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/popup_extra"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp" />
+    <TextView
+        android:id="@+id/popup_speed"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="0.55MB/S"
+        android:textColor="#AAAAAA"
+        android:textSize="11sp"
+        android:gravity="end" />
+</LinearLayout>
+LAYOUT3
+
+# 其他布局文件（activity_main, item_channel, item_sub, item_group, item_epg, activity_settings）与之前相同
+# 为了节省，此处只列出必须存在的文件（实际脚本应包含全部）
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -2591,7 +2685,6 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
         android:background="#00000000"
         android:clickable="true"
         android:focusable="true" />
-
     <LinearLayout
         android:id="@+id/overlay_container"
         android:layout_width="match_parent"
@@ -2808,150 +2901,6 @@ cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
 </LinearLayout>
 LAYOUT2
 
-cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="#CC000000"
-    android:paddingLeft="14dp"
-    android:paddingRight="14dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="4dp">
-        <ImageView
-            android:id="@+id/popup_logo"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:scaleType="fitCenter"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/popup_channel_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:text="频道名"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="2dp">
-        <TextView
-            android:id="@+id/popup_resolution"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="FHD"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_fps"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="29FPS"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_audio"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="立体声"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_ip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="IPV4"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_line"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="线路1/1"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/popup_duration"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="距结束：--分钟"
-        android:textColor="#AAAAAA"
-        android:textSize="12sp"
-        android:layout_marginBottom="2dp" />
-    <TextView
-        android:id="@+id/popup_current_epg"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="正在播放："
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:layout_marginBottom="2dp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/popup_current_desc"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="暂无描述信息"
-        android:textColor="#CCCCCC"
-        android:textSize="12sp"
-        android:layout_marginBottom="6dp"
-        android:maxLines="4"
-        android:ellipsize="end" />
-    <TextView
-        android:id="@+id/popup_next_epg"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="下一节目："
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/popup_extra"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#888888"
-        android:textSize="11sp"
-        android:layout_marginTop="4dp" />
-</LinearLayout>
-LAYOUT3
-
 cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
@@ -3063,10 +3012,7 @@ EOF
 mkdir -p "$TEMPLATE_DIR/res/drawable"
 cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="48dp"
-    android:height="48dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
+    android:width="48dp" android:height="48dp" android:viewportWidth="24" android:viewportHeight="24">
   <path android:fillColor="#FF5722" android:pathData="M8,5v14l11,-7z"/>
 </vector>
 EOF
@@ -3097,7 +3043,6 @@ cp -r "$TEMPLATE_DIR/src/." app/src/main/java/com/whyun/witv/
 cp -r "$TEMPLATE_DIR/res/." app/src/main/res/
 cp "$TEMPLATE_DIR/configuration.json" app/src/main/assets/
 cp "$TEMPLATE_DIR/assets/epg_data.json" app/src/main/assets/
-
 mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/assets/download \
          app/src/main/assets/videoFile app/src/main/assets/configuration app/src/main/assets/logo \
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
@@ -3115,21 +3060,16 @@ elif [ -f "apk ico.png" ]; then
     rm -f app/src/main/res/drawable/ic_launcher.xml
 fi
 
-# ==================== 修改 app/build.gradle 添加签名配置 ====================
+# ==================== 修改 build.gradle 添加签名配置 ====================
 APP_GRADLE="app/build.gradle"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
-
-# 检查是否已存在 signingConfigs，若没有则添加
 if ! grep -q "signingConfigs" "$APP_GRADLE"; then
     sed -i '/android {/a \    signingConfigs {\n        release {\n            storeFile file("'"$KEYSTORE_FILE"'")\n            storePassword "'"$KEYSTORE_PASS"'"\n            keyAlias "'"$KEY_ALIAS"'"\n            keyPassword "'"$KEY_PASS"'"\n        }\n    }' "$APP_GRADLE"
 fi
-
-# 修改 debug 和 release 使用该签名
 sed -i '/buildTypes {/a \        debug {\n            signingConfig signingConfigs.release\n        }\n        release {\n            signingConfig signingConfigs.release\n        }' "$APP_GRADLE"
+echo "✅ 签名配置已添加"
 
-echo "✅ 签名配置已添加到 build.gradle"
-
-# ==================== 添加依赖（如果尚未添加） ====================
+# ==================== 添加依赖 ====================
 sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
@@ -3137,11 +3077,9 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
-# ==================== 修改 AndroidManifest.xml 添加横屏和权限 ====================
+# ==================== 修改 AndroidManifest.xml 横屏和权限 ====================
 MANIFEST="app/src/main/AndroidManifest.xml"
 cp "$MANIFEST" "$MANIFEST.bak"
-
-# 使用 Python 修改 Manifest（添加横屏属性）
 cat > /tmp/fix_manifest.py <<'PYEOF'
 import sys, xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -3152,61 +3090,45 @@ try:
     tree = ET.parse(manifest_file); root = tree.getroot()
 except Exception as e:
     print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
-
 app = root.find('application')
 if app is None:
     print("未找到 application", file=sys.stderr); sys.exit(1)
-
-# 设置图标
 icon_attr = '{http://schemas.android.com/apk/res/android}icon'
 app.set(icon_attr, '@drawable/ic_launcher')
-
-# 清空已有 activity，重新创建
-for act in app.findall('activity'):
-    app.remove(act)
-
-# MainActivity
+for act in app.findall('activity'): app.remove(act)
 main_act = ET.Element('activity')
 main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
 main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-main_act.set('{http://schemas.android.com/apk/res/android}screenOrientation', 'landscape')  # 强制横屏
+main_act.set('{http://schemas.android.com/apk/res/android}screenOrientation', 'landscape')
 intent_filter = ET.SubElement(main_act, 'intent-filter')
 action = ET.SubElement(intent_filter, 'action')
 action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
 cat = ET.SubElement(intent_filter, 'category')
 cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
 app.append(main_act)
-
-# SettingsActivity
 settings_act = ET.Element('activity')
 settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
 settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
-settings_act.set('{http://schemas.android.com/apk/res/android}screenOrientation', 'landscape')  # 强制横屏
+settings_act.set('{http://schemas.android.com/apk/res/android}screenOrientation', 'landscape')
 app.append(settings_act)
-
 xml_str = ET.tostring(root, encoding='unicode')
 dom = minidom.parseString(xml_str)
 pretty = dom.toprettyxml(indent="    ")
 pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f:
-    f.write(pretty)
+with open(manifest_file, 'w') as f: f.write(pretty)
 print("✅ AndroidManifest 已更新（横屏+图标）")
 PYEOF
-
 python3 /tmp/fix_manifest.py
 rm -f /tmp/fix_manifest.py
-
-# 添加权限（如果尚未添加）
 sed -i '/android.permission.INTERNET/d' "$MANIFEST"
 sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
 sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
 echo "✅ 权限和 cleartext 已添加"
 
-# ==================== 构建并安装（覆盖安装，保留数据） ====================
+# ==================== 构建并安装 ====================
 echo "🧹 清理并构建..."
 ./gradlew clean
 ./gradlew assembleDebug
-
 APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
 if [ -f "$APK_PATH" ]; then
     if command -v adb &> /dev/null; then
@@ -3221,8 +3143,7 @@ else
     echo "❌ 构建失败，未找到 APK"
     exit 1
 fi
-
 echo ""
 echo "🎉 部署完成！"
 echo "📌 固定签名: $KEYSTORE_FILE"
-echo "📱 应用已强制横屏，可通过 adb install -r 覆盖安装保留数据。"
+echo "📱 应用已强制横屏，弹窗为酷9风格（含进度条）"
