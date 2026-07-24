@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终修正版 - 台标逻辑完善 + 订阅加载修正）"
+echo "🔥 部署 witv 播放器（完整修正版）"
 
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -296,7 +296,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（包含 epgid 映射） ====================
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -761,7 +761,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（完整版） ====================
+# ==================== MainActivity.java（完整修正） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -832,6 +832,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -890,7 +891,10 @@ public class MainActivity extends AppCompatActivity {
     private boolean isReconnecting = false;
     private int reconnectAttempts = 0;
     private ExecutorService logoDownloadExecutor = Executors.newFixedThreadPool(4);
+    private AtomicInteger logoDownloadCounter = new AtomicInteger(0);
+    private int totalChannelsForLogo = 0;
     private boolean isLogoDownloading = false;
+    private AlertDialog noSourceDialog = null;
 
     static class SubEntry { String name; String url; }
 
@@ -950,7 +954,6 @@ public class MainActivity extends AppCompatActivity {
                 logoDir = new File(baseDir, "logo");
                 if (!logoDir.exists()) logoDir.mkdirs();
             }
-            // 删除旧版图标（以hashCode命名的）
             deleteOldLogos();
 
             selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
@@ -1091,6 +1094,9 @@ public class MainActivity extends AppCompatActivity {
                             if (currentChannel != null && epgCacheMap.containsKey(currentChannel.name)) {
                                 currentEpgList = EPGParser.getProgramsForChannel(currentChannel.name);
                             }
+                            if (!isLogoDownloading && !groupMap.isEmpty()) {
+                                downloadAllLogos();
+                            }
                         });
                     }
                     @Override
@@ -1103,7 +1109,6 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
 
-            // 如果之前有需要重新加载的标记，则立即加载
             if (prefs.getBoolean(KEY_NEED_RELOAD, false)) {
                 prefs.edit().remove(KEY_NEED_RELOAD).apply();
                 loadSelectedSources();
@@ -1122,6 +1127,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 if (!selectedSubs.isEmpty()) {
+                    dismissNoSourceDialog();
                     loadSelectedSources();
                 } else {
                     LogUtils.writeLog("没有可用的订阅源，显示引导对话框");
@@ -1176,12 +1182,19 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void dismissNoSourceDialog() {
+        if (noSourceDialog != null && noSourceDialog.isShowing()) {
+            noSourceDialog.dismiss();
+            noSourceDialog = null;
+        }
+    }
+
     private void loadSelectedSources() {
         if (selectedSubs.isEmpty()) {
             showNoSourceDialog();
             return;
         }
-        // 取第一个选中的订阅源
+        dismissNoSourceDialog();
         for (String key : selectedSubs) {
             String[] parts = key.split("\\|\\|");
             if (parts.length == 2) {
@@ -1248,8 +1261,6 @@ public class MainActivity extends AppCompatActivity {
                     showOverlay();
                     resetAutoHideTimer();
                     LogUtils.writeLog("源加载成功，分组数: " + (map != null ? map.size() : 0));
-                    
-                    // 后台下载所有频道的台标
                     if (!isLogoDownloading) {
                         downloadAllLogos();
                     }
@@ -1269,24 +1280,159 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // 批量下载所有频道的台标
+    // ==================== 台标处理 ====================
     private void downloadAllLogos() {
         if (isLogoDownloading) return;
+        if (groupMap == null || groupMap.isEmpty()) {
+            LogUtils.writeLog("groupMap为空，跳过台标下载");
+            return;
+        }
         isLogoDownloading = true;
         List<SourceManager.Channel> allChannels = new ArrayList<>();
         for (List<SourceManager.Channel> list : groupMap.values()) {
             allChannels.addAll(list);
         }
-        LogUtils.writeLog("开始批量下载台标，总频道数: " + allChannels.size());
+        totalChannelsForLogo = allChannels.size();
+        logoDownloadCounter.set(0);
+        LogUtils.writeLog("开始批量处理台标，总频道数: " + totalChannelsForLogo);
         for (SourceManager.Channel ch : allChannels) {
             logoDownloadExecutor.execute(() -> {
-                downloadAndProcessLogo(ch);
+                processChannelLogo(ch);
+                int done = logoDownloadCounter.incrementAndGet();
+                if (done % 50 == 0 || done == totalChannelsForLogo) {
+                    LogUtils.writeLog("台标处理进度: " + done + "/" + totalChannelsForLogo);
+                }
             });
         }
         mainHandler.postDelayed(() -> {
             isLogoDownloading = false;
-            LogUtils.writeLog("批量台标下载已启动（异步）");
-        }, 1000);
+            LogUtils.writeLog("批量台标处理完成，共处理 " + logoDownloadCounter.get() + " 个频道");
+            runOnUiThread(() -> {
+                channelAdapter.notifyDataSetChanged();
+                scheduleChannelAdapter.notifyDataSetChanged();
+            });
+        }, 30000);
+    }
+
+    private void processChannelLogo(SourceManager.Channel channel) {
+        if (channel == null) return;
+        String epgid = epgIdMap.get(channel.name);
+        String fileName;
+        if (epgid != null && !epgid.isEmpty()) {
+            fileName = epgid.replace("/", "_").replace("\\", "_") + ".png";
+        } else {
+            fileName = channel.name.hashCode() + ".png";
+        }
+        final File logoFile = new File(logoDir, fileName);
+        if (logoFile.exists()) {
+            return;
+        }
+        String logoUrl = null;
+        if (epgIconMap.containsKey(channel.name)) {
+            logoUrl = epgIconMap.get(channel.name);
+        }
+        if (logoUrl == null || logoUrl.isEmpty()) {
+            logoUrl = channel.logoUrl;
+        }
+        if (logoUrl != null && !logoUrl.isEmpty()) {
+            downloadAndProcessLogo(channel, logoUrl, logoFile);
+        } else {
+            generateTextLogo(channel, logoFile);
+        }
+    }
+
+    private void downloadAndProcessLogo(SourceManager.Channel channel, String logoUrl, File logoFile) {
+        try {
+            String decodedUrl = URLDecoder.decode(logoUrl, "UTF-8");
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .build();
+            Request request = new Request.Builder().url(decodedUrl).build();
+            Response response = client.newCall(request).execute();
+            if (response.code() == 200) {
+                InputStream is = response.body().byteStream();
+                Bitmap src = BitmapFactory.decodeStream(is);
+                is.close();
+                if (src == null) {
+                    generateTextLogo(channel, logoFile);
+                    return;
+                }
+                int targetWidth = 120;
+                int targetHeight = (int) ((float) targetWidth / src.getWidth() * src.getHeight());
+                if (targetHeight > 80) targetHeight = 80;
+                Bitmap scaled = Bitmap.createScaledBitmap(src, targetWidth, targetHeight, true);
+                src.recycle();
+                Bitmap processed = makeTransparent(scaled);
+                scaled.recycle();
+                if (!logoDir.exists()) logoDir.mkdirs();
+                FileOutputStream fos = new FileOutputStream(logoFile);
+                processed.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                fos.close();
+                processed.recycle();
+                LogUtils.writeLog("台标下载并处理成功: " + logoFile.getAbsolutePath());
+                runOnUiThread(() -> {
+                    channelAdapter.notifyDataSetChanged();
+                    scheduleChannelAdapter.notifyDataSetChanged();
+                });
+            } else {
+                generateTextLogo(channel, logoFile);
+            }
+            response.close();
+        } catch (Exception e) {
+            LogUtils.writeLog("台标下载异常: " + e.getMessage() + ", URL: " + logoUrl);
+            generateTextLogo(channel, logoFile);
+        }
+    }
+
+    private void generateTextLogo(SourceManager.Channel channel, File logoFile) {
+        try {
+            if (!logoDir.exists()) logoDir.mkdirs();
+            String firstChar = channel.name.trim().substring(0, 1);
+            Bitmap bitmap = Bitmap.createBitmap(120, 80, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            canvas.drawColor(Color.parseColor("#333333"));
+            Paint paint = new Paint();
+            paint.setColor(Color.WHITE);
+            paint.setTextSize(40);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            paint.setTextAlign(Paint.Align.CENTER);
+            Paint.FontMetrics fm = paint.getFontMetrics();
+            float x = 60;
+            float y = (80 - fm.ascent - fm.descent) / 2;
+            canvas.drawText(firstChar, x, y, paint);
+            FileOutputStream fos = new FileOutputStream(logoFile);
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+            fos.close();
+            bitmap.recycle();
+            LogUtils.writeLog("生成文字台标: " + logoFile.getAbsolutePath());
+            runOnUiThread(() -> {
+                channelAdapter.notifyDataSetChanged();
+                scheduleChannelAdapter.notifyDataSetChanged();
+            });
+        } catch (Exception e) {
+            LogUtils.writeLog("生成文字台标失败: " + e.getMessage());
+        }
+    }
+
+    private Bitmap makeTransparent(Bitmap src) {
+        int width = src.getWidth();
+        int height = src.getHeight();
+        Bitmap result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                int pixel = src.getPixel(x, y);
+                int r = Color.red(pixel);
+                int g = Color.green(pixel);
+                int b = Color.blue(pixel);
+                if (r > 220 && g > 220 && b > 220) {
+                    result.setPixel(x, y, Color.TRANSPARENT);
+                } else {
+                    result.setPixel(x, y, pixel);
+                }
+            }
+        }
+        return result;
     }
 
     private void showChannelsForGroup(String group) {
@@ -1306,11 +1452,6 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 list = groupMap.get(group);
                 if (list == null) list = new ArrayList<>();
-            }
-            for (SourceManager.Channel ch : list) {
-                if ((ch.logoUrl == null || ch.logoUrl.isEmpty()) && epgIconMap.containsKey(ch.name)) {
-                    ch.logoUrl = epgIconMap.get(ch.name);
-                }
             }
             currentChannelList = list;
             channelAdapter.updateData(currentChannelList);
@@ -1347,11 +1488,6 @@ public class MainActivity extends AppCompatActivity {
         isReconnecting = false;
         prefs.edit().putString(KEY_LAST_CHANNEL, channel.name).apply();
         prefs.edit().putString(KEY_LAST_GROUP, currentGroup).apply();
-        if ((channel.logoUrl == null || channel.logoUrl.isEmpty()) && epgIconMap.containsKey(channel.name)) {
-            channel.logoUrl = epgIconMap.get(channel.name);
-        }
-        // 确保台标存在：如果不存在则尝试生成/下载
-        ensureLogoExists(channel);
         try {
             if (player == null) {
                 DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
@@ -1410,162 +1546,6 @@ public class MainActivity extends AppCompatActivity {
             LogUtils.writeCrashLog(e);
             Toast.makeText(this, "播放异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
-    }
-
-    // 确保台标存在：优先从本地加载，若无则从EPG下载，若无则生成文字图标
-    private void ensureLogoExists(SourceManager.Channel channel) {
-        String epgid = epgIdMap.get(channel.name);
-        String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : String.valueOf(channel.name.hashCode()) + ".png";
-        File logoFile = new File(logoDir, fileName);
-        if (logoFile.exists()) {
-            LogUtils.writeLog("台标已存在: " + logoFile.getAbsolutePath());
-            return;
-        }
-        // 尝试从EPG下载
-        if (channel.logoUrl != null && !channel.logoUrl.isEmpty()) {
-            downloadAndProcessLogo(channel);
-        } else {
-            // 生成文字图标
-            generateTextLogo(channel.name, logoFile);
-        }
-    }
-
-    // 生成文字图标（取频道名称第一个字）
-    private void generateTextLogo(String channelName, File outputFile) {
-        try {
-            if (!logoDir.exists()) logoDir.mkdirs();
-            int size = 120; // 图标大小
-            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
-            // 背景透明
-            canvas.drawColor(Color.TRANSPARENT);
-            Paint paint = new Paint();
-            paint.setColor(Color.WHITE);
-            paint.setTextSize(60);
-            paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-            paint.setTextAlign(Paint.Align.CENTER);
-            paint.setAntiAlias(true);
-            // 取第一个字符
-            String firstChar = channelName.substring(0, 1);
-            float x = size / 2f;
-            float y = size / 2f - (paint.descent() + paint.ascent()) / 2f;
-            canvas.drawText(firstChar, x, y, paint);
-            FileOutputStream fos = new FileOutputStream(outputFile);
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-            fos.close();
-            bitmap.recycle();
-            LogUtils.writeLog("生成文字台标: " + outputFile.getAbsolutePath());
-            runOnUiThread(() -> {
-                channelAdapter.notifyDataSetChanged();
-                scheduleChannelAdapter.notifyDataSetChanged();
-            });
-        } catch (Exception e) {
-            LogUtils.writeLog("生成文字台标失败: " + e.getMessage());
-        }
-    }
-
-    // 台标下载：使用epgid命名，缩放+透明化处理
-    private void downloadAndProcessLogo(SourceManager.Channel channel) {
-        String logoUrl = channel.logoUrl;
-        if (logoUrl == null || logoUrl.isEmpty()) {
-            LogUtils.writeLog("频道 " + channel.name + " 无台标URL，使用文字图标");
-            String epgid = epgIdMap.get(channel.name);
-            String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : String.valueOf(channel.name.hashCode()) + ".png";
-            File logoFile = new File(logoDir, fileName);
-            if (!logoFile.exists()) {
-                generateTextLogo(channel.name, logoFile);
-            }
-            return;
-        }
-        String decodedUrl = logoUrl;
-        try {
-            decodedUrl = URLDecoder.decode(logoUrl, "UTF-8");
-        } catch (Exception e) {
-            LogUtils.writeLog("台标URL解码失败: " + e.getMessage());
-        }
-        final String finalUrl = decodedUrl;
-
-        String epgid = epgIdMap.get(channel.name);
-        if (epgid == null || epgid.isEmpty()) {
-            epgid = String.valueOf(channel.name.hashCode());
-        }
-        final String finalEpgid = epgid;
-        String fileName = epgid.replace("/", "_").replace("\\", "_") + ".png";
-        final File logoFile = new File(logoDir, fileName);
-        if (logoFile.exists()) {
-            LogUtils.writeLog("台标已存在: " + logoFile.getAbsolutePath());
-            return;
-        }
-
-        new Thread(() -> {
-            try {
-                if (!logoDir.exists()) logoDir.mkdirs();
-                OkHttpClient client = new OkHttpClient.Builder()
-                        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                        .build();
-                Request request = new Request.Builder().url(finalUrl).build();
-                Response response = client.newCall(request).execute();
-                if (response.code() == 200) {
-                    InputStream is = response.body().byteStream();
-                    Bitmap src = BitmapFactory.decodeStream(is);
-                    is.close();
-                    if (src == null) {
-                        LogUtils.writeLog("解码台标失败: " + finalUrl);
-                        // 尝试生成文字图标
-                        generateTextLogo(channel.name, logoFile);
-                        return;
-                    }
-                    // 缩放至合适大小（宽度120，高度自适应）
-                    int targetWidth = 120;
-                    int targetHeight = (int) ((float) targetWidth / src.getWidth() * src.getHeight());
-                    if (targetHeight > 80) targetHeight = 80;
-                    Bitmap scaled = Bitmap.createScaledBitmap(src, targetWidth, targetHeight, true);
-                    src.recycle();
-                    // 透明化处理（去除白色背景）
-                    Bitmap processed = makeTransparent(scaled);
-                    scaled.recycle();
-                    FileOutputStream fos = new FileOutputStream(logoFile);
-                    processed.compress(Bitmap.CompressFormat.PNG, 100, fos);
-                    fos.close();
-                    processed.recycle();
-                    LogUtils.writeLog("台标下载并处理成功: " + logoFile.getAbsolutePath());
-                    runOnUiThread(() -> {
-                        channelAdapter.notifyDataSetChanged();
-                        scheduleChannelAdapter.notifyDataSetChanged();
-                    });
-                } else {
-                    LogUtils.writeLog("台标下载失败: " + response.code() + "，生成文字图标");
-                    generateTextLogo(channel.name, logoFile);
-                }
-                response.close();
-            } catch (Exception e) {
-                LogUtils.writeLog("台标下载异常: " + e.getMessage() + "，生成文字图标");
-                generateTextLogo(channel.name, logoFile);
-            }
-        }).start();
-    }
-
-    // 透明化处理：将接近白色的像素变为透明
-    private Bitmap makeTransparent(Bitmap src) {
-        int width = src.getWidth();
-        int height = src.getHeight();
-        Bitmap result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                int pixel = src.getPixel(x, y);
-                int r = Color.red(pixel);
-                int g = Color.green(pixel);
-                int b = Color.blue(pixel);
-                int a = Color.alpha(pixel);
-                if (r > 220 && g > 220 && b > 220) {
-                    result.setPixel(x, y, Color.TRANSPARENT);
-                } else {
-                    result.setPixel(x, y, pixel);
-                }
-            }
-        }
-        return result;
     }
 
     private void toggleFavorite(SourceManager.Channel channel) {
@@ -1732,7 +1712,6 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ========== 信息弹窗 ==========
     private void showInfoPopup() {
         if (currentChannel == null) return;
         try {
@@ -1753,7 +1732,7 @@ public class MainActivity extends AppCompatActivity {
             tvName.setText(currentChannel.name);
 
             String epgid = epgIdMap.get(currentChannel.name);
-            String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : String.valueOf(currentChannel.name.hashCode()) + ".png";
+            String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : currentChannel.name.hashCode() + ".png";
             File logoFile = new File(logoDir, fileName);
             if (logoFile.exists()) {
                 Bitmap bmp = BitmapFactory.decodeFile(logoFile.getAbsolutePath());
@@ -1801,9 +1780,7 @@ public class MainActivity extends AppCompatActivity {
                 tvCurrentDesc.setText("暂无描述信息");
                 tvNextEpg.setText("下一节目：暂无");
             }
-
             tvExtra.setText("");
-
             PopupWindow popup = new PopupWindow(popupView,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1818,7 +1795,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ========== 对话框方法 ==========
+    // ========== 对话框 ==========
     private void showLoadingDialog(String message) {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(this);
@@ -1836,6 +1813,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showNoSourceDialog() {
         dismissLoadingDialog();
+        if (noSourceDialog != null && noSourceDialog.isShowing()) return;
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("提示");
         builder.setMessage("当前没有可用的订阅源，请先添加订阅源。");
@@ -1848,8 +1826,8 @@ public class MainActivity extends AppCompatActivity {
             finish();
         });
         builder.setCancelable(false);
-        AlertDialog dialog = builder.create();
-        dialog.show();
+        noSourceDialog = builder.create();
+        noSourceDialog.show();
     }
 
     private void showLoadErrorDialog(String errorMsg) {
@@ -1908,18 +1886,16 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         loadSubscriptions();
         subAdapter.updateData(subEntryList);
-        // 检测是否需要重新加载
         if (prefs.getBoolean(KEY_NEED_RELOAD, false)) {
             prefs.edit().remove(KEY_NEED_RELOAD).apply();
             selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
-            // 强制重新加载
             if (!selectedSubs.isEmpty()) {
+                dismissNoSourceDialog();
                 loadSelectedSources();
             } else {
                 showNoSourceDialog();
             }
         } else {
-            // 常规检查：如果groupMap为空且之前有选中订阅，则尝试加载
             if (groupMap.isEmpty() && !subEntryList.isEmpty() && !isLoading) {
                 if (!selectedSubs.isEmpty()) {
                     loadSelectedSources();
@@ -2068,9 +2044,9 @@ public class MainActivity extends AppCompatActivity {
             holder.itemView.setBackgroundColor(ch.equals(selectedChannel) ? 0x3300A0FF : 0x00000000);
             holder.itemView.setOnClickListener(v -> listener.onClick(ch));
             holder.itemView.setOnLongClickListener(v -> { favListener.onFavorite(ch); return true; });
-            // 显示台标
+            // 台标
             String epgid = activity.epgIdMap.get(ch.name);
-            String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : String.valueOf(ch.name.hashCode()) + ".png";
+            String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
             File logoFile = new File(logoDir, fileName);
             if (logoFile.exists()) {
                 Bitmap bmp = BitmapFactory.decodeFile(logoFile.getAbsolutePath());
@@ -2082,38 +2058,37 @@ public class MainActivity extends AppCompatActivity {
                 }
             } else {
                 holder.logo.setVisibility(View.GONE);
-                // 如果台标不存在，触发生成/下载
-                activity.ensureLogoExists(ch);
+                // 触发下载（如果还没开始）
+                if (ch.logoUrl != null && !ch.logoUrl.isEmpty() || activity.epgIconMap.containsKey(ch.name)) {
+                    activity.processChannelLogo(ch);
+                }
             }
-            // 显示EPG节目
+            // 当前节目预告
+            String currentTitle = null;
             if (epgCache != null && epgCache.containsKey(ch.name)) {
                 List<EPGParser.EpgProgram> epgList = epgCache.get(ch.name);
                 if (epgList != null && !epgList.isEmpty()) {
                     long now = System.currentTimeMillis();
-                    EPGParser.EpgProgram currentProg = null;
                     for (EPGParser.EpgProgram prog : epgList) {
                         if (prog.startTime <= now && prog.endTime > now) {
-                            currentProg = prog;
+                            currentTitle = prog.title;
                             break;
                         }
                     }
-                    if (currentProg == null && !epgList.isEmpty()) {
+                    if (currentTitle == null && !epgList.isEmpty()) {
+                        // 取下一个即将开始的节目
                         for (EPGParser.EpgProgram prog : epgList) {
                             if (prog.startTime > now) {
-                                currentProg = prog;
+                                currentTitle = "即将播出：" + prog.title;
                                 break;
                             }
                         }
                     }
-                    if (currentProg != null) {
-                        holder.epgTitle.setText(currentProg.title);
-                        holder.epgTitle.setVisibility(View.VISIBLE);
-                    } else {
-                        holder.epgTitle.setVisibility(View.GONE);
-                    }
-                } else {
-                    holder.epgTitle.setVisibility(View.GONE);
                 }
+            }
+            if (currentTitle != null && !currentTitle.isEmpty()) {
+                holder.epgTitle.setText(currentTitle);
+                holder.epgTitle.setVisibility(View.VISIBLE);
             } else {
                 holder.epgTitle.setVisibility(View.GONE);
             }
@@ -2135,6 +2110,7 @@ public class MainActivity extends AppCompatActivity {
         private Set<String> favoriteSet;
         private File logoDir;
         private OnChannelClickListener listener;
+        private MainActivity activity;
         interface OnChannelClickListener { void onClick(SourceManager.Channel channel); }
         ScheduleChannelAdapter(List<SourceManager.Channel> data, Set<String> favorites, File logoDir, OnChannelClickListener listener) {
             this.data = data; this.favoriteSet = favorites; this.logoDir = logoDir; this.listener = listener;
@@ -2149,9 +2125,10 @@ public class MainActivity extends AppCompatActivity {
             holder.name.setText(ch.name);
             boolean isFav = favoriteSet.contains(ch.name);
             holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
-            if (ch.logoUrl != null && !ch.logoUrl.isEmpty()) {
-                String epgid = ((MainActivity) holder.itemView.getContext()).epgIdMap.get(ch.name);
-                String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : String.valueOf(ch.name.hashCode()) + ".png";
+            // 台标
+            if (activity != null) {
+                String epgid = activity.epgIdMap.get(ch.name);
+                String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
                 File logoFile = new File(logoDir, fileName);
                 if (logoFile.exists()) {
                     Bitmap bmp = BitmapFactory.decodeFile(logoFile.getAbsolutePath());
@@ -2213,7 +2190,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java（修正选中逻辑） ====================
+# ==================== SettingsActivity.java（完整） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -2587,7 +2564,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETTINGS
 
-# ==================== 布局文件（美化） ====================
+# ==================== 布局文件 ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
 <?xml version="1.0" encoding="utf-8"?>
@@ -3091,7 +3068,7 @@ EOF
 
 echo "✅ 模板生成完毕"
 
-# ========== 复制模板到项目 ==========
+# ==================== 复制模板到项目 ====================
 echo "📂 复制模板文件到项目..."
 rm -rf app/src/main/java/com/whyun/witv/ui
 rm -f app/src/main/java/com/whyun/witv/SettingsActivity.java
@@ -3106,7 +3083,7 @@ mkdir -p app/src/main/assets/localData app/src/main/assets/backup app/src/main/a
          app/src/main/assets/js app/src/main/assets/py app/src/main/assets/webviewJscode app/src/main/assets/epgCache
 echo "✅ 文件复制完成"
 
-# ========== 自定义图标 ==========
+# ==================== 自定义图标 ====================
 if [ -f "apk ico.jpeg" ]; then
     cp "apk ico.jpeg" "app/src/main/res/drawable/ic_launcher.png"
     rm -f app/src/main/res/drawable/ic_launcher.xml
@@ -3118,7 +3095,7 @@ elif [ -f "apk ico.png" ]; then
     rm -f app/src/main/res/drawable/ic_launcher.xml
 fi
 
-# ========== 添加依赖和权限 ==========
+# ==================== 添加依赖和权限 ====================
 APP_GRADLE="app/build.gradle"
 MANIFEST="app/src/main/AndroidManifest.xml"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
@@ -3134,7 +3111,7 @@ sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INT
 sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
 echo "✅ 权限和 cleartext 已添加"
 
-# ========== 设置应用图标 ==========
+# ==================== 设置应用图标 ====================
 cat > /tmp/fix_manifest.py <<'PYEOF'
 import sys, xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -3175,7 +3152,7 @@ PYEOF
 python3 /tmp/fix_manifest.py
 rm -f /tmp/fix_manifest.py
 
-# ========== 构建 ==========
+# ==================== 构建 ====================
 echo "🧹 清理并构建..."
 ./gradlew clean
 ./gradlew assembleDebug
@@ -3183,9 +3160,9 @@ echo "🧹 清理并构建..."
 echo ""
 echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
 echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 所有数据（日志、EPG缓存、配置文件、台标）均存放在外部存储 /witv/ 下"
-echo "✅ 本次修正："
-echo "  1) 订阅加载逻辑：添加订阅后自动加载，不再提示无源"
-echo "  2) 台标处理：优先本地 → EPG下载 → 生成文字图标（频道名首字）"
-echo "  3) 台标命名：使用 epgid.png，并删除旧 hash 文件"
-echo "  4) 界面美化：EPG节目单高亮当前节目，字体颜色区分"
+echo "📂 所有数据存放在外部存储 /witv/ 下"
+echo "✅ 修正："
+echo "  1) 频道列表显示当前节目预告"
+echo "  2) 节目单保留一周EPG，左侧频道带台标"
+echo "  3) 台标优先级：本地→EPG→M3U/TXT→文字图标"
+echo "  4) 无订阅对话框在添加订阅后自动关闭"
