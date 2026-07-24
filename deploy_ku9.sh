@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "🔥 部署 witv 播放器（酷9完美风格 + 无限重连 + 实时网速 + 设置菜单 + 二维码） - 完整修复版"
+echo "🔥 部署 witv 播放器（酷9完美风格 + 无限重连 + 实时网速 + 设置菜单 + 二维码）- 完整修复版"
 
 # 工作目录
 PROJECT_DIR="$(pwd)"
@@ -736,8 +736,9 @@ public class EPGParser {
 }
 EPG
 
-echo "✅ 前半部分文件生成完毕，继续第二部分..."
-# ==================== MainActivity.java（完整版，含设置菜单、二维码、边距调整） ====================
+echo "✅ 基础类和工具生成完毕，开始生成 MainActivity 完整版（含所有方法）..."
+
+# ==================== MainActivity.java（完整修正版，包含所有方法） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 
@@ -905,6 +906,7 @@ public class MainActivity extends AppCompatActivity {
 
     static class SubEntry { String name; String url; }
 
+    // ---------- onCreate 修正：先构建菜单树 ----------
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
@@ -958,11 +960,16 @@ public class MainActivity extends AppCompatActivity {
                 if (!logoDir.exists()) logoDir.mkdirs();
             }
             deleteOldLogos();
+
+            // ====== 关键修复：先构建菜单树，再显示设置弹窗 ======
+            buildMenuTree();
+
             selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
             if (selectedSubs.isEmpty()) {
                 LogUtils.writeLog("无订阅源，显示设置菜单");
                 showSettingsPopup();
             }
+
             String epgUrlPref = prefs.getString("epg_url", null);
             if (epgUrlPref == null || epgUrlPref.isEmpty()) {
                 String configEpg = config.getString("EPG_URLS", null);
@@ -972,6 +979,7 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, "EPG地址已自动配置", Toast.LENGTH_SHORT).show();
                 }
             }
+
             playerView = findViewById(R.id.player_container);
             overlayContainer = findViewById(R.id.overlay_container);
             overlayLayout = findViewById(R.id.overlay_layout);
@@ -1144,15 +1152,13 @@ public class MainActivity extends AppCompatActivity {
                 if (isOverlayVisible) hideOverlay();
             };
             LogUtils.writeLog("应用启动成功");
-
-            buildMenuTree();
         } catch (Exception e) {
             LogUtils.writeCrashLog(e);
             showFatalErrorDialog("初始化失败: " + e.getMessage());
         }
     }
 
-    // ========== 设置菜单相关方法 ==========
+    // ---------- 菜单构建 ----------
     private void buildMenuTree() {
         rootMenuNode = new MenuNode("设置");
         String[] mainItems = {"线路选择", "频道搜索", "播放设置", "列表订阅", "EPG订阅", "分类管理", "订阅管理", "显示设置", "偏好设置", "列表设置", "其他设置", "推送频道", "更多管理"};
@@ -1189,6 +1195,9 @@ public class MainActivity extends AppCompatActivity {
     private void showSettingsPopup() {
         if (settingsPopup != null && settingsPopup.isShowing()) {
             settingsPopup.dismiss();
+        }
+        if (rootMenuNode == null) {
+            buildMenuTree();
         }
         android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
         getWindowManager().getDefaultDisplay().getMetrics(dm);
@@ -1293,7 +1302,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 订阅对话框（含二维码）
+    // ---------- 订阅对话框（含二维码） ----------
     private void showSubscriptionDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("添加列表订阅");
@@ -1478,7 +1487,7 @@ public class MainActivity extends AppCompatActivity {
         return bitmap;
     }
 
-    // ========== 原有方法（完整保留） ==========
+    // ---------- 原有方法（完整保留） ----------
     private void deleteOldLogos() {
         if (logoDir == null || !logoDir.exists()) return;
         File[] files = logoDir.listFiles();
@@ -2244,7 +2253,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         loadSubscriptions();
-        subAdapter.updateData(subEntryList);
+        if (subAdapter != null) {
+            subAdapter.updateData(subEntryList);
+        }
         if (prefs.getBoolean(KEY_NEED_RELOAD, false)) {
             prefs.edit().remove(KEY_NEED_RELOAD).apply();
             selectedSubs = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
@@ -2530,6 +2541,8 @@ public class MainActivity extends AppCompatActivity {
     }
 }
 MAIN
+
+echo "✅ MainActivity 生成完成。"
 
 # ==================== SettingsActivity.java ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
