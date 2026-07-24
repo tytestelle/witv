@@ -1,12 +1,29 @@
 #!/bin/bash
 set -e
 
-echo "🔥 部署 witv 播放器（最终完整版 - 台标/节目单/EPG映射全部修正）"
+echo "🔥 部署 witv 播放器（固定签名 + 横屏 + 覆盖安装完整版）"
 
+PROJECT_DIR="$(pwd)"
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
 mkdir -p "$TEMPLATE_DIR"/{src,res/layout,res/drawable,res/values,assets}
 mkdir -p "$TEMPLATE_DIR/src/epg" "$TEMPLATE_DIR/src/player" "$TEMPLATE_DIR/src/favorite" "$TEMPLATE_DIR/src/utils"
+
+# ==================== 生成固定签名 keystore ====================
+KEYSTORE_FILE="$PROJECT_DIR/keystore.jks"
+KEYSTORE_PASS="witv123"
+KEY_ALIAS="witv"
+KEY_PASS="witv123"
+
+if [ ! -f "$KEYSTORE_FILE" ]; then
+    echo "🔑 生成 keystore（用于固定签名）..."
+    keytool -genkey -v -keystore "$KEYSTORE_FILE" -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+        -storepass "$KEYSTORE_PASS" -keypass "$KEY_PASS" \
+        -dname "CN=Witv, OU=Dev, O=Witv, L=City, S=State, C=CN"
+    echo "✅ keystore 生成完成: $KEYSTORE_FILE"
+else
+    echo "✅ 已存在 keystore: $KEYSTORE_FILE"
+fi
 
 # ==================== 下载 epg_data.json ====================
 echo "📥 下载别名映射 epg_data.json ..."
@@ -296,7 +313,7 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java（强制覆盖别名） ====================
+# ==================== EPGParser.java ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 
@@ -661,7 +678,7 @@ public class EPGParser {
             }
         }
 
-        // ========== 应用别名映射：强制覆盖（不跳过已有映射） ==========
+        // 应用别名映射：强制覆盖
         if (sAliasMap != null) {
             int successCount = 0;
             int failCount = 0;
@@ -676,7 +693,6 @@ public class EPGParser {
                     continue;
                 }
 
-                // 强制覆盖（无论 alias 是否已有映射）
                 channelNameToId.put(alias, realId);
                 channelNameToEpgid.put(alias, epgid);
                 successCount++;
@@ -762,7 +778,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（完整修正版） ====================
+# ==================== MainActivity.java（完整） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -1281,7 +1297,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ==================== 台标处理（不生成文字文件） ====================
+    // ==================== 台标处理 ====================
     private void downloadAllLogos() {
         if (isLogoDownloading) return;
         if (groupMap == null || groupMap.isEmpty()) {
@@ -1338,7 +1354,6 @@ public class MainActivity extends AppCompatActivity {
         if (logoUrl != null && !logoUrl.isEmpty()) {
             downloadAndProcessLogo(channel, logoUrl, logoFile);
         }
-        // 无URL则不生成文件
     }
 
     private void downloadAndProcessLogo(SourceManager.Channel channel, String logoUrl, File logoFile) {
@@ -2077,7 +2092,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-    // ========== ScheduleChannelAdapter（与ChannelAdapter完全一致） ==========
     static class ScheduleChannelAdapter extends RecyclerView.Adapter<ScheduleChannelAdapter.ViewHolder> {
         private List<SourceManager.Channel> data;
         private Set<String> favoriteSet;
@@ -2103,7 +2117,7 @@ public class MainActivity extends AppCompatActivity {
             holder.name.setText(ch.name);
             boolean isFav = favoriteSet.contains(ch.name);
             holder.favIcon.setVisibility(isFav ? View.VISIBLE : View.GONE);
-            // 台标 - 与ChannelAdapter完全相同
+            // 台标与主列表一致
             if (activity != null) {
                 String epgid = activity.epgIdMap.get(ch.name);
                 String fileName = (epgid != null && !epgid.isEmpty()) ? epgid.replace("/", "_").replace("\\", "_") + ".png" : ch.name.hashCode() + ".png";
@@ -2183,7 +2197,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java（与之前相同） ====================
+# ==================== SettingsActivity.java（完整） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -3101,10 +3115,21 @@ elif [ -f "apk ico.png" ]; then
     rm -f app/src/main/res/drawable/ic_launcher.xml
 fi
 
-# ==================== 添加依赖和权限 ====================
+# ==================== 修改 app/build.gradle 添加签名配置 ====================
 APP_GRADLE="app/build.gradle"
-MANIFEST="app/src/main/AndroidManifest.xml"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
+
+# 检查是否已存在 signingConfigs，若没有则添加
+if ! grep -q "signingConfigs" "$APP_GRADLE"; then
+    sed -i '/android {/a \    signingConfigs {\n        release {\n            storeFile file("'"$KEYSTORE_FILE"'")\n            storePassword "'"$KEYSTORE_PASS"'"\n            keyAlias "'"$KEY_ALIAS"'"\n            keyPassword "'"$KEY_PASS"'"\n        }\n    }' "$APP_GRADLE"
+fi
+
+# 修改 debug 和 release 使用该签名
+sed -i '/buildTypes {/a \        debug {\n            signingConfig signingConfigs.release\n        }\n        release {\n            signingConfig signingConfigs.release\n        }' "$APP_GRADLE"
+
+echo "✅ 签名配置已添加到 build.gradle"
+
+# ==================== 添加依赖（如果尚未添加） ====================
 sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
@@ -3112,12 +3137,11 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
-sed -i '/android.permission.INTERNET/d' "$MANIFEST"
-sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
-sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
-echo "✅ 权限和 cleartext 已添加"
+# ==================== 修改 AndroidManifest.xml 添加横屏和权限 ====================
+MANIFEST="app/src/main/AndroidManifest.xml"
+cp "$MANIFEST" "$MANIFEST.bak"
 
-# ==================== 设置应用图标 ====================
+# 使用 Python 修改 Manifest（添加横屏属性）
 cat > /tmp/fix_manifest.py <<'PYEOF'
 import sys, xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -3128,50 +3152,72 @@ try:
     tree = ET.parse(manifest_file); root = tree.getroot()
 except Exception as e:
     print(f"解析失败: {e}", file=sys.stderr); sys.exit(1)
+
 app = root.find('application')
 if app is None:
     print("未找到 application", file=sys.stderr); sys.exit(1)
+
+# 设置图标
 icon_attr = '{http://schemas.android.com/apk/res/android}icon'
 app.set(icon_attr, '@drawable/ic_launcher')
-for act in app.findall('activity'): app.remove(act)
+
+# 清空已有 activity，重新创建
+for act in app.findall('activity'):
+    app.remove(act)
+
+# MainActivity
 main_act = ET.Element('activity')
 main_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.MainActivity")
 main_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+main_act.set('{http://schemas.android.com/apk/res/android}screenOrientation', 'landscape')  # 强制横屏
 intent_filter = ET.SubElement(main_act, 'intent-filter')
 action = ET.SubElement(intent_filter, 'action')
 action.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.action.MAIN')
 cat = ET.SubElement(intent_filter, 'category')
 cat.set('{http://schemas.android.com/apk/res/android}name', 'android.intent.category.LAUNCHER')
 app.append(main_act)
+
+# SettingsActivity
 settings_act = ET.Element('activity')
 settings_act.set('{http://schemas.android.com/apk/res/android}name', f"{pkg}.SettingsActivity")
 settings_act.set('{http://schemas.android.com/apk/res/android}exported', 'true')
+settings_act.set('{http://schemas.android.com/apk/res/android}screenOrientation', 'landscape')  # 强制横屏
 app.append(settings_act)
+
 xml_str = ET.tostring(root, encoding='unicode')
 dom = minidom.parseString(xml_str)
 pretty = dom.toprettyxml(indent="    ")
 pretty = '\n'.join(pretty.split('\n')[1:]) if pretty.startswith('<?xml') else pretty
-with open(manifest_file, 'w') as f: f.write(pretty)
-print("✅ AndroidManifest 已更新")
+with open(manifest_file, 'w') as f:
+    f.write(pretty)
+print("✅ AndroidManifest 已更新（横屏+图标）")
 PYEOF
 
 python3 /tmp/fix_manifest.py
 rm -f /tmp/fix_manifest.py
 
-# ==================== 构建 ====================
+# 添加权限（如果尚未添加）
+sed -i '/android.permission.INTERNET/d' "$MANIFEST"
+sed -i '/<manifest /a \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' "$MANIFEST"
+sed -i '/<application /a \        android:usesCleartextTraffic="true"' "$MANIFEST"
+echo "✅ 权限和 cleartext 已添加"
+
+# ==================== 构建并安装（覆盖安装，保留数据） ====================
 echo "🧹 清理并构建..."
 ./gradlew clean
 ./gradlew assembleDebug
 
+APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+if [ -f "$APK_PATH" ]; then
+    echo "📲 安装 APK（覆盖安装，保留数据）..."
+    adb install -r "$APK_PATH"
+    echo "✅ 安装完成！"
+else
+    echo "❌ 构建失败，未找到 APK"
+    exit 1
+fi
+
 echo ""
-echo "🎉 构建完成！APK 位于 app/build/outputs/apk/debug/"
-echo "📌 模板已生成到 ./config/ 目录"
-echo "📂 所有数据存放在外部存储 /witv/ 下"
-echo "✅ 修正汇总："
-echo "  1) EPG别名映射强制覆盖（不跳过已有映射）"
-echo "  2) 台标：有图则下载处理（缩放+透明化），无图不生成文件，界面显示首字母"
-echo "  3) 节目单中的频道列表与主列表使用完全一致的台标逻辑（图片优先，无图文字）"
-echo "  4) 频道列表显示当前节目预告"
-echo "  5) 节目单保留一周EPG，左侧频道带台标"
-echo "  6) 无订阅对话框在添加订阅后自动关闭"
-echo "  7) 配置文件复制到外部存储，支持本地修改"
+echo "🎉 部署完成！"
+echo "📌 固定签名: $KEYSTORE_FILE"
+echo "📱 应用已强制横屏，可通过 adb install -r 覆盖安装保留数据。"
