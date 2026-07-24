@@ -3209,9 +3209,14 @@ echo "🧹 清理并构建..."
 
 APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
 if [ -f "$APK_PATH" ]; then
-    echo "📲 安装 APK（覆盖安装，保留数据）..."
-    adb install -r "$APK_PATH"
-    echo "✅ 安装完成！"
+    if command -v adb &> /dev/null; then
+        echo "📲 安装 APK（覆盖安装，保留数据）..."
+        adb install -r "$APK_PATH"
+        echo "✅ 安装完成！"
+    else
+        echo "⚠️ adb 未找到，跳过安装。APK 位于: $APK_PATH"
+        echo "您可以通过 adb install -r $APK_PATH 手动安装"
+    fi
 else
     echo "❌ 构建失败，未找到 APK"
     exit 1
