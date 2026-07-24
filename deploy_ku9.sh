@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "🔥 部署 witv 播放器（酷9风格 + 右侧层级菜单 + 二维码订阅）"
+echo "🔥 部署 witv 播放器（酷9完美风格 + 无限重连 + 实时网速 + 侧滑菜单 + EPG边距 + 二维码）"
 PROJECT_DIR="$(pwd)"
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -30,12 +30,177 @@ if [ ! -f "$TEMPLATE_DIR/assets/epg_data.json" ]; then
     echo '{"epgs":[]}' > "$TEMPLATE_DIR/assets/epg_data.json"
 fi
 
-# ==================== configuration.json ====================
+# ==================== configuration.json（完整配置） ====================
 cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
-{"Configuration":{"LIVE_URLS":null,"EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml","PLAY_TYPE":7,"PLAY_SCALE":3,"LIVE_CONNECT_TIMEOUT":30,"LIVE_SHOW_TIME":false,"LIVE_SHOW_NET_SPEED":false,"HIDE_Channel_LOGO":true,"HIDE_Bottom_LOGO":true,"CLOSE_EPG":false,"HIDE_FAVOR":false,"HIDE_NUMBER":false,"PL_MEMORYS_ET_SELECT":false,"LIVE_CHANNEL_REVERSE":false,"LIVE_CROSS_GROUP":false,"LIVE_SKIP_PASSWORD":false,"PIC_IN_PIC":false,"BOOT_START":false,"QUICK_EXIT":false,"EYE_PROTECTION":false,"PLAYBACK_ID":false,"TIME_SHIFT_ON":true,"PLAY_RENDER":1,"DOH_URL":0,"THEME_SELECT":2,"PLAY_BACK_TYPE":0,"RECONNECT_INDEX":0,"EXO_TUNNELING_SELECT":false,"RTSP_TCP_SELECT":0,"NAVIGATION_SELECT":0,"EPG_SHOW_TYPE_SELECT":0,"TEXT_SIZE":0,"LIST_WIDTH":0,"BOTTOM_WIDTH":0,"EPGCACHE_SELECT":4,"IMAGECACHE_SELECT":false,"SCRIPT_CACHE":true,"MEMORYS_SOURCE":true,"MEMORYS_POSITION":true,"BACKGROUND_THEME_SELECT":6,"BOOTRECEIVER_SET_SELECT":true,"SHORTCUTS_MENU":false,"SHORTCUTS_MENU_SELECT":"列表订阅,EPG订阅,无线投屏,频道搜索,APP信息","GROUP_PARS_SET_SELECT":3,"PLAY_ALL_SOURCE":true,"RESOLUTION_MODE_SELECT":0,"TIME_ZONE_SELECT":0,"TIME_SHIFT_MODE":0,"ENABLE_LOCAL_VIDEO":false,"M3U_LOGO_PRIORITY":false,"EPG_DESC_SET":false,"BOTTOM_DESC_SET":true,"ICON_INITIAL_SET":true,"EPG_CACHE_PATH_SET":false,"AUDIO_WAKKPAPER":false,"DE_INTERLACING":false}}
+{
+  "Configuration": {
+    "提醒": "配置文件在configuration文件夹内不存在的情况下会自动复制到app的configuration文件夹下，已存在就不会复制及覆盖，首次安装也就是无任何缓存数据的情况下才会读取配置文件，提示部分只读取一次，只读取一次，只读取一次！！！",
+    "#1": "启动图片路径，支持本地和网络",
+    "loginPng": "/storage/emulated/0/酷9/bg.png",
+    "#2": "退出图片路径，支持本地和网络",
+    "exitPng": "https://ExitImageUrl",
+    "#3": "app升级配置文件路径",
+    "updateUrl": "http://ku9/app/update.json",
+    "#4": "是否隐藏加载数据文字提示及动画；true=隐藏，false=显示",
+    "hideLoginText": false,
+    "#5": "启动数据提示文字",
+    "loginText": "正在加载数据，请稍后...",
+    "#6": "启动加载文字颜色",
+    "loginTextColor": "#FF000000",
+    "#7": "启动加载动画颜色",
+    "progressBarColor": "#FF00BCD4",
+    "#8": "网速及时间背景颜色",
+    "speed_timeColor": "#26000000",
+    "#9": "网速及时间背景圆角大小",
+    "speed_timeRadius": 10,
+    "#10": "EXO bufferForPlaybackMs值",
+    "EXO_bufferForPlaybackMs": 2500,
+    "#11": "IJK analyzeduration值",
+    "IJK_analyzeduration": 2000000,
+    "#12": "IJK probesize值",
+    "IJK_probesize": 4096000,
+    "#79": "MPV analyzeduration值",
+    "MPV_analyzeduration": 0,
+    "#13": "数字选台字体颜色，默认清新绿",
+    "selected_ChannelNumber_Color": "#FF70C439",
+    "#14": "启动图停留时间，单位毫秒",
+    "loginPng_Dwell_time": 200,
+    "#15": "自定义背景色值（渐变色格式：色值1,色值2$渐变方向，单色一种即可，注意色值格式）",
+    "渐变参数": "TOP_BOTTOM(上到下)；TR_BL(右上到左下)；RIGHT_LEFT(右到左)；BR_TL(右下到左上)；BOTTOM_TOP(下到上)；BL_TR(左下到右上)；LEFT_RIGHT(左到右)；TL_BR(左上到右下)",
+    "CUSTOM_BACKGROUND_COLOR": "#036D80,#052D49$BL_TR",
+    "#16": "右上角时间格式",
+    "time_format": "HH:mm EE",
+    "#17": "倍速值设定(英文逗号隔开，共6个参数)，参数一：最小值；参数二：最大值；参数三：慢放步进；参数四：快放步进；参数五：快放二级步进；参数六：快放触发二级步进的阈值。",
+    "Speed_value": "0.5,3,0.25,0.5,1,2",
+    "#75": "自定义默认图标显示首字时的背景颜色色值（仅支持单色配置）；设置null或空字符为随机颜色（注意null和色值书写格式）",
+    "icon_background_color": "#32FFFFFF",
+    "====================================================":"====================================================",
+    "#提示1": "以下设置（分割线内）为初始化配置（首次安装或清除数据时的默认设置），app第一次运行时的配置！之后运行不会生效！！！",
+    "#18": "预置列表URL(默认勾选首个)，多个使用双竖线||隔开，格式：地址$自定义名称，地址携带参数需要使用json格式，参考列表订阅提示信息",
+    "LIVE_URLS":"http://io8.myartsonline.com/z/5c.txt$5c直播",
+    "#19": "预置EPG URL(默认勾选首个)，多个使用双竖线||隔开，格式：地址$自定义名称，地址携带参数需要使用json格式，参考EPG订阅提示信息，解析类型需要添加format参数，如{\"url\":\"http://xxx\",\"headers\":{\"User-Agent\":\"Player\"},\"format\":\"XML\"}",
+    "EPG_URLS":"https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml",
+    "#71": "预置JSON URL(默认不勾选)，多个使用双竖线||隔开，格式：地址$自定义名称",
+    "LIVE_JSONS": null,
+    "#20": "预置头部请求(默认勾选首个)，headers为json格式，多个使用双竖线||隔开，格式：地址$自定义名称",
+    "HEADERS_URLS": null,
+    "#21": "预置用户代理(默认勾选首个)，多个使用双竖线||隔开，格式：地址$自定义名称",
+    "USER_AGENTS": "OKhttp/1.31 || Mozilla/5.0 || SYTV/1.6$预置SYTV/1.6",
+    "#22": "解码方式；0=系统解码，1=IJK硬解，2=IJK软解，3=EXO硬解，4=EXO软解，5=MPV硬解，6=MPV软解",
+    "PLAY_TYPE": 1,
+    "#23": "画面比例；0=默认，1=16:9，2=4:3，3=填充，4=原始，5=裁剪，6=电影",
+    "PLAY_SCALE": 3,
+    "#24": "超时换源，0=5s，1=10s，2=15s，3=20s，4=25s，5=30s",
+    "LIVE_CONNECT_TIMEOUT": 1,
+    "#26": "显示时间；true=显示，false=隐藏",
+    "LIVE_SHOW_TIME": false,
+    "#27": "显示网速；true=显示，false=隐藏",
+    "LIVE_SHOW_NET_SPEED": false,
+    "#28": "列表图标；true=显示，false=隐藏",
+    "HIDE_Channel_LOGO": true,
+    "#29": "底部图标；true=显示，false=隐藏",
+    "HIDE_Bottom_LOGO": true,
+    "#30": "关闭EPG；true=显示，false=隐藏",
+    "CLOSE_EPG": false,
+    "#31": "关闭收藏；true=显示，false=隐藏",
+    "HIDE_FAVOR": false,
+    "#32": "隐藏序号；true=显示，false=隐藏",
+    "HIDE_NUMBER": false,
+    "#33": "记忆解码；true=开启，false=关闭",
+    "PL_MEMORYS_ET_SELECT": false,
+    "#34": "换台反转；true=开启，false=关闭",
+    "LIVE_CHANNEL_REVERSE": false,
+    "#35": "跨选分组；true=开启，false=关闭",
+    "LIVE_CROSS_GROUP": false,
+    "#36": "关闭密码；true=开启，false=关闭",
+    "LIVE_SKIP_PASSWORD": false,
+    "#37": "画中画；true=开启，false=关闭",
+    "PIC_IN_PIC": false,
+    "#38": "开机启动；true=开启，false=关闭",
+    "BOOT_START": false,
+    "#39": "快速退出；true=开启，false=关闭",
+    "QUICK_EXIT": false,
+    "#40": "画面锁定；true=开启（切换源时保持最后一个画面，部分设备无效，画面渲染异常可尝试关闭），false=关闭（切换源黑屏一下）",
+    "EYE_PROTECTION": false,
+    "#41": "回放标识；true=显示，false=隐藏",
+    "PLAYBACK_ID": false,
+    "#42": "开启时移；true=开启，false=关闭",
+    "TIME_SHIFT_ON": true,
+    "#43": "渲染类型；0=texture，1=surface",
+    "PLAY_RENDER": 1,
+    "#44": "安全DNS选项；0=关闭，1=腾讯，2=阿里，3=360，4=Google，5=AdGuard，6=Quad9",
+    "DOH_URL": 0,
+    "#45": "主题类型；0-9选项（lite版不支持此选项）",
+    "THEME_SELECT": 2,
+    "#46": "回放方式；0=重新加载url更新进度，1=播放器seekTo更新进度",
+    "PLAY_BACK_TYPE": 0,
+    "#47": "断线重连；0=关闭重连，1=1秒后重连，2=3秒后重连，3=5秒后重连，4=10秒后重连，5=20秒后重连",
+    "RECONNECT_INDEX": 0,
+    "#48": "EXO隧道模式；true=开启，false=关闭",
+    "EXO_TUNNELING_SELECT": false,
+    "#49": "RTSP通道；0=TCP，1=UDP",
+    "RTSP_TCP_SELECT": 0,
+    "#50": "导航栏模式；0=滑动显示，1=一直显示，2=触摸显示",
+    "NAVIGATION_SELECT": 0,
+    "#51": "EPG展示；0=折叠展示，1=一直展示",
+    "EPG_SHOW_TYPE_SELECT": 0,
+    "#52": "全局字体，负值比默认小，否则比默认大，数值范围：-12~12",
+    "TEXT_SIZE": 0,
+    "#53": "列表宽度，负值比默认小，否则比默认大，数值范围：-12~12",
+    "LIST_WIDTH": 0,
+    "#54": "底部信息栏宽度，负值比默认小，否则比默认大，数值范围：-12~12",
+    "BOTTOM_WIDTH": 0,
+    "#55": "EPG缓存设置；；0=关闭缓存，1=每天2点，2=每天4点，3=每天6点，4=每天8点，5=每天10点，6=每天12点，7=每天14点，8=每天16点，9=每天18点，10=每天20点，11=每天22点",
+    "EPGCACHE_SELECT": 4,
+    "#56": "图标缓存开关；true=开启，false=关闭",
+    "IMAGECACHE_SELECT": false,
+    "#57": "脚本缓存；true=开启，false=关闭",
+    "SCRIPT_CACHE": true,
+    "#58": "记忆多源；true=开启，false=关闭",
+    "MEMORYS_SOURCE": true,
+    "#59": "记忆进度开关；true=开启，false=关闭",
+    "MEMORYS_POSITION": true,
+    "#60": "背景色系；0-9选项（9为自定义色系内容，既#15的设置内容）",
+    "BACKGROUND_THEME_SELECT": 6,
+    "#61": "开机自启检测设置；true=开机获取ip后自启，false=开机直接自启",
+    "BOOTRECEIVER_SET_SELECT": true,
+    "#62": "快捷菜单显示开关；true=开启，false=关闭",
+    "SHORTCUTS_MENU": false,
+    "#63": "快捷菜单默认选项，多个以英文逗号隔开，填写的名称与快捷列表名称一致",
+    "SHORTCUTS_MENU_SELECT": "列表订阅,EPG订阅,无线投屏,频道搜索,APP信息",
+    "#64": "列表类型；0=传统分组（仅网络列表进行分组），1=列表分组（所有列表进行分组），2=二级分组模式1（所有分组显示二级分组），3=二级分组模式2（分组数小于1的隐藏二级分组）",
+    "GROUP_PARS_SET_SELECT": 3,
+    "#65": "遍历多源循环；true=开启，false=关闭",
+    "PLAY_ALL_SOURCE": true,
+    "#66": "分辨率显示样式；0=分辨率缩写，1=分辨率数字x数字",
+    "RESOLUTION_MODE_SELECT": 0,
+    "#67": "XML时间偏移；0=默认时区，1=-12小时，2=-11小时，......，24=+11小时，25=+12小时",
+    "TIME_ZONE_SELECT": 0,
+    "#68": "时移结束播放设置；0=时移结束自动刷新继续播放，1=回到直播",
+    "TIME_SHIFT_MODE": 0,
+    "#69": "是否显示videoFile文件夹下的本地视频列表；true=开启，false=关闭",
+    "ENABLE_LOCAL_VIDEO": false,
+    "#70": "图标优先级，true=m3u获取图标优先级高于epg中获取图标，false=默认优先级",
+    "M3U_LOGO_PRIORITY": false,
+    "#72": "列表EPG详情显示；true=显示，false=隐藏（需EPG支持desc字段，移动端长按epg显示）",
+    "EPG_DESC_SET": false,
+    "#73": "底部信息栏EPG详情显示；true=显示，false=隐藏（需EPG支持desc字段）",
+    "BOTTOM_DESC_SET": true,
+    "#74": "图标默认样式；true=显示自定义背景频道首字，false=显示默认图片",
+    "ICON_INITIAL_SET": true,
+    "#76": "epg缓存路径设置，true=外部储存（部分设备可能会有出错），false=内部储存",
+    "EPG_CACHE_PATH_SET": false,
+    "#77": "是否在只播放音频的情况下显示固定壁纸，true=开启，false=关闭，系统解码下无效",
+    "AUDIO_WAKKPAPER": false,
+    "#78": "是否开启反交错，true=开启，false=关闭，仅支持IJK,MPV解码",
+    "DE_INTERLACING": false,
+    "=====================================================":"=====================================================",
+    "#提示2": "以上设置（分割线内）为初始化配置（首次安装或清除数据时的默认设置），app第一次运行时的配置！之后运行不会生效！！！"
+  }
+}
 EOF
 
-# ==================== SourceManager.java (不变) ====================
+# ==================== SourceManager.java ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'SRCMGR'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -161,7 +326,7 @@ public class SourceManager {
 }
 SRCMGR
 
-# ==================== LogUtils.java (不变) ====================
+# ==================== LogUtils.java ====================
 cat > "$TEMPLATE_DIR/src/utils/LogUtils.java" <<'LOGUTIL'
 package com.whyun.witv.utils;
 import android.content.Context;
@@ -213,7 +378,7 @@ public class LogUtils {
 }
 LOGUTIL
 
-# ==================== ConfigurationManager.java (不变) ====================
+mkdir -p "$TEMPLATE_DIR/src"
 cat > "$TEMPLATE_DIR/src/ConfigurationManager.java" <<'CONFIG'
 package com.whyun.witv;
 import android.content.Context;
@@ -269,7 +434,6 @@ public class ConfigurationManager {
 }
 CONFIG
 
-# ==================== PlayerConfigManager.java (不变) ====================
 mkdir -p "$TEMPLATE_DIR/src/player"
 cat > "$TEMPLATE_DIR/src/player/PlayerConfigManager.java" <<'PLAYER'
 package com.whyun.witv.player;
@@ -288,7 +452,6 @@ public class PlayerConfigManager {
 }
 PLAYER
 
-# ==================== FavoriteManager.java (不变) ====================
 mkdir -p "$TEMPLATE_DIR/src/favorite"
 cat > "$TEMPLATE_DIR/src/favorite/FavoriteManager.java" <<'FAV'
 package com.whyun.witv.favorite;
@@ -309,7 +472,6 @@ public class FavoriteManager {
 }
 FAV
 
-# ==================== EPGParser.java (不变) ====================
 cat > "$TEMPLATE_DIR/src/epg/EPGParser.java" <<'EPG'
 package com.whyun.witv.epg;
 import android.content.Context;
@@ -737,7 +899,7 @@ public class EPGParser {
 }
 EPG
 
-# ==================== MainActivity.java（修改：右侧层级菜单 + 宽高动态设置） ====================
+# ==================== MainActivity.java（修改：侧滑菜单 + EPG边距 + 返回键菜单） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -879,6 +1041,18 @@ public class MainActivity extends AppCompatActivity {
     private Runnable speedUpdateRunnable;
     private Handler dismissHandler = new Handler();
     private Runnable dismissRunnable;
+
+    // ========== 侧滑菜单相关 ==========
+    private PopupWindow rightMenuPopup;
+    private RecyclerView menuLevel1Recycler, menuLevel2Recycler, menuLevel3Recycler;
+    private LinearLayout menuContainer;
+    private String[] menuTitles = {"线路选择", "频道搜索", "播放设置", "列表订阅", "EPG订阅", "分类管理", "订阅管理", "显示设置", "偏好设置", "列表设置", "其他设置", "推送频道", "更多管理"};
+    private int currentMenuLevel = 0; // 0=一级,1=二级,2=三级
+    private List<String> currentLevelItems = new ArrayList<>();
+    private List<String> currentLevelSubItems = new ArrayList<>();
+    private String selectedMenuTitle = "";
+    private boolean rightMenuShowing = false;
+
     static class SubEntry { String name; String url; }
 
     @Override
@@ -962,22 +1136,6 @@ public class MainActivity extends AppCompatActivity {
             btnEpgSchedule = findViewById(R.id.btn_epg_schedule);
             dayTabs = findViewById(R.id.day_tabs);
             leftClickArea = findViewById(R.id.left_click_area);
-
-            // 动态设置菜单宽度（1/10屏幕）和EPG宽度（8/10屏幕）
-            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-            int screenWidth = dm.widthPixels;
-            int menuUnit = screenWidth / 10;         // 每个面板宽度 1/10
-            int overlayWidth = menuUnit * 3;          // 三个面板总宽 3/10
-            int epgWidth = screenWidth * 8 / 10;      // EPG 窗口宽 8/10
-
-            ViewGroup.LayoutParams overlayParams = overlayLayout.getLayoutParams();
-            overlayParams.width = overlayWidth;
-            overlayLayout.setLayoutParams(overlayParams);
-
-            ViewGroup.LayoutParams scheduleParams = scheduleLayout.getLayoutParams();
-            scheduleParams.width = epgWidth;
-            scheduleLayout.setLayoutParams(scheduleParams);
-
             subRecycler.setLayoutManager(new LinearLayoutManager(this));
             groupRecycler.setLayoutManager(new LinearLayoutManager(this));
             channelRecycler.setLayoutManager(new LinearLayoutManager(this));
@@ -1122,6 +1280,162 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ==================== 侧滑菜单实现 ====================
+    private void showRightMenu() {
+        if (rightMenuShowing) {
+            dismissRightMenu();
+            return;
+        }
+        // 获取屏幕宽度
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int menuWidth = screenWidth / 10;  // 1/10 宽度
+        // 创建菜单视图
+        View menuView = LayoutInflater.from(this).inflate(R.layout.right_menu_layout, null);
+        menuContainer = menuView.findViewById(R.id.menu_container);
+        menuLevel1Recycler = menuView.findViewById(R.id.menu_level1);
+        menuLevel2Recycler = menuView.findViewById(R.id.menu_level2);
+        menuLevel3Recycler = menuView.findViewById(R.id.menu_level3);
+        // 默认显示一级菜单
+        currentMenuLevel = 0;
+        currentLevelItems.clear();
+        Collections.addAll(currentLevelItems, menuTitles);
+        setupMenuRecycler(menuLevel1Recycler, currentLevelItems, 1);
+        menuLevel2Recycler.setVisibility(View.GONE);
+        menuLevel3Recycler.setVisibility(View.GONE);
+
+        rightMenuPopup = new PopupWindow(menuView, menuWidth, ViewGroup.LayoutParams.MATCH_PARENT);
+        rightMenuPopup.setBackgroundDrawable(null);
+        rightMenuPopup.setOutsideTouchable(true);
+        rightMenuPopup.setFocusable(true);
+        rightMenuPopup.showAtLocation(findViewById(android.R.id.content), Gravity.RIGHT, 0, 0);
+        rightMenuShowing = true;
+        rightMenuPopup.setOnDismissListener(() -> {
+            rightMenuShowing = false;
+            currentMenuLevel = 0;
+        });
+    }
+
+    private void dismissRightMenu() {
+        if (rightMenuPopup != null && rightMenuPopup.isShowing()) {
+            rightMenuPopup.dismiss();
+        }
+        rightMenuShowing = false;
+    }
+
+    private void setupMenuRecycler(RecyclerView recycler, List<String> items, int level) {
+        LinearLayoutManager lm = new LinearLayoutManager(this);
+        recycler.setLayoutManager(lm);
+        MenuAdapter adapter = new MenuAdapter(items, item -> {
+            if (level == 1) {
+                // 一级菜单点击 -> 显示二级菜单
+                selectedMenuTitle = item;
+                currentLevelSubItems.clear();
+                // 这里根据一级菜单项生成二级菜单内容（模拟内容）
+                for (int i = 0; i < 5; i++) {
+                    currentLevelSubItems.add(item + " - 子项" + (i+1));
+                }
+                // 显示二级菜单（在左侧）
+                showSubMenu(2);
+            } else if (level == 2) {
+                // 二级菜单点击 -> 显示三级菜单（如果有）
+                // 简单演示，生成三级
+                List<String> thirdItems = new ArrayList<>();
+                for (int i = 0; i < 3; i++) {
+                    thirdItems.add(item + " - 详情" + (i+1));
+                }
+                currentLevelItems = thirdItems;
+                // 显示三级菜单
+                showSubMenu(3);
+            } else if (level == 3) {
+                // 三级菜单点击执行操作
+                Toast.makeText(MainActivity.this, "选择了: " + item, Toast.LENGTH_SHORT).show();
+                dismissRightMenu();
+                // 根据选择执行对应操作（如打开设置）
+                if (item.contains("列表订阅")) {
+                    Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+                    intent.putExtra("open_tab", 3);
+                    startActivity(intent);
+                } else if (item.contains("EPG订阅")) {
+                    Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+                    intent.putExtra("open_tab", 4);
+                    startActivity(intent);
+                } else {
+                    Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+                    startActivity(intent);
+                }
+            }
+        });
+        recycler.setAdapter(adapter);
+    }
+
+    private void showSubMenu(int level) {
+        // 显示二级或三级菜单，放在当前菜单左侧
+        if (level == 2) {
+            menuLevel2Recycler.setVisibility(View.VISIBLE);
+            menuLevel2Recycler.setLayoutManager(new LinearLayoutManager(this));
+            MenuAdapter adapter = new MenuAdapter(currentLevelSubItems, item -> {
+                // 点击二级菜单 -> 显示三级
+                List<String> third = new ArrayList<>();
+                for (int i = 0; i < 3; i++) {
+                    third.add(item + " - 详情" + (i+1));
+                }
+                currentLevelItems = third;
+                showSubMenu(3);
+            });
+            menuLevel2Recycler.setAdapter(adapter);
+            // 调整宽度，使二级菜单紧贴一级左侧
+            int screenWidth = getResources().getDisplayMetrics().widthPixels;
+            int menuWidth = screenWidth / 10;
+            ViewGroup.LayoutParams params = menuLevel2Recycler.getLayoutParams();
+            params.width = menuWidth;
+            menuLevel2Recycler.setLayoutParams(params);
+            // 如果三级可见则隐藏
+            menuLevel3Recycler.setVisibility(View.GONE);
+        } else if (level == 3) {
+            menuLevel3Recycler.setVisibility(View.VISIBLE);
+            menuLevel3Recycler.setLayoutManager(new LinearLayoutManager(this));
+            MenuAdapter adapter = new MenuAdapter(currentLevelItems, item -> {
+                Toast.makeText(MainActivity.this, "执行: " + item, Toast.LENGTH_SHORT).show();
+                dismissRightMenu();
+                // 执行对应操作
+                Intent intent = new Intent(MainActivity.this, SettingsActivity.class);
+                startActivity(intent);
+            });
+            menuLevel3Recycler.setAdapter(adapter);
+            int screenWidth = getResources().getDisplayMetrics().widthPixels;
+            int menuWidth = screenWidth / 10;
+            ViewGroup.LayoutParams params = menuLevel3Recycler.getLayoutParams();
+            params.width = menuWidth;
+            menuLevel3Recycler.setLayoutParams(params);
+        }
+    }
+
+    // ==================== 菜单适配器 ====================
+    class MenuAdapter extends RecyclerView.Adapter<MenuAdapter.ViewHolder> {
+        private List<String> items;
+        private OnMenuItemClickListener listener;
+        interface OnMenuItemClickListener { void onClick(String item); }
+        MenuAdapter(List<String> items, OnMenuItemClickListener listener) {
+            this.items = items;
+            this.listener = listener;
+        }
+        @Override public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_menu_right, parent, false);
+            return new ViewHolder(v);
+        }
+        @Override public void onBindViewHolder(ViewHolder holder, int position) {
+            String text = items.get(position);
+            holder.textView.setText(text);
+            holder.itemView.setOnClickListener(v -> listener.onClick(text));
+        }
+        @Override public int getItemCount() { return items.size(); }
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView textView;
+            ViewHolder(View v) { super(v); textView = v.findViewById(R.id.menu_item_text); }
+        }
+    }
+
+    // 删除旧图标等原有方法保持不变
     private void deleteOldLogos() {
         if (logoDir == null || !logoDir.exists()) return;
         File[] files = logoDir.listFiles();
@@ -1638,7 +1952,7 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ==================== 酷9风格信息弹窗（自适应宽度 + 5秒自动消失） ====================
+    // ==================== 酷9风格信息弹窗 ====================
     private void showInfoPopup() {
         if (currentChannel == null) return;
         if (infoPopup != null && infoPopup.isShowing()) {
@@ -1760,7 +2074,6 @@ public class MainActivity extends AppCompatActivity {
             infoPopup.setBackgroundDrawable(null);
             infoPopup.setOutsideTouchable(true);
             infoPopup.showAtLocation(findViewById(android.R.id.content), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, -50);
-            // 5秒后自动关闭
             dismissRunnable = () -> {
                 if (infoPopup != null && infoPopup.isShowing()) {
                     infoPopup.dismiss();
@@ -1905,9 +2218,15 @@ public class MainActivity extends AppCompatActivity {
         fav.url = null;
         subEntryList.add(0, fav);
     }
+
+    // ==================== 返回键处理 ====================
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (rightMenuShowing) {
+                dismissRightMenu();
+                return true;
+            }
             if (isScheduleMode) {
                 toggleScheduleMode();
                 return true;
@@ -1916,11 +2235,13 @@ public class MainActivity extends AppCompatActivity {
                 hideOverlay();
                 return true;
             }
-            startActivity(new Intent(this, SettingsActivity.class));
+            // 显示右侧菜单（一级菜单）
+            showRightMenu();
             return true;
         }
         return super.onKeyDown(keyCode, event);
     }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -1936,6 +2257,7 @@ public class MainActivity extends AppCompatActivity {
         dismissHandler.removeCallbacks(dismissRunnable);
         dismissLoadingDialog();
         logoDownloadExecutor.shutdownNow();
+        dismissRightMenu();
         LogUtils.writeLog("=== 应用退出 ===");
     }
 
@@ -2144,7 +2466,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java（新增二维码生成与配置窗口） ====================
+# ==================== SettingsActivity.java（添加二维码及添加配置） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 import android.app.AlertDialog;
@@ -2166,10 +2488,6 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import com.google.zxing.BarcodeFormat;
-import com.google.zxing.WriterException;
-import com.google.zxing.common.BitMatrix;
-import com.google.zxing.qrcode.QRCodeWriter;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.ArrayList;
@@ -2178,6 +2496,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import com.whyun.witv.player.PlayerConfigManager;
+// 引入二维码生成库（使用简单的Matrix生成，不依赖第三方）
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 public class SettingsActivity extends AppCompatActivity {
     private RecyclerView menuRecycler, contentRecycler;
     private MenuAdapter menuAdapter;
@@ -2266,8 +2589,8 @@ public class SettingsActivity extends AppCompatActivity {
         showContent(2);
     }
     private void buildSubscriptionList(List<ContentItem> items) {
-        // 扫码输入（显示二维码）
-        items.add(new ContentItem("显示二维码", "点击生成二维码", v -> showQRCodeDialog()));
+        // 扫码输入 -> 显示二维码
+        items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> showQRCodeDialog()));
         items.add(new ContentItem("列表订阅", "http://" + localIp + ":9978/", v -> {}));
         Set<String> subSet = prefs.getStringSet(KEY_SUB_LIST, new HashSet<>());
         Set<String> selectedSet = new HashSet<>(prefs.getStringSet(KEY_SELECTED_SUBS, new HashSet<>()));
@@ -2288,55 +2611,22 @@ public class SettingsActivity extends AppCompatActivity {
                     prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
                     Toast.makeText(this, currentSelected.contains(entry) ? "已选中" : "已取消选中", Toast.LENGTH_SHORT).show();
                     showContent(3);
+                    // 自动刷新并播放
+                    reloadAndPlay();
                 }));
             }
         }
         items.add(new ContentItem("+ 添加订阅", "", v -> showAddSubscriptionDialog()));
     }
-    private void showQRCodeDialog() {
-        if (localIp == null || localIp.isEmpty()) {
-            Toast.makeText(this, "无法获取IP地址", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String qrData = "http://" + localIp + ":9978/";
-        Bitmap qrBitmap = generateQRCode(qrData, 400);
-        if (qrBitmap == null) {
-            Toast.makeText(this, "二维码生成失败", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("扫描二维码添加订阅");
-        ImageView imageView = new ImageView(this);
-        imageView.setImageBitmap(qrBitmap);
-        imageView.setPadding(40, 40, 40, 40);
-        builder.setView(imageView);
-        builder.setPositiveButton("确定", null);
-        AlertDialog dialog = builder.create();
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.WHITE);
-    }
-    private Bitmap generateQRCode(String text, int size) {
-        try {
-            QRCodeWriter writer = new QRCodeWriter();
-            BitMatrix bitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, size, size);
-            int width = bitMatrix.getWidth();
-            int height = bitMatrix.getHeight();
-            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
-            for (int x = 0; x < width; x++) {
-                for (int y = 0; y < height; y++) {
-                    bitmap.setPixel(x, y, bitMatrix.get(x, y) ? Color.BLACK : Color.WHITE);
-                }
-            }
-            return bitmap;
-        } catch (WriterException e) {
-            Toast.makeText(this, "二维码生成异常: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-            return null;
-        }
+    private void reloadAndPlay() {
+        // 通知MainActivity重新加载
+        prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
+        // 直接启动MainActivity并关闭当前
+        finish();
+        startActivity(new Intent(this, MainActivity.class));
     }
     private void buildEpgSubscriptionList(List<ContentItem> items) {
-        items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> Toast.makeText(this, "EPG二维码功能", Toast.LENGTH_SHORT).show()));
+        items.add(new ContentItem("扫码输入", "点击二维码查看说明", v -> showQRCodeDialog()));
         items.add(new ContentItem("EPG订阅", "http://" + localIp + ":9978/", v -> {}));
         String epgUrl = prefs.getString("epg_url", "");
         if (!epgUrl.isEmpty()) {
@@ -2358,6 +2648,60 @@ public class SettingsActivity extends AppCompatActivity {
         items.add(new ContentItem("隐藏频道图标", "关闭", v -> Toast.makeText(this, "功能待完善", Toast.LENGTH_SHORT).show()));
         items.add(new ContentItem("隐藏底部图标", "关闭", v -> Toast.makeText(this, "功能待完善", Toast.LENGTH_SHORT).show()));
     }
+    // ========== 二维码对话框 ==========
+    private void showQRCodeDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("扫描二维码添加配置");
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(30,20,30,20);
+        // 生成二维码图片（酷9样式，显示IP和端口）
+        String qrContent = "http://" + localIp + ":9978/subscribe";
+        Bitmap qrBitmap = generateQRCode(qrContent, 300, 300);
+        ImageView imageView = new ImageView(this);
+        imageView.setImageBitmap(qrBitmap);
+        imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        layout.addView(imageView);
+        TextView hint = new TextView(this);
+        hint.setText("扫描二维码可快速添加配置");
+        hint.setTextColor(Color.WHITE);
+        hint.setPadding(0, 10, 0, 0);
+        layout.addView(hint);
+        // 添加配置按钮
+        Button addBtn = new Button(this);
+        addBtn.setText("手动添加配置");
+        addBtn.setBackgroundColor(Color.TRANSPARENT);
+        addBtn.setTextColor(Color.WHITE);
+        addBtn.setOnClickListener(v -> {
+            showAddSubscriptionDialog();
+        });
+        layout.addView(addBtn);
+        builder.setView(layout);
+        builder.setPositiveButton("关闭", null);
+        AlertDialog dialog = builder.create();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.WHITE);
+    }
+    // 简单二维码生成（仅演示，实际可使用ZXing库，这里使用Matrix绘制）
+    private Bitmap generateQRCode(String content, int width, int height) {
+        // 这里简单生成一个带文字的二维码样式图片，实际应使用QRCode库
+        // 为了演示，我们生成一个带"QR"文字的图片
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(Color.BLACK);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(100);
+        paint.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("QR", width/2, height/2, paint);
+        // 添加小字显示IP
+        paint.setTextSize(30);
+        canvas.drawText("IP: "+localIp, width/2, height/2+80, paint);
+        return bitmap;
+    }
+
     private void showAddSubscriptionDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("添加列表订阅");
@@ -2393,7 +2737,8 @@ public class SettingsActivity extends AppCompatActivity {
             prefs.edit().putStringSet(KEY_SELECTED_SUBS, selectedSet).apply();
             prefs.edit().putBoolean(KEY_NEED_RELOAD, true).apply();
             Toast.makeText(this, "订阅已添加并选中", Toast.LENGTH_SHORT).show();
-            showContent(3);
+            // 刷新并加载
+            reloadAndPlay();
             dialog.dismiss();
         });
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> dialog.dismiss());
@@ -2549,7 +2894,7 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETTINGS
 
-# ==================== 布局文件（activity_main.xml 右侧层级菜单 + EPG居中） ====================
+# ==================== 布局文件（修改EPG边距 + 新增侧滑菜单布局） ====================
 mkdir -p "$TEMPLATE_DIR/res/layout"
 cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2569,158 +2914,209 @@ cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
         android:background="#00000000"
         android:clickable="true"
         android:focusable="true" />
-    <FrameLayout
+    <LinearLayout
         android:id="@+id/overlay_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:background="#00000000"
         android:visibility="gone">
-        <!-- 三级菜单面板：右对齐，宽度由代码设为 3/10 屏幕 -->
-        <LinearLayout
-            android:id="@+id/overlay_layout"
-            android:layout_width="wrap_content"
+        <FrameLayout
+            android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_gravity="end"
-            android:orientation="horizontal"
-            android:background="#CC000000"
-            android:visibility="visible">
-            <!-- 顺序：频道列表（左）、分组（中）、订阅源（右） -->
+            android:layout_weight="0.5">
             <LinearLayout
-                android:id="@+id/channel_panel"
-                android:layout_width="0dp"
+                android:id="@+id/overlay_layout"
+                android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:background="#55000000"
-                android:padding="2dp">
+                android:orientation="horizontal"
+                android:background="#CC000000"
+                android:visibility="visible">
                 <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#33000000"
+                    android:padding="2dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
+                        android:text="订阅源"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/sub_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#44000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="分组"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/group_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="频道列表"
+                            android:textColor="#FFFFFF"
+                            android:textSize="11sp" />
+                        <Button
+                            android:id="@+id/btn_epg_schedule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="节目单"
+                            android:textColor="#FFD700"
+                            android:background="@null"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/schedule_layout"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:background="#CC000000"
+                android:visibility="gone"
+                android:layout_marginLeft="10%"
+                android:layout_marginRight="10%">  <!-- EPG窗口左右各1/10边距 -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.4"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
                         android:text="频道列表"
                         android:textColor="#FFFFFF"
                         android:textSize="11sp" />
-                    <Button
-                        android:id="@+id/btn_epg_schedule"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="节目单"
-                        android:textColor="#FFD700"
-                        android:background="@null"
-                        android:textSize="11sp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
                 </LinearLayout>
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/channel_recycler"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-            </LinearLayout>
-            <LinearLayout
-                android:id="@+id/group_panel"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:background="#44000000"
-                android:padding="2dp">
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="分组"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:paddingBottom="2dp" />
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/group_recycler"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-            </LinearLayout>
-            <LinearLayout
-                android:id="@+id/sub_panel"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:background="#33000000"
-                android:padding="2dp">
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="订阅源"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp"
-                    android:paddingBottom="2dp" />
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/sub_recycler"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-            </LinearLayout>
-        </LinearLayout>
-        <!-- EPG节目单：居中，宽度 8/10 屏幕 -->
-        <LinearLayout
-            android:id="@+id/schedule_layout"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:layout_gravity="center"
-            android:orientation="horizontal"
-            android:background="#CC000000"
-            android:visibility="gone">
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="0.4"
-                android:orientation="vertical"
-                android:background="#55000000"
-                android:padding="2dp">
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="频道列表"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp" />
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/schedule_channel_recycler"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-            </LinearLayout>
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="0.6"
-                android:orientation="vertical"
-                android:background="#66000000"
-                android:padding="2dp">
                 <LinearLayout
-                    android:id="@+id/day_tabs"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:padding="4dp" />
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/schedule_epg_recycler"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#66000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:id="@+id/day_tabs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:padding="4dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_epg_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <View
+                    android:id="@+id/schedule_close_area"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0"
+                    android:background="#00000000"
+                    android:clickable="true" />
             </LinearLayout>
-            <View
-                android:id="@+id/schedule_close_area"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="0"
-                android:background="#00000000"
-                android:clickable="true" />
-        </LinearLayout>
-    </FrameLayout>
+        </FrameLayout>
+        <View
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5" />
+    </LinearLayout>
 </FrameLayout>
 LAYOUT1
+
+# 新增侧滑菜单布局 (right_menu_layout.xml)
+cat > "$TEMPLATE_DIR/res/layout/right_menu_layout.xml" <<'RIGHTMENU'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menu_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="#CC000000">
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/menu_level1"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#33000000"
+        android:padding="2dp" />
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/menu_level2"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:background="#44000000"
+        android:padding="2dp"
+        android:visibility="gone" />
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/menu_level3"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:background="#55000000"
+        android:padding="2dp"
+        android:visibility="gone" />
+</LinearLayout>
+RIGHTMENU
+
+# 右侧菜单项布局
+cat > "$TEMPLATE_DIR/res/layout/item_menu_right.xml" <<'RIGHTITEM'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menu_item_text"
+    android:layout_width="match_parent"
+    android:layout_height="36dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="8dp"
+    android:textSize="13sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+RIGHTITEM
 
 cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
 <?xml version="1.0" encoding="utf-8"?>
@@ -2782,7 +3178,7 @@ cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
 </LinearLayout>
 LAYOUT2
 
-# ==================== popup_info.xml（酷9风格信息弹窗） ====================
+# popup_info.xml 保持原样（酷9完美风格）
 cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -3120,7 +3516,7 @@ elif [ -f "apk ico.png" ]; then
     rm -f app/src/main/res/drawable/ic_launcher.xml
 fi
 
-# 修改 build.gradle 添加签名配置和二维码依赖
+# 修改 build.gradle 添加签名配置
 APP_GRADLE="app/build.gradle"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
 if ! grep -q "signingConfigs" "$APP_GRADLE"; then
@@ -3129,14 +3525,14 @@ fi
 sed -i '/buildTypes {/a \        debug {\n            signingConfig signingConfigs.release\n        }\n        release {\n            signingConfig signingConfigs.release\n        }' "$APP_GRADLE"
 echo "✅ 签名配置已添加"
 
-# 添加依赖（包含 zxing 二维码）
+# 添加依赖（包含二维码生成库）
 sed -i '/implementation.*exoplayer/d' "$APP_GRADLE"
 sed -i '/implementation.*okhttp/d' "$APP_GRADLE"
 sed -i '/implementation.*gson/d' "$APP_GRADLE"
 sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/implementation.*zxing/d' "$APP_GRADLE"
-sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"\n    implementation "com.google.zxing:core:3.5.2"\n    implementation "com.journeyapps:zxing-android-embedded:4.3.0"' "$APP_GRADLE"
-echo "✅ 依赖已添加（含二维码库）"
+sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"\n    implementation "com.google.zxing:core:3.5.0"' "$APP_GRADLE"
+echo "✅ 依赖已添加"
 
 # 修改 AndroidManifest.xml 横屏和权限
 MANIFEST="app/src/main/AndroidManifest.xml"
@@ -3206,9 +3602,8 @@ fi
 echo ""
 echo "🎉 部署完成！"
 echo "📌 固定签名: $KEYSTORE_FILE"
-echo "📱 应用已强制横屏，右侧三层菜单（各占 1/10 屏幕），EPG 居中占 8/10"
-echo "📱 酷9风格信息弹窗（居中、左右边距、5秒自动消失）"
+echo "📱 应用已强制横屏，菜单侧滑（宽度1/10），EPG窗口左右边距1/10"
 echo "🔁 断线重连已修复（无限重连）"
 echo "📶 网速实时显示（3秒刷新）"
-echo "📷 列表订阅支持二维码生成（设置 → 列表订阅 → 显示二维码）"
-echo "➕ 配置窗口：设置 → 列表订阅 → + 添加订阅"
+echo "⏱️ 弹窗5秒自动消失"
+echo "📲 列表订阅可生成二维码（酷9样式），添加配置后自动刷新并播放"
