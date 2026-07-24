@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "🔥 部署 witv 播放器（酷9风格设置 + 二维码 + 配置读写）- 完整版"
+echo "🔥 部署 witv 播放器（酷9风格设置 + 全功能）- 完整版"
 PROJECT_DIR="$(pwd)"
 TEMPLATE_DIR="./config"
 rm -rf "$TEMPLATE_DIR"
@@ -34,7 +34,6 @@ fi
 cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
 {
   "Configuration": {
-    "提醒": "配置文件在configuration文件夹内不存在的情况下会自动复制到app的configuration文件夹下，已存在就不会复制及覆盖，首次安装也就是无任何缓存数据的情况下才会读取配置文件，提示部分只读取一次，只读取一次，只读取一次！！！",
     "loginPng": "/storage/emulated/0/酷9/bg.png",
     "exitPng": "https://ExitImageUrl",
     "updateUrl": "http://ku9/app/update.json",
@@ -50,15 +49,12 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
     "MPV_analyzeduration": 0,
     "selected_ChannelNumber_Color": "#FF70C439",
     "loginPng_Dwell_time": 200,
-    "渐变参数": "TOP_BOTTOM(上到下)；TR_BL(右上到左下)；RIGHT_LEFT(右到左)；BR_TL(右下到左上)；BOTTOM_TOP(下到上)；BL_TR(左下到右上)；LEFT_RIGHT(左到右)；TL_BR(左上到右下)",
     "CUSTOM_BACKGROUND_COLOR": "#036D80,#052D49$BL_TR",
     "time_format": "HH:mm EE",
     "Speed_value": "0.5,3,0.25,0.5,1,2",
     "icon_background_color": "#32FFFFFF",
-    "====================================================":"====================================================",
-    "#提示1": "以下设置（分割线内）为初始化配置（首次安装或清除数据时的默认设置），app第一次运行时的配置！之后运行不会生效！！！",
     "LIVE_URLS":"http://io8.myartsonline.com/z/5c.txt$5c直播",
-    "EPG_URLS":null,
+    "EPG_URLS": "https://raw.githubusercontent.com/9602894/sandiJMYG/main/epg_data/epg_merged.xml",
     "LIVE_JSONS": null,
     "HEADERS_URLS": null,
     "USER_AGENTS": "OKhttp/1.31 || Mozilla/5.0 || SYTV/1.6$预置SYTV/1.6",
@@ -115,14 +111,12 @@ cat > "$TEMPLATE_DIR/configuration.json" <<'EOF'
     "ICON_INITIAL_SET": true,
     "EPG_CACHE_PATH_SET": false,
     "AUDIO_WAKKPAPER": false,
-    "DE_INTERLACING": false,
-    "=====================================================":"=====================================================",
-    "#提示2": "以上设置（分割线内）为初始化配置（首次安装或清除数据时的默认设置），app第一次运行时的配置！之后运行不会生效！！！"
+    "DE_INTERLACING": false
   }
 }
 EOF
 
-# ==================== 生成所有 Java 源文件（除 MainActivity 和 SettingsActivity 外） ====================
+# ==================== SourceManager.java ====================
 cat > "$TEMPLATE_DIR/src/SourceManager.java" <<'SRCMGR'
 package com.whyun.witv.source;
 import android.content.Context;
@@ -503,6 +497,11 @@ public class EPGParser {
         return sAliasMap;
     }
     public static void loadAllEpg(Context context, String url, OnAllEpgLoadedListener listener) {
+        if (url == null || url.isEmpty() || url.equals("null")) {
+            LogUtils.writeLog("EPG URL 为空，跳过加载");
+            listener.onLoaded(new HashMap<>(), new HashMap<>(), new HashMap<>());
+            return;
+        }
         loadAliasMap(context);
         if (sLoaded && sAllPrograms != null && sChannelNameToIcon != null) {
             listener.onLoaded(sAllPrograms, sChannelNameToId, sChannelNameToIcon);
@@ -819,7 +818,538 @@ public class EPGParser {
     }
 }
 EPG
-# ==================== MainActivity.java（完整，包含无限重连、自适应弹窗、网速等） ====================
+
+# ==================== 布局文件（除 activity_settings.xml 和 dialog_qrcode.xml 外） ====================
+mkdir -p "$TEMPLATE_DIR/res/layout"
+cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+    <View
+        android:id="@+id/left_click_area"
+        android:layout_width="40dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="#00000000"
+        android:clickable="true"
+        android:focusable="true" />
+    <LinearLayout
+        android:id="@+id/overlay_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:background="#00000000"
+        android:visibility="gone">
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5">
+            <LinearLayout
+                android:id="@+id/overlay_layout"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:background="#CC000000"
+                android:visibility="visible">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#33000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="订阅源"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/sub_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.2"
+                    android:orientation="vertical"
+                    android:background="#44000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="分组"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:paddingBottom="2dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/group_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="频道列表"
+                            android:textColor="#FFFFFF"
+                            android:textSize="11sp" />
+                        <Button
+                            android:id="@+id/btn_epg_schedule"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="节目单"
+                            android:textColor="#FFD700"
+                            android:background="@null"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/schedule_layout"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:background="#CC000000"
+                android:visibility="gone">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.4"
+                    android:orientation="vertical"
+                    android:background="#55000000"
+                    android:padding="2dp">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="频道列表"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_channel_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.6"
+                    android:orientation="vertical"
+                    android:background="#66000000"
+                    android:padding="2dp">
+                    <LinearLayout
+                        android:id="@+id/day_tabs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:padding="4dp" />
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/schedule_epg_recycler"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+                <View
+                    android:id="@+id/schedule_close_area"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0"
+                    android:background="#00000000"
+                    android:clickable="true" />
+            </LinearLayout>
+        </FrameLayout>
+        <View
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5" />
+    </LinearLayout>
+</FrameLayout>
+LAYOUT1
+
+cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="2dp"
+    android:background="?attr/selectableItemBackground">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <FrameLayout
+            android:layout_width="24dp"
+            android:layout_height="24dp">
+            <ImageView
+                android:id="@+id/channel_logo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter"
+                android:visibility="gone" />
+            <TextView
+                android:id="@+id/text_logo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:background="#333333"
+                android:visibility="gone" />
+        </FrameLayout>
+        <TextView
+            android:id="@+id/channel_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:paddingStart="4dp" />
+        <TextView
+            android:id="@+id/channel_fav"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="★"
+            android:textSize="14sp"
+            android:textColor="#FFD700"
+            android:visibility="gone" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/channel_epg_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="10sp"
+        android:textColor="#AAAAAA"
+        android:paddingStart="28dp"
+        android:visibility="gone" />
+</LinearLayout>
+LAYOUT2
+
+cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#CC000000"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
+    android:layout_marginLeft="48dp"
+    android:layout_marginRight="48dp"
+    android:maxWidth="800dp">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <ImageView
+            android:id="@+id/popup_logo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/popup_channel_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="频道名"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="2dp">
+        <TextView
+            android:id="@+id/popup_resolution"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FHD"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_fps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="29FPS"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_audio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="立体声"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_ip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="IPV4"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" "
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/popup_line"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="线路1/1"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="2dp">
+        <ProgressBar
+            android:id="@+id/popup_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="0dp"
+            android:layout_height="6dp"
+            android:layout_weight="1"
+            android:progressTint="#FFD700"
+            android:progressBackgroundTint="#444444"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/popup_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="距结束：56分钟"
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/popup_current_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="正在播放：22:32-23:34职场健康课"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:layout_marginBottom="2dp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/popup_current_desc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="的负担"
+        android:textColor="#CCCCCC"
+        android:textSize="12sp"
+        android:layout_marginBottom="6dp"
+        android:maxLines="4"
+        android:ellipsize="end" />
+    <TextView
+        android:id="@+id/popup_next_epg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="下一节目：23:34-23:59经济半小时"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/popup_extra"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:layout_marginTop="4dp" />
+    <TextView
+        android:id="@+id/popup_speed"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="0.55MB/S"
+        android:textColor="#AAAAAA"
+        android:textSize="11sp"
+        android:gravity="end" />
+</LinearLayout>
+LAYOUT3
+
+cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/sub_name"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="6dp"
+    android:textSize="12sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/group_name"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="6dp"
+    android:textSize="12sp"
+    android:textColor="#FFFFFF"
+    android:background="?attr/selectableItemBackground" />
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="2dp"
+    android:background="?attr/selectableItemBackground">
+    <TextView
+        android:id="@+id/epg_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#AAAAAA"
+        android:minWidth="70dp" />
+    <TextView
+        android:id="@+id/epg_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="12sp"
+        android:textColor="#FFFFFF"
+        android:paddingStart="6dp" />
+</LinearLayout>
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menu_text"
+    android:layout_width="match_parent"
+    android:layout_height="36dp"
+    android:gravity="center_vertical"
+    android:paddingLeft="8dp"
+    android:textSize="13sp"
+    android:textColor="#FFFFFF"
+    android:background="#33000000" />
+EOF
+cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="6dp"
+    android:background="#22000000">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView
+            android:id="@+id/content_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF" />
+        <TextView
+            android:id="@+id/content_check"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="√"
+            android:textSize="14sp"
+            android:textColor="#4CAF50"
+            android:visibility="gone" />
+    </LinearLayout>
+    <TextView
+        android:id="@+id/content_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="10sp"
+        android:textColor="#AAAAAA" />
+</LinearLayout>
+EOF
+
+# ==================== 图标资源 ====================
+mkdir -p "$TEMPLATE_DIR/res/drawable"
+cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="24" android:viewportHeight="24">
+  <path android:fillColor="#FF5722" android:pathData="M8,5v14l11,-7z"/>
+</vector>
+EOF
+cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
+</vector>
+EOF
+cat > "$TEMPLATE_DIR/res/drawable/ic_epg.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
+</vector>
+EOF
+cat > "$TEMPLATE_DIR/res/drawable/ic_announce.xml" <<'EOF'
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+</vector>
+EOF
+
+echo "✅ Part 1 生成完毕（基础文件）"
+# ==================== MainActivity.java（完整，含无限重连、自适应弹窗、网速、刷新订阅） ====================
 cat > "$TEMPLATE_DIR/src/MainActivity.java" <<'MAIN'
 package com.whyun.witv;
 import android.Manifest;
@@ -1023,97 +1553,12 @@ public class MainActivity extends AppCompatActivity {
                 intent.putExtra("open_tab", 3);
                 startActivity(intent);
             }
-            String epgUrlPref = prefs.getString("epg_url", null);
-            if (epgUrlPref == null || epgUrlPref.isEmpty()) {
-                String configEpg = config.getString("EPG_URLS", null);
-                if (configEpg != null && !configEpg.isEmpty()) {
-                    prefs.edit().putString("epg_url", configEpg).apply();
-                    LogUtils.writeLog("已从配置加载 EPG_URL: " + configEpg);
-                    Toast.makeText(this, "EPG地址已自动配置", Toast.LENGTH_SHORT).show();
-                }
-            }
-            playerView = findViewById(R.id.player_container);
-            overlayContainer = findViewById(R.id.overlay_container);
-            overlayLayout = findViewById(R.id.overlay_layout);
-            scheduleLayout = findViewById(R.id.schedule_layout);
-            subRecycler = findViewById(R.id.sub_recycler);
-            groupRecycler = findViewById(R.id.group_recycler);
-            channelRecycler = findViewById(R.id.channel_recycler);
-            scheduleChannelRecycler = findViewById(R.id.schedule_channel_recycler);
-            scheduleEpgRecycler = findViewById(R.id.schedule_epg_recycler);
-            btnEpgSchedule = findViewById(R.id.btn_epg_schedule);
-            dayTabs = findViewById(R.id.day_tabs);
-            leftClickArea = findViewById(R.id.left_click_area);
-            subRecycler.setLayoutManager(new LinearLayoutManager(this));
-            groupRecycler.setLayoutManager(new LinearLayoutManager(this));
-            channelRecycler.setLayoutManager(new LinearLayoutManager(this));
-            scheduleChannelRecycler.setLayoutManager(new LinearLayoutManager(this));
-            scheduleEpgLayoutManager = new LinearLayoutManager(this);
-            scheduleEpgRecycler.setLayoutManager(scheduleEpgLayoutManager);
-            loadSubscriptions();
-            subAdapter = new SubAdapter(subEntryList, selectedSubs, entry -> {
-                String key = entry.name + "||" + entry.url;
-                if (selectedSubs.contains(key)) {
-                    selectedSubs.remove(key);
-                } else {
-                    selectedSubs.add(key);
-                }
-                prefs.edit().putStringSet(KEY_SELECTED_SUBS, selectedSubs).apply();
-                subAdapter.notifyDataSetChanged();
-                loadSelectedSources();
-            });
-            subRecycler.setAdapter(subAdapter);
-            groupAdapter = new GroupAdapter(new ArrayList<>(), group -> {
-                currentGroup = group;
-                showChannelsForGroup(group);
-                groupAdapter.setSelectedGroup(group);
-            });
-            groupRecycler.setAdapter(groupAdapter);
-            channelAdapter = new ChannelAdapter(new ArrayList<>(), favoriteSet, logoDir,
-                channel -> {
-                    playChannel(channel);
-                    channelAdapter.setSelectedChannel(channel);
-                    if (isScheduleMode) {
-                        showScheduleForChannel(channel);
-                    }
-                },
-                this::toggleFavorite,
-                this,
-                epgCacheMap
-            );
-            channelRecycler.setAdapter(channelAdapter);
-            scheduleChannelAdapter = new ScheduleChannelAdapter(new ArrayList<>(), favoriteSet, logoDir, this, channel -> {
-                showScheduleForChannel(channel);
-            });
-            scheduleChannelRecycler.setAdapter(scheduleChannelAdapter);
-            scheduleEpgAdapter = new ScheduleEpgAdapter(new ArrayList<>());
-            scheduleEpgRecycler.setAdapter(scheduleEpgAdapter);
-            playerView.setOnTouchListener((v, event) -> {
-                if (event.getAction() == MotionEvent.ACTION_UP) {
-                    float y = event.getY();
-                    float height = v.getHeight();
-                    if (y > height * 0.5 && y < height * 0.85) {
-                        showInfoPopup();
-                        return true;
-                    }
-                }
-                return false;
-            });
-            btnEpgSchedule.setOnClickListener(v -> toggleScheduleMode());
-            findViewById(R.id.schedule_close_area).setOnClickListener(v -> toggleScheduleMode());
-            leftClickArea.setOnClickListener(v -> {
-                if (isScheduleMode) {
-                    toggleScheduleMode();
-                    mainHandler.postDelayed(() -> showOverlay(), 100);
-                } else {
-                    showOverlay();
-                }
-            });
+            // EPG加载（若URL有效）
             String epgUrl = prefs.getString("epg_url", null);
             if (epgUrl == null || epgUrl.isEmpty()) {
                 epgUrl = config.getString("EPG_URLS", null);
             }
-            if (epgUrl != null && !epgUrl.isEmpty()) {
+            if (epgUrl != null && !epgUrl.isEmpty() && !epgUrl.equals("null")) {
                 LogUtils.writeLog("开始全量加载EPG...");
                 EPGParser.loadAllEpg(this, epgUrl, new EPGParser.OnAllEpgLoadedListener() {
                     @Override
@@ -1153,6 +1598,8 @@ public class MainActivity extends AppCompatActivity {
                         });
                     }
                 });
+            } else {
+                LogUtils.writeLog("EPG_URL为空，跳过EPG加载");
             }
             if (prefs.getBoolean(KEY_NEED_RELOAD, false)) {
                 prefs.edit().remove(KEY_NEED_RELOAD).apply();
@@ -1234,18 +1681,25 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         dismissNoSourceDialog();
+        // 获取第一个有效订阅URL
+        String selectedUrl = null;
         for (String key : selectedSubs) {
             String[] parts = key.split("\\|\\|");
             if (parts.length == 2) {
-                currentSubName = parts[0];
-                currentSubUrl = parts[1];
-                break;
+                String url = parts[1];
+                if (url != null && !url.isEmpty() && !url.equals("null")) {
+                    selectedUrl = url;
+                    currentSubName = parts[0];
+                    currentSubUrl = url;
+                    break;
+                }
             }
         }
-        if (currentSubUrl != null && !currentSubUrl.isEmpty()) {
+        if (selectedUrl != null && !selectedUrl.isEmpty()) {
             showLoadingDialog("正在加载订阅源...");
-            loadSourceForUrl(currentSubUrl);
+            loadSourceForUrl(selectedUrl);
         } else {
+            LogUtils.writeLog("没有有效的订阅源URL");
             showNoSourceDialog();
         }
     }
@@ -1342,8 +1796,15 @@ public class MainActivity extends AppCompatActivity {
             isLogoDownloading = false;
             LogUtils.writeLog("批量台标处理完成，共处理 " + logoDownloadCounter.get() + " 个频道");
             runOnUiThread(() -> {
-                channelAdapter.notifyDataSetChanged();
-                scheduleChannelAdapter.notifyDataSetChanged();
+                if (!channelRecycler.isComputingLayout()) {
+                    channelAdapter.notifyDataSetChanged();
+                    scheduleChannelAdapter.notifyDataSetChanged();
+                } else {
+                    channelRecycler.post(() -> {
+                        channelAdapter.notifyDataSetChanged();
+                        scheduleChannelAdapter.notifyDataSetChanged();
+                    });
+                }
             });
         }, 30000);
     }
@@ -1401,8 +1862,15 @@ public class MainActivity extends AppCompatActivity {
                 processed.recycle();
                 LogUtils.writeLog("台标下载并处理成功: " + logoFile.getAbsolutePath());
                 runOnUiThread(() -> {
-                    channelAdapter.notifyDataSetChanged();
-                    scheduleChannelAdapter.notifyDataSetChanged();
+                    if (!channelRecycler.isComputingLayout()) {
+                        channelAdapter.notifyDataSetChanged();
+                        scheduleChannelAdapter.notifyDataSetChanged();
+                    } else {
+                        channelRecycler.post(() -> {
+                            channelAdapter.notifyDataSetChanged();
+                            scheduleChannelAdapter.notifyDataSetChanged();
+                        });
+                    }
                 });
             } else {
                 LogUtils.writeLog("台标下载失败 HTTP " + response.code());
@@ -1704,7 +2172,7 @@ public class MainActivity extends AppCompatActivity {
         scheduleEpgRecycler.scrollToPosition(0);
     }
 
-    // ==================== 酷9风格信息弹窗（自适应宽度 + 5秒自动消失） ====================
+    // ==================== 酷9风格信息弹窗 ====================
     private void showInfoPopup() {
         if (currentChannel == null) return;
         if (infoPopup != null && infoPopup.isShowing()) {
@@ -2209,7 +2677,7 @@ public class MainActivity extends AppCompatActivity {
 }
 MAIN
 
-# ==================== SettingsActivity.java（酷9风格 + 二维码 + 配置读写） ====================
+# ==================== SettingsActivity.java（酷9风格，右侧1/10菜单） ====================
 cat > "$TEMPLATE_DIR/src/SettingsActivity.java" <<'SETTINGS'
 package com.whyun.witv;
 
@@ -2362,45 +2830,19 @@ public class SettingsActivity extends AppCompatActivity {
     private void showContent(int pos) {
         List<ContentItem> items = new ArrayList<>();
         switch (pos) {
-            case 0: // 线路选择
-                items.add(new ContentItem("线路选择", "点击选择", v -> showLineSelection()));
-                break;
-            case 1: // 频道搜索
-                items.add(new ContentItem("频道搜索", "点击搜索", v -> Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show()));
-                break;
-            case 2: // 播放设置
-                buildPlaySettings(items);
-                break;
-            case 3: // 列表订阅
-                buildSubscriptionList(items);
-                break;
-            case 4: // EPG订阅
-                buildEpgSubscriptionList(items);
-                break;
-            case 5: // 分类管理
-                items.add(new ContentItem("分类管理", "管理", v -> Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show()));
-                break;
-            case 6: // 订阅管理
-                items.add(new ContentItem("订阅管理", "管理", v -> Toast.makeText(this, "订阅管理", Toast.LENGTH_SHORT).show()));
-                break;
-            case 7: // 显示设置
-                buildDisplaySettings(items);
-                break;
-            case 8: // 偏好设置
-                buildPreferenceSettings(items);
-                break;
-            case 9: // 列表设置
-                buildListSettings(items);
-                break;
-            case 10: // 其他设置
-                buildOtherSettings(items);
-                break;
-            case 11: // 推送频道
-                items.add(new ContentItem("推送频道", "推送", v -> Toast.makeText(this, "推送频道", Toast.LENGTH_SHORT).show()));
-                break;
-            case 12: // 更多管理
-                items.add(new ContentItem("更多管理", "查看", v -> showMoreInfo()));
-                break;
+            case 0: items.add(new ContentItem("线路选择", "点击选择", v -> showLineSelection())); break;
+            case 1: items.add(new ContentItem("频道搜索", "点击搜索", v -> Toast.makeText(this, "频道搜索功能", Toast.LENGTH_SHORT).show())); break;
+            case 2: buildPlaySettings(items); break;
+            case 3: buildSubscriptionList(items); break;
+            case 4: buildEpgSubscriptionList(items); break;
+            case 5: items.add(new ContentItem("分类管理", "管理", v -> Toast.makeText(this, "分类管理", Toast.LENGTH_SHORT).show())); break;
+            case 6: items.add(new ContentItem("订阅管理", "管理", v -> Toast.makeText(this, "订阅管理", Toast.LENGTH_SHORT).show())); break;
+            case 7: buildDisplaySettings(items); break;
+            case 8: buildPreferenceSettings(items); break;
+            case 9: buildListSettings(items); break;
+            case 10: buildOtherSettings(items); break;
+            case 11: items.add(new ContentItem("推送频道", "推送", v -> Toast.makeText(this, "推送频道", Toast.LENGTH_SHORT).show())); break;
+            case 12: items.add(new ContentItem("更多管理", "查看", v -> showMoreInfo())); break;
         }
         contentAdapter.setItems(items);
     }
@@ -2872,435 +3314,16 @@ public class SettingsActivity extends AppCompatActivity {
 }
 SETTINGS
 
-# ==================== 布局文件（含酷9风格 activity_settings 和 dialog_qrcode） ====================
-mkdir -p "$TEMPLATE_DIR/res/layout"
-cat > "$TEMPLATE_DIR/res/layout/activity_main.xml" <<'LAYOUT1'
-<?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#000000">
-    <androidx.media3.ui.PlayerView
-        android:id="@+id/player_container"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-    <View
-        android:id="@+id/left_click_area"
-        android:layout_width="40dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:background="#00000000"
-        android:clickable="true"
-        android:focusable="true" />
-    <LinearLayout
-        android:id="@+id/overlay_container"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="horizontal"
-        android:background="#00000000"
-        android:visibility="gone">
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.5">
-            <LinearLayout
-                android:id="@+id/overlay_layout"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="horizontal"
-                android:background="#CC000000"
-                android:visibility="visible">
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.2"
-                    android:orientation="vertical"
-                    android:background="#33000000"
-                    android:padding="2dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="订阅源"
-                        android:textColor="#FFFFFF"
-                        android:textSize="11sp"
-                        android:paddingBottom="2dp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/sub_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.2"
-                    android:orientation="vertical"
-                    android:background="#44000000"
-                    android:padding="2dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="分组"
-                        android:textColor="#FFFFFF"
-                        android:textSize="11sp"
-                        android:paddingBottom="2dp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/group_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.6"
-                    android:orientation="vertical"
-                    android:background="#55000000"
-                    android:padding="2dp">
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="频道列表"
-                            android:textColor="#FFFFFF"
-                            android:textSize="11sp" />
-                        <Button
-                            android:id="@+id/btn_epg_schedule"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="节目单"
-                            android:textColor="#FFD700"
-                            android:background="@null"
-                            android:textSize="11sp" />
-                    </LinearLayout>
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/channel_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-            </LinearLayout>
-            <LinearLayout
-                android:id="@+id/schedule_layout"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="horizontal"
-                android:background="#CC000000"
-                android:visibility="gone">
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.4"
-                    android:orientation="vertical"
-                    android:background="#55000000"
-                    android:padding="2dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="频道列表"
-                        android:textColor="#FFFFFF"
-                        android:textSize="11sp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/schedule_channel_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0.6"
-                    android:orientation="vertical"
-                    android:background="#66000000"
-                    android:padding="2dp">
-                    <LinearLayout
-                        android:id="@+id/day_tabs"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center"
-                        android:padding="4dp" />
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/schedule_epg_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
-                </LinearLayout>
-                <View
-                    android:id="@+id/schedule_close_area"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="0"
-                    android:background="#00000000"
-                    android:clickable="true" />
-            </LinearLayout>
-        </FrameLayout>
-        <View
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.5" />
-    </LinearLayout>
-</FrameLayout>
-LAYOUT1
-
-cat > "$TEMPLATE_DIR/res/layout/item_channel.xml" <<'LAYOUT2'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="2dp"
-    android:background="?attr/selectableItemBackground">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <FrameLayout
-            android:layout_width="24dp"
-            android:layout_height="24dp">
-            <ImageView
-                android:id="@+id/channel_logo"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scaleType="fitCenter"
-                android:visibility="gone" />
-            <TextView
-                android:id="@+id/text_logo"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:textSize="14sp"
-                android:textColor="#FFFFFF"
-                android:background="#333333"
-                android:visibility="gone" />
-        </FrameLayout>
-        <TextView
-            android:id="@+id/channel_name"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="13sp"
-            android:textColor="#FFFFFF"
-            android:paddingStart="4dp" />
-        <TextView
-            android:id="@+id/channel_fav"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="★"
-            android:textSize="14sp"
-            android:textColor="#FFD700"
-            android:visibility="gone" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/channel_epg_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="10sp"
-        android:textColor="#AAAAAA"
-        android:paddingStart="28dp"
-        android:visibility="gone" />
-</LinearLayout>
-LAYOUT2
-
-# ==================== popup_info.xml ====================
-cat > "$TEMPLATE_DIR/res/layout/popup_info.xml" <<'LAYOUT3'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="#CC000000"
-    android:paddingLeft="14dp"
-    android:paddingRight="14dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp"
-    android:layout_marginLeft="48dp"
-    android:layout_marginRight="48dp"
-    android:maxWidth="800dp">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="4dp">
-        <ImageView
-            android:id="@+id/popup_logo"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:scaleType="fitCenter"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/popup_channel_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:text="频道名"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="2dp">
-        <TextView
-            android:id="@+id/popup_resolution"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="FHD"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_fps"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="29FPS"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_audio"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="立体声"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_ip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="IPV4"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" "
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-        <TextView
-            android:id="@+id/popup_line"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="线路1/1"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-    </LinearLayout>
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="2dp">
-        <ProgressBar
-            android:id="@+id/popup_progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="0dp"
-            android:layout_height="6dp"
-            android:layout_weight="1"
-            android:progressTint="#FFD700"
-            android:progressBackgroundTint="#444444"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/popup_duration"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="距结束：56分钟"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/popup_current_epg"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="正在播放：22:32-23:34职场健康课"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:layout_marginBottom="2dp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/popup_current_desc"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="的负担"
-        android:textColor="#CCCCCC"
-        android:textSize="12sp"
-        android:layout_marginBottom="6dp"
-        android:maxLines="4"
-        android:ellipsize="end" />
-    <TextView
-        android:id="@+id/popup_next_epg"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="下一节目：23:34-23:59经济半小时"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/popup_extra"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textColor="#888888"
-        android:textSize="11sp"
-        android:layout_marginTop="4dp" />
-    <TextView
-        android:id="@+id/popup_speed"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="0.55MB/S"
-        android:textColor="#AAAAAA"
-        android:textSize="11sp"
-        android:gravity="end" />
-</LinearLayout>
-LAYOUT3
-
-# ==================== activity_settings.xml（酷9风格：右侧菜单，左侧内容） ====================
+# ==================== activity_settings.xml（酷9风格：右侧菜单占1/10） ====================
 cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="horizontal"
-    android:background="#DD000000">
-    <!-- 左侧内容区域 -->
-    <FrameLayout
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="2"
-        android:background="#44000000"
-        android:padding="4dp">
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/content_recycler"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-    </FrameLayout>
-    <!-- 右侧菜单区域 -->
+    android:background="#DD000000"
+    android:gravity="end">
+    <!-- 右侧菜单（一级菜单）宽度 1/10 -->
     <FrameLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
@@ -3309,6 +3332,18 @@ cat > "$TEMPLATE_DIR/res/layout/activity_settings.xml" <<'EOF'
         android:padding="4dp">
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/menu_recycler"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
+    <!-- 左侧内容（二级菜单）宽度 9/10 -->
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="9"
+        android:background="#44000000"
+        android:padding="4dp">
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/content_recycler"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
     </FrameLayout>
@@ -3340,131 +3375,6 @@ cat > "$TEMPLATE_DIR/res/layout/dialog_qrcode.xml" <<'EOF'
 </LinearLayout>
 EOF
 
-# ==================== 其他布局文件（item_sub, item_group, item_epg, item_menu, item_content） ====================
-cat > "$TEMPLATE_DIR/res/layout/item_sub.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/sub_name"
-    android:layout_width="match_parent"
-    android:layout_height="40dp"
-    android:gravity="center_vertical"
-    android:paddingLeft="6dp"
-    android:textSize="12sp"
-    android:textColor="#FFFFFF"
-    android:background="?attr/selectableItemBackground" />
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_group.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/group_name"
-    android:layout_width="match_parent"
-    android:layout_height="40dp"
-    android:gravity="center_vertical"
-    android:paddingLeft="6dp"
-    android:textSize="12sp"
-    android:textColor="#FFFFFF"
-    android:background="?attr/selectableItemBackground" />
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_epg.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:padding="2dp"
-    android:background="?attr/selectableItemBackground">
-    <TextView
-        android:id="@+id/epg_time"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textSize="11sp"
-        android:textColor="#AAAAAA"
-        android:minWidth="70dp" />
-    <TextView
-        android:id="@+id/epg_title"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:textSize="12sp"
-        android:textColor="#FFFFFF"
-        android:paddingStart="6dp" />
-</LinearLayout>
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_menu.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/menu_text"
-    android:layout_width="match_parent"
-    android:layout_height="36dp"
-    android:gravity="center_vertical"
-    android:paddingLeft="8dp"
-    android:textSize="13sp"
-    android:textColor="#FFFFFF"
-    android:background="#33000000" />
-EOF
-cat > "$TEMPLATE_DIR/res/layout/item_content.xml" <<'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="6dp"
-    android:background="#22000000">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-        <TextView
-            android:id="@+id/content_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="13sp"
-            android:textColor="#FFFFFF" />
-        <TextView
-            android:id="@+id/content_check"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="√"
-            android:textSize="14sp"
-            android:textColor="#4CAF50"
-            android:visibility="gone" />
-    </LinearLayout>
-    <TextView
-        android:id="@+id/content_subtitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="10sp"
-        android:textColor="#AAAAAA" />
-</LinearLayout>
-EOF
-
-# ==================== 图标资源 ====================
-mkdir -p "$TEMPLATE_DIR/res/drawable"
-cat > "$TEMPLATE_DIR/res/drawable/ic_launcher.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="48dp" android:height="48dp" android:viewportWidth="24" android:viewportHeight="24">
-  <path android:fillColor="#FF5722" android:pathData="M8,5v14l11,-7z"/>
-</vector>
-EOF
-cat > "$TEMPLATE_DIR/res/drawable/ic_settings.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94s-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z"/>
-</vector>
-EOF
-cat > "$TEMPLATE_DIR/res/drawable/ic_epg.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
-</vector>
-EOF
-cat > "$TEMPLATE_DIR/res/drawable/ic_announce.xml" <<'EOF'
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-</vector>
-EOF
-
-echo "✅ 模板生成完毕"
-
 # ==================== 复制模板到项目、修改 build.gradle、AndroidManifest、构建安装 ====================
 echo "📂 复制模板文件到项目..."
 rm -rf app/src/main/java/com/whyun/witv/ui
@@ -3490,6 +3400,7 @@ elif [ -f "apk ico.png" ]; then
     rm -f app/src/main/res/drawable/ic_launcher.xml
 fi
 
+# 修改 build.gradle 添加签名配置和二维码依赖
 APP_GRADLE="app/build.gradle"
 cp "$APP_GRADLE" "$APP_GRADLE.bak"
 if ! grep -q "signingConfigs" "$APP_GRADLE"; then
@@ -3505,6 +3416,7 @@ sed -i '/implementation.*preference/d' "$APP_GRADLE"
 sed -i '/dependencies {/a \    implementation "androidx.media3:media3-exoplayer:1.3.1"\n    implementation "androidx.media3:media3-exoplayer-hls:1.3.1"\n    implementation "androidx.media3:media3-ui:1.3.1"\n    implementation "androidx.media3:media3-datasource:1.3.1"\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n    implementation "com.google.code.gson:gson:2.10.1"\n    implementation "androidx.preference:preference:1.2.1"\n    implementation "androidx.recyclerview:recyclerview:1.3.2"\n    implementation "com.google.android.material:material:1.9.0"\n    implementation "com.journeyapps:zxing-android-embedded:4.3.0"' "$APP_GRADLE"
 echo "✅ 依赖已添加"
 
+# 修改 AndroidManifest.xml 横屏和权限
 MANIFEST="app/src/main/AndroidManifest.xml"
 cp "$MANIFEST" "$MANIFEST.bak"
 cat > /tmp/fix_manifest.py <<'PYEOF'
@@ -3572,6 +3484,8 @@ fi
 echo ""
 echo "🎉 部署完成！"
 echo "📌 固定签名: $KEYSTORE_FILE"
-echo "📱 设置界面为酷9风格（右侧菜单，左侧内容）"
+echo "📱 设置界面为酷9风格（右侧1/10菜单，左侧9/10内容）"
 echo "📶 列表订阅页面含二维码生成"
 echo "⚙️ 配置项读写自 configuration.json"
+echo "🔁 断线重连已修复（无限重连）"
+echo "📶 网速实时显示（3秒刷新）"
